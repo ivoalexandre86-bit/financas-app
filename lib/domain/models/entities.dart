@@ -979,26 +979,34 @@ class AppSettings {
   final CardExpenseBasis cardExpenseBasis;
   final bool isSampleData;
 
+  /// Lista de transações: agrupa as compras do cartão em uma linha por
+  /// fatura (padrão) ou mostra as compras individualmente.
+  final bool groupCardInvoices;
+
   const AppSettings({
     this.themeMode = 'system',
     this.cardExpenseBasis = CardExpenseBasis.invoiceDue,
     this.isSampleData = false,
+    this.groupCardInvoices = true,
   });
 
   AppSettings copyWith({
     String? themeMode,
     CardExpenseBasis? cardExpenseBasis,
     bool? isSampleData,
+    bool? groupCardInvoices,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     cardExpenseBasis: cardExpenseBasis ?? this.cardExpenseBasis,
     isSampleData: isSampleData ?? this.isSampleData,
+    groupCardInvoices: groupCardInvoices ?? this.groupCardInvoices,
   );
 
   Map<String, Object?> toJson() => {
     'themeMode': themeMode,
     'cardExpenseBasis': cardExpenseBasis.name,
     'isSampleData': isSampleData,
+    'groupCardInvoices': groupCardInvoices,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> j) => AppSettings(
@@ -1009,5 +1017,6 @@ class AppSettings {
       CardExpenseBasis.invoiceDue,
     ),
     isSampleData: (j['isSampleData'] as bool?) ?? false,
+    groupCardInvoices: (j['groupCardInvoices'] as bool?) ?? true,
   );
 }

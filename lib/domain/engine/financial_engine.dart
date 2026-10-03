@@ -70,8 +70,20 @@ class RecognizedEvent {
   final EventSource source;
 
   /// Receita (+) ou despesa (−). Transferências não são reconhecidas.
+  /// Para compras no cartão é a parte da compra que cabe neste mês (a
+  /// compra inteira, salvo quando a fatura foi paga em parcelas).
   final Money signed;
-  const RecognizedEvent(this.tx, this.month, this.source, this.signed);
+
+  /// Data de reconhecimento: data do lançamento, ou data do pagamento /
+  /// vencimento da fatura para compras no cartão.
+  final DateTime date;
+  const RecognizedEvent(
+    this.tx,
+    this.month,
+    this.source,
+    this.signed,
+    this.date,
+  );
 
   bool get isIncome => signed.cents > 0;
   bool get isExpense => signed.cents < 0;
@@ -122,6 +134,36 @@ class ProjectionResult {
   Money get totalExpenses => columns.map((c) => c.expenses).sum();
 }
 
+/// Parte do valor de uma fatura reconhecida em um mês (regime de caixa).
+///
+/// Cada pagamento gera uma parte no mês da data do pagamento; o saldo ainda
+/// não pago fica no mês do vencimento, como previsão.
+class InvoiceSlice {
+  final YearMonth month;
+
+  /// Data do pagamento, ou do vencimento para o saldo em aberto.
+  final DateTime date;
+
+  /// Valor da parte (positivo = despesa; negativo = saldo credor).
+  final Money amount;
+
+  /// `true` quando a parte corresponde a um pagamento efetivo.
+  final bool settled;
+  const InvoiceSlice(this.month, this.date, this.amount, this.settled);
+}
+
+/// Parte de uma compra no cartão reconhecida em um mês.
+class TxShare {
+  final InvoiceSlice slice;
+
+  /// Valor da compra que cabe nesta parte (no sinal da fatura: compra +,
+  /// estorno −).
+  final Money amount;
+  const TxShare(this.slice, this.amount);
+  YearMonth get month => slice.month;
+  DateTime get date => slice.date;
+}
+
 /// Fatura calculada de um cartão.
 class Invoice {
   final CreditCard card;
@@ -134,7 +176,7 @@ class Invoice {
   final Money paid;
   final InvoiceStatus status;
 
-  const Invoice({
+  Invoice({
     required this.card,
     required this.month,
     required this.closingDate,
@@ -153,6 +195,96 @@ class Invoice {
 
   String get key => month.key;
   bool get isSettled => status == InvoiceStatus.paid;
+
+  /// Fatura com valor zero ou negativo por causa de estornos e créditos.
+  bool get isCredit => !total.isPositive && transactions.isNotEmpty;
+
+  /// Fatura sem compras nem pagamentos (não aparece nas listas).
+  bool get isEmpty => transactions.isEmpty && payments.isEmpty;
+
+  /// Título exibido na lista, ex.: "Fatura C6 – Out/26".
+  String get title => 'Fatura ${card.name} – ${month.shortLabel}';
+
+  /// Valor da compra no sinal da fatura (compra +, estorno/crédito −).
+  static Money signedOf(FinTransaction t) =>
+      t.type == TransactionType.income ? -t.amount : t.amount;
+
+  /// Partes da fatura por mês de caixa: pagamentos no mês em que foram
+  /// feitos; saldo em aberto no mês do vencimento.
+  late final List<InvoiceSlice> slices = _buildSlices();
+
+  List<InvoiceSlice> _buildSlices() {
+    final dueMonth = YearMonth.of(dueDate);
+    if (!total.isPositive) {
+      final settled = payments.isNotEmpty;
+      final date = settled
+          ? payments.map((p) => p.date).reduce((a, b) => a.isAfter(b) ? a : b)
+          : dueDate;
+      return [InvoiceSlice(YearMonth.of(date), date, total, settled)];
+    }
+    final sorted = [...payments]..sort((a, b) => a.date.compareTo(b.date));
+    final byMonth = <YearMonth, InvoiceSlice>{};
+    final out = <InvoiceSlice>[];
+    var left = total;
+    for (final p in sorted) {
+      if (!left.isPositive) break;
+      final a = p.amount < left ? p.amount : left;
+      if (!a.isPositive) continue;
+      left -= a;
+      final m = YearMonth.of(p.date);
+      final prev = byMonth[m];
+      final s = InvoiceSlice(m, p.date, (prev?.amount ?? Money.zero) + a, true);
+      if (prev != null) out.remove(prev);
+      byMonth[m] = s;
+      out.add(s);
+    }
+    if (left.isPositive) out.add(InvoiceSlice(dueMonth, dueDate, left, false));
+    return out;
+  }
+
+  /// Data em que a fatura aparece na lista: data do último pagamento quando
+  /// quitada; vencimento enquanto houver saldo em aberto.
+  DateTime get cashDate => slices.last.date;
+
+  /// Mês de referência (caixa) da fatura.
+  YearMonth get cashMonth => slices.last.month;
+
+  /// Divide cada compra entre as partes da fatura, proporcionalmente e sem
+  /// perder centavos: a soma das partes de cada mês é exatamente o valor da
+  /// parte da fatura, e a soma das partes de cada compra é o valor da compra.
+  late final Map<String, List<TxShare>> shares = _buildShares();
+
+  Map<String, List<TxShare>> _buildShares() {
+    final out = <String, List<TxShare>>{};
+    final sl = slices;
+    if (sl.length == 1 || total.cents == 0) {
+      for (final t in transactions) {
+        out[t.id] = [TxShare(sl.last, signedOf(t))];
+      }
+      return out;
+    }
+    // Arredondamento acumulado: a parte j da compra i é
+    // round(S_i·p_j/T) − round(S_{i−1}·p_j/T), com S a soma acumulada.
+    final ordered = [...transactions]..sort((a, b) => a.id.compareTo(b.id));
+    int r(int cum, int part) => (cum.toDouble() * part / total.cents).round();
+    var cum = 0;
+    for (final t in ordered) {
+      final a = signedOf(t).cents;
+      final next = cum + a;
+      final list = <TxShare>[];
+      var used = 0;
+      for (var j = 0; j < sl.length - 1; j++) {
+        final v = r(next, sl[j].amount.cents) - r(cum, sl[j].amount.cents);
+        used += v;
+        if (v != 0) list.add(TxShare(sl[j], Money(v)));
+      }
+      final rest = a - used;
+      if (rest != 0 || list.isEmpty) list.add(TxShare(sl.last, Money(rest)));
+      out[t.id] = list;
+      cum = next;
+    }
+    return out;
+  }
 }
 
 class ProjectSummary {
@@ -265,60 +397,110 @@ class FinancialEngine {
       );
 
   // ---------------------------------------------------------------------------
-  // Reconhecimento
+  // Reconhecimento (regime de caixa)
+
+  final Map<YearMonth, Map<String, Map<YearMonth, Invoice>>> _indexCache = {};
+
+  /// Todas as faturas de todos os cartões cujas compras ocorrem até o fim de
+  /// [upTo] (recorrências virtuais incluídas), por cartão e mês de
+  /// fechamento. Uma fatura que fecha até [upTo] está sempre completa.
+  Map<String, Map<YearMonth, Invoice>> _invoiceIndex(YearMonth upTo) =>
+      _indexCache.putIfAbsent(upTo, () {
+        final txs = <String, Map<YearMonth, List<FinTransaction>>>{};
+        for (final t in transactionsUntil(upTo.lastDay)) {
+          if (t.cardId == null || t.isTransfer) continue;
+          if (t.status == TransactionStatus.cancelled) continue;
+          final card = data.cardById[t.cardId];
+          if (card == null) continue;
+          final m = BillingCycle.invoiceForTransaction(card, t);
+          txs.putIfAbsent(card.id, () => {}).putIfAbsent(m, () => []).add(t);
+        }
+        final pays = <String, Map<YearMonth, List<InvoicePayment>>>{};
+        for (final p in data.invoicePayments) {
+          pays
+              .putIfAbsent(p.cardId, () => {})
+              .putIfAbsent(YearMonth.parse(p.invoiceKey), () => [])
+              .add(p);
+        }
+        final out = <String, Map<YearMonth, Invoice>>{};
+        for (final card in data.cards) {
+          final t = txs[card.id] ?? const {};
+          final p = pays[card.id] ?? const {};
+          out[card.id] = {
+            for (final m in {...t.keys, ...p.keys})
+              m: buildInvoice(card, m, t[m] ?? const [], p[m] ?? const []),
+          };
+        }
+        return out;
+      });
+
+  /// Fatura (calculada) a que pertence uma compra no cartão.
+  Invoice? invoiceOf(FinTransaction tx) {
+    final card = data.cardById[tx.cardId];
+    if (card == null || tx.isTransfer) return null;
+    final m = BillingCycle.invoiceForTransaction(card, tx);
+    final idx = _invoiceIndex(
+      m < currentMonth.add(2) ? currentMonth.add(2) : m,
+    );
+    return idx[card.id]?[m] ?? buildInvoice(card, m, [tx], const []);
+  }
+
+  /// Partes de uma compra no cartão por mês de caixa (mês de pagamento da
+  /// fatura; vencimento enquanto não paga). Vazio para outros lançamentos.
+  List<TxShare> sharesOf(FinTransaction tx) {
+    final inv = invoiceOf(tx);
+    if (inv == null) return const [];
+    return inv.shares[tx.id] ??
+        [TxShare(inv.slices.last, Invoice.signedOf(tx))];
+  }
 
   /// Mês em que a transação é reconhecida como receita/despesa, ou `null`
-  /// para transferências e cartões inexistentes.
+  /// para transferências e cartões inexistentes. Compras no cartão seguem o
+  /// mês de pagamento da fatura (o último, se paga em partes).
   YearMonth? recognitionMonth(FinTransaction tx) {
     if (tx.isTransfer) return null;
     if (tx.cardId != null) {
-      final card = data.cardById[tx.cardId];
-      if (card == null) return null;
-      final invoice = BillingCycle.invoiceForTransaction(card, tx);
-      if (data.settings.cardExpenseBasis == CardExpenseBasis.invoiceDue) {
-        return YearMonth.of(BillingCycle.dueDate(card, invoice));
-      }
-      final offset = tx.isInstallment ? (tx.installmentNumber ?? 1) - 1 : 0;
-      return YearMonth.of(tx.date).add(offset);
+      final s = sharesOf(tx);
+      return s.isEmpty ? null : s.last.month;
     }
     return YearMonth.of(tx.date);
   }
 
-  /// Data efetiva de impacto no caixa (vencimento da fatura para cartão).
+  /// Data efetiva de impacto no caixa: pagamento da fatura (ou vencimento,
+  /// enquanto não paga) para compras no cartão.
   DateTime cashDate(FinTransaction tx) {
     if (tx.cardId != null) {
-      final card = data.cardById[tx.cardId];
-      if (card != null) {
-        return BillingCycle.dueDate(
-          card,
-          BillingCycle.invoiceForTransaction(card, tx),
-        );
+      final s = sharesOf(tx);
+      if (s.isNotEmpty) return s.last.date;
+    }
+    return tx.date;
+  }
+
+  /// Data em que o lançamento aparece na lista de transações (mesma regra de
+  /// [cashDate]).
+  DateTime listDate(FinTransaction tx) => cashDate(tx);
+
+  /// Data em que o lançamento é reconhecido como receita/despesa.
+  DateTime recognitionDate(FinTransaction tx) => cashDate(tx);
+
+  /// Partes de faturas (de todos os cartões) reconhecidas entre [from] e
+  /// [to], ordenadas por data. Faturas vazias são ignoradas.
+  List<({Invoice invoice, InvoiceSlice slice})> invoiceSlicesIn(
+    YearMonth from,
+    YearMonth to,
+  ) {
+    final out = <({Invoice invoice, InvoiceSlice slice})>[];
+    for (final byMonth in _invoiceIndex(to.add(2)).values) {
+      for (final inv in byMonth.values) {
+        if (inv.isEmpty) continue;
+        for (final s in inv.slices) {
+          if (s.month < from || s.month > to) continue;
+          out.add((invoice: inv, slice: s));
+        }
       }
     }
-    return tx.date;
-  }
-
-  /// Data em que o lançamento aparece na lista de transações: a parcela N de
-  /// uma compra no cartão aparece N − 1 meses após a compra.
-  DateTime listDate(FinTransaction tx) {
-    if (tx.cardId != null && tx.isInstallment) {
-      return Dates.addMonths(
-        tx.date,
-        (tx.installmentNumber ?? 1) - 1,
-        anchorDay: tx.date.day,
-      );
-    }
-    return tx.date;
-  }
-
-  /// Data em que o lançamento é reconhecido como receita/despesa (mesma
-  /// regra de [recognitionMonth], com precisão de dia).
-  DateTime recognitionDate(FinTransaction tx) {
-    if (tx.cardId != null &&
-        data.settings.cardExpenseBasis == CardExpenseBasis.invoiceDue) {
-      return cashDate(tx);
-    }
-    return listDate(tx);
+    out.sort((a, b) => a.slice.date.compareTo(b.slice.date));
+    return out;
   }
 
   /// Lançamento já realizado: concluído, ou compra no cartão cuja fatura já
@@ -379,21 +561,44 @@ class FinancialEngine {
     YearMonth until,
   ) sync* {
     final match = _matcher(filter);
-    // Compras de cartão podem ser reconhecidas meses depois da data da
-    // compra; por isso expandimos recorrências até o fim do mês desejado.
+    // Compras no cartão contam no mês de pagamento da fatura, que pode ser
+    // anterior ao vencimento (pagamento antecipado); por isso olhamos as
+    // faturas que fecham até dois meses depois do período.
+    final index = _invoiceIndex(until.add(2));
     for (final tx in transactionsUntil(until.lastDay)) {
-      if (tx.isTransfer || !match(tx)) continue;
-      final m = recognitionMonth(tx);
-      if (m == null || m > until) continue;
+      if (tx.isTransfer || tx.cardId != null || !match(tx)) continue;
+      final m = YearMonth.of(tx.date);
+      if (m > until) continue;
       final signed = tx.type == TransactionType.income ? tx.amount : -tx.amount;
-      yield RecognizedEvent(tx, m, sourceOf(tx), signed);
+      yield RecognizedEvent(tx, m, sourceOf(tx), signed, tx.date);
+    }
+    for (final byMonth in index.values) {
+      for (final inv in byMonth.values) {
+        if (inv.slices.every((s) => s.month > until)) continue;
+        for (final tx in inv.transactions) {
+          if (!match(tx)) continue;
+          for (final sh in inv.shares[tx.id] ?? const <TxShare>[]) {
+            if (sh.month > until || sh.amount.isZero) continue;
+            yield RecognizedEvent(
+              tx,
+              sh.month,
+              sourceOf(tx),
+              -sh.amount,
+              sh.date,
+            );
+          }
+        }
+      }
     }
   }
 
   /// Eventos de um único mês (base do drill-down).
   List<RecognizedEvent> monthEvents(ProjectionFilter filter, YearMonth month) =>
       recognizedEvents(filter, month).where((e) => e.month == month).toList()
-        ..sort((a, b) => a.tx.date.compareTo(b.tx.date));
+        ..sort((a, b) {
+          final c = a.date.compareTo(b.date);
+          return c != 0 ? c : a.tx.date.compareTo(b.tx.date);
+        });
 
   MonthTotals monthTotals(ProjectionFilter filter, YearMonth month) {
     final t = MonthTotals();
@@ -621,6 +826,8 @@ class FinancialEngine {
     } else if (m == current) {
       status = (paid >= total && total.isPositive)
           ? InvoiceStatus.paid
+          : paid.isPositive
+          ? InvoiceStatus.partial
           : InvoiceStatus.open;
     } else if (paid >= total) {
       status = InvoiceStatus.paid;

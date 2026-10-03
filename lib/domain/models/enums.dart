@@ -62,7 +62,10 @@ enum RecurrenceUnit {
   const RecurrenceUnit(this.label);
 }
 
-/// Como as compras no cartão são reconhecidas como despesa nos relatórios.
+/// Como as compras no cartão eram reconhecidas como despesa nos relatórios.
+///
+/// Obsoleto: o app usa uma única visão, por mês de pagamento da fatura.
+/// Mantido apenas para ler configurações gravadas por versões anteriores.
 enum CardExpenseBasis {
   /// No mês de vencimento da fatura (visão de caixa — padrão).
   invoiceDue('Mês de vencimento da fatura'),
@@ -75,7 +78,7 @@ enum CardExpenseBasis {
 }
 
 enum InvoiceStatus {
-  future('Futura'),
+  future('Planejada'),
   open('Aberta'),
   closed('Fechada'),
   partial('Paga parcialmente'),

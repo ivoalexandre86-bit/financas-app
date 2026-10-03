@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../../../core/dates.dart';
 import '../../../core/money.dart';
 import '../../../domain/engine/financial_engine.dart';
-import '../../../domain/models/entities.dart';
 import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
@@ -265,9 +264,8 @@ class _ProjectionScreenState extends State<ProjectionScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Text(
-              'Toque em um valor para ver o detalhamento. Despesas de cartão são reconhecidas no mês de '
-              '${fc.data.settings.cardExpenseBasis == CardExpenseBasis.invoiceDue ? 'vencimento da fatura' : 'compra'}; '
-              'pagamentos de fatura e transferências não contam como despesa.',
+              'Toque em um valor para ver o detalhamento. Compras no cartão contam no mês em que a fatura é paga '
+              '(no vencimento, enquanto não for paga); pagamentos de fatura e transferências não contam como despesa.',
               style: context.text.bodySmall?.copyWith(
                 color: context.fin.subtle,
               ),

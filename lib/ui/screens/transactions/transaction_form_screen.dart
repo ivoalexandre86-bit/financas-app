@@ -17,11 +17,17 @@ class TransactionFormScreen extends StatefulWidget {
   final FinTransaction? tx;
   final TransactionType? initialType;
   final String? initialProjectId;
+
+  /// Pré-seleciona um cartão (ex.: "Adicionar compra" na fatura).
+  final String? initialCardId;
+  final DateTime? initialDate;
   const TransactionFormScreen({
     super.key,
     this.tx,
     this.initialType,
     this.initialProjectId,
+    this.initialCardId,
+    this.initialDate,
   });
 
   @override
@@ -66,7 +72,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     description = TextEditingController(text: t?.description ?? '');
     notes = TextEditingController(text: t?.notes ?? '');
     categoryId = t?.categoryId;
-    date = t?.date ?? fc.today;
+    date = t?.date ?? widget.initialDate ?? fc.today;
     projectId = t?.projectId ?? widget.initialProjectId;
     status = t?.status ?? TransactionStatus.completed;
     if (t != null) {
@@ -78,7 +84,11 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
       }
     } else {
       final accs = fc.activeAccounts;
-      if (accs.isNotEmpty) funding = Funding(accountId: accs.first.id);
+      if (widget.initialCardId != null) {
+        funding = Funding(cardId: widget.initialCardId);
+      } else if (accs.isNotEmpty) {
+        funding = Funding(accountId: accs.first.id);
+      }
     }
   }
 
@@ -107,6 +117,14 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   Future<void> _save(FinanceController fc) async {
     if (!_form.currentState!.validate()) return;
     final value = Money.tryParse(amount.text)!;
+    // No cartão, o status acompanha a fatura: a compra é paga junto com ela.
+    if (funding?.cardId != null &&
+        type != TransactionType.transfer &&
+        status != TransactionStatus.cancelled) {
+      status = isEdit && widget.tx!.cardId == funding!.cardId
+          ? widget.tx!.status
+          : TransactionStatus.pending;
+    }
     setState(() => saving = true);
     final isTransfer = type == TransactionType.transfer;
     final ok = await runAction(
@@ -337,17 +355,27 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
               onChanged: (v) => setState(() => projectId = v),
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<TransactionStatus>(
-              initialValue: status,
-              decoration: InputDecoration(
-                labelText: installment ? 'Status da 1ª parcela' : 'Status',
+            if (funding?.cardId != null && !isTransfer)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: const Text('Status acompanha a fatura'),
+                subtitle: const Text(
+                  'Compras no cartão ficam pagas quando a fatura é paga.',
+                ),
+              )
+            else
+              DropdownButtonFormField<TransactionStatus>(
+                initialValue: status,
+                decoration: InputDecoration(
+                  labelText: installment ? 'Status da 1ª parcela' : 'Status',
+                ),
+                items: [
+                  for (final s in TransactionStatus.values)
+                    DropdownMenuItem(value: s, child: Text(s.label)),
+                ],
+                onChanged: (s) => setState(() => status = s!),
               ),
-              items: [
-                for (final s in TransactionStatus.values)
-                  DropdownMenuItem(value: s, child: Text(s.label)),
-              ],
-              onChanged: (s) => setState(() => status = s!),
-            ),
             const SizedBox(height: 12),
             TextFormField(
               controller: notes,

@@ -3,13 +3,16 @@ import 'package:provider/provider.dart';
 
 import '../../../core/dates.dart';
 import '../../../core/money.dart';
+import '../../../domain/engine/financial_engine.dart';
 import '../../../domain/models/entities.dart';
 import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../import/expense_import_screen.dart';
 import '../../widgets/common.dart';
+import '../../widgets/invoice_tile.dart';
 import '../../widgets/transaction_tile.dart';
+import '../cards/invoice_details_screen.dart';
 import 'transaction_details_screen.dart';
 import 'transaction_form_screen.dart';
 
@@ -80,15 +83,20 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   QuickType quickType = QuickType.all;
   final searchCtrl = TextEditingController();
 
+  /// Fatura selecionada com clique simples (desktop).
+  String? selectedInvoice;
+
   @override
   void dispose() {
     searchCtrl.dispose();
     super.dispose();
   }
 
-  List<FinTransaction> _items(FinanceController fc) {
+  List<_Entry> _items(FinanceController fc) {
     final e = fc.engine;
     final until = allPeriods ? Dates.addMonths(e.today, 12) : month.lastDay;
+    final from = allPeriods ? YearMonth(1970, 1) : month;
+    final to = allPeriods ? YearMonth.of(until) : month;
     final q = query.trim().toLowerCase();
     final cats = <String>{};
     if (filter.categoryId != null) {
@@ -99,49 +107,121 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             .map((c) => c.id),
       );
     }
-    final list =
-        e.transactionsUntil(until).where((t) {
-          if (!showForecast && t.isVirtual) return false;
-          final d = e.listDate(t);
-          if (!allPeriods && !month.contains(d)) return false;
-          if (allPeriods && t.isVirtual && d.isAfter(until)) return false;
-          if (filter.types.isNotEmpty && !filter.types.contains(t.type)) {
-            return false;
+    // Compras do cartão aparecem uma a uma quando a preferência pede, e
+    // sempre que o usuário busca ou filtra por categoria/projeto (para que
+    // relatórios e buscas encontrem cada compra).
+    final individualCards =
+        !fc.data.settings.groupCardInvoices ||
+        cats.isNotEmpty ||
+        filter.projectId != null ||
+        q.isNotEmpty;
+
+    bool matches(FinTransaction t) {
+      if (!showForecast && t.isVirtual) return false;
+      if (filter.types.isNotEmpty && !filter.types.contains(t.type)) {
+        return false;
+      }
+      if (quickType.type != null && t.type != quickType.type) return false;
+      if (!quickStatus.matches(t.status)) return false;
+      if (filter.statuses.isNotEmpty && !filter.statuses.contains(t.status)) {
+        return false;
+      }
+      final loc = filter.accountOrCard;
+      if (loc != null) {
+        final id = loc.substring(2);
+        final ok = loc.startsWith('a:')
+            ? (t.accountId == id || t.destinationAccountId == id)
+            : t.cardId == id;
+        if (!ok) return false;
+      }
+      if (cats.isNotEmpty && !cats.contains(t.categoryId)) return false;
+      if (filter.projectId != null && t.projectId != filter.projectId) {
+        return false;
+      }
+      if (q.isNotEmpty) {
+        final hay = [
+          t.description,
+          t.notes,
+          e.categoryLabel(t.categoryId),
+          e.locationLabel(t),
+          t.amount.formatPlain(),
+        ].join(' ').toLowerCase();
+        if (!hay.contains(q)) return false;
+      }
+      return true;
+    }
+
+    final out = <_Entry>[];
+    for (final t in e.transactionsUntil(until)) {
+      if (t.cardId != null && !t.isTransfer) continue; // entram pela fatura
+      final d = t.date;
+      if (!allPeriods && !month.contains(d)) continue;
+      if (allPeriods && t.isVirtual && d.isAfter(until)) continue;
+      if (matches(t)) out.add(_TxEntry(t, d, t.amount));
+    }
+
+    for (final (:invoice, :slice) in e.invoiceSlicesIn(from, to)) {
+      if (individualCards) {
+        for (final t in invoice.transactions) {
+          if (!matches(t)) continue;
+          for (final sh in invoice.shares[t.id] ?? const <TxShare>[]) {
+            if (!identical(sh.slice, slice)) continue;
+            out.add(
+              _TxEntry(
+                t,
+                slice.date,
+                Money(sh.amount.cents.abs()),
+                isCard: true,
+              ),
+            );
           }
-          if (quickType.type != null && t.type != quickType.type) return false;
-          if (!quickStatus.matches(t.status)) return false;
-          if (filter.statuses.isNotEmpty &&
-              !filter.statuses.contains(t.status)) {
-            return false;
-          }
-          final loc = filter.accountOrCard;
-          if (loc != null) {
-            final id = loc.substring(2);
-            final ok = loc.startsWith('a:')
-                ? (t.accountId == id || t.destinationAccountId == id)
-                : t.cardId == id;
-            if (!ok) return false;
-          }
-          if (cats.isNotEmpty && !cats.contains(t.categoryId)) return false;
-          if (filter.projectId != null && t.projectId != filter.projectId) {
-            return false;
-          }
-          if (q.isNotEmpty) {
-            final hay = [
-              t.description,
-              t.notes,
-              e.categoryLabel(t.categoryId),
-              e.locationLabel(t),
-              t.amount.formatPlain(),
-            ].join(' ').toLowerCase();
-            if (!hay.contains(q)) return false;
-          }
-          return true;
-        }).toList()..sort((a, b) {
-          final c = e.listDate(b).compareTo(e.listDate(a));
-          return c != 0 ? c : b.createdAt.compareTo(a.createdAt);
-        });
-    return list;
+        }
+        continue;
+      }
+      if (!_invoiceMatches(invoice, slice)) continue;
+      out.add(_InvoiceEntry(invoice, slice));
+    }
+    out.sort((a, b) {
+      final c = b.date.compareTo(a.date);
+      return c != 0 ? c : b.createdAt.compareTo(a.createdAt);
+    });
+    return out;
+  }
+
+  bool _invoiceMatches(Invoice inv, InvoiceSlice slice) {
+    if (!showForecast && inv.transactions.every((t) => t.isVirtual)) {
+      if (inv.payments.isEmpty) return false;
+    }
+    if (quickType == QuickType.income) return false;
+    if (filter.types.isNotEmpty &&
+        !filter.types.contains(TransactionType.expense)) {
+      return false;
+    }
+    final status = slice.settled
+        ? TransactionStatus.completed
+        : inv.status == InvoiceStatus.future
+        ? TransactionStatus.planned
+        : TransactionStatus.pending;
+    if (!quickStatus.matches(status)) return false;
+    if (filter.statuses.isNotEmpty && !filter.statuses.contains(status)) {
+      return false;
+    }
+    final loc = filter.accountOrCard;
+    if (loc != null) {
+      if (loc.startsWith('a:')) {
+        // Pagamentos feitos com a conta filtrada.
+        final id = loc.substring(2);
+        if (!slice.settled ||
+            !inv.payments.any(
+              (p) => p.accountId == id && YearMonth.of(p.date) == slice.month,
+            )) {
+          return false;
+        }
+      } else if (inv.card.id != loc.substring(2)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @override
@@ -151,23 +231,31 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final items = _items(fc);
     var inc = Money.zero, exp = Money.zero;
     var incOpen = Money.zero, expOpen = Money.zero;
-    for (final t in items) {
-      if (t.status == TransactionStatus.cancelled) continue;
-      final open = t.status != TransactionStatus.completed;
-      if (t.type == TransactionType.income) {
-        inc += t.amount;
-        if (open) incOpen += t.amount;
-      }
-      if (t.type == TransactionType.expense) {
-        exp += t.amount;
-        if (open) expOpen += t.amount;
+    // A fatura conta uma única vez; as compras dentro dela não são somadas
+    // de novo (na lista agrupada elas nem aparecem).
+    for (final it in items) {
+      switch (it) {
+        case _TxEntry(:final tx, :final amount):
+          if (tx.status == TransactionStatus.cancelled) continue;
+          final open = tx.status != TransactionStatus.completed;
+          if (tx.type == TransactionType.income) {
+            inc += amount;
+            if (open) incOpen += amount;
+          }
+          if (tx.type == TransactionType.expense) {
+            exp += amount;
+            if (open) expOpen += amount;
+          }
+        case _InvoiceEntry(:final slice):
+          exp += slice.amount;
+          if (!slice.settled) expOpen += slice.amount;
       }
     }
 
     // Agrupa por dia.
-    final groups = <DateTime, List<FinTransaction>>{};
-    for (final t in items) {
-      groups.putIfAbsent(e.listDate(t), () => []).add(t);
+    final groups = <DateTime, List<_Entry>>{};
+    for (final it in items) {
+      groups.putIfAbsent(Dates.dateOnly(it.date), () => []).add(it);
     }
 
     return Scaffold(
@@ -339,18 +427,38 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                               ),
                             ),
                           ),
-                          for (final t in txs)
-                            TransactionTile(
-                              tx: t,
-                              engine: e,
-                              showDate: false,
-                              onStatusToggle: (done) =>
-                                  _toggle(context, fc, t, done),
-                              onTap: () => push(
-                                context,
-                                TransactionDetailsScreen(tx: t),
-                              ),
-                            ),
+                          for (final it in txs)
+                            switch (it) {
+                              _TxEntry(
+                                :final tx,
+                                :final amount,
+                                :final isCard,
+                              ) =>
+                                TransactionTile(
+                                  tx: tx,
+                                  engine: e,
+                                  showDate: false,
+                                  shareAmount: amount,
+                                  onStatusToggle: (done) =>
+                                      _toggle(context, fc, tx, done),
+                                  onInvoiceTap: isCard
+                                      ? () => _openInvoice(e.invoiceOf(tx)!)
+                                      : null,
+                                  onTap: () => push(
+                                    context,
+                                    TransactionDetailsScreen(tx: tx),
+                                  ),
+                                ),
+                              _InvoiceEntry(:final invoice, :final slice) =>
+                                InvoiceTile(
+                                  invoice: invoice,
+                                  slice: slice,
+                                  selected: selectedInvoice == it.key,
+                                  onSelect: () =>
+                                      setState(() => selectedInvoice = it.key),
+                                  onOpen: () => _openInvoice(invoice),
+                                ),
+                            },
                         ],
                       );
                     },
@@ -359,6 +467,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         ],
       ),
     );
+  }
+
+  void _openInvoice(Invoice inv) {
+    setState(() => selectedInvoice = '${inv.card.id}|${inv.key}');
+    push(context, InvoiceDetailsScreen(cardId: inv.card.id, month: inv.month));
   }
 
   Future<void> _toggle(
@@ -388,6 +501,38 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     const wd = ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'];
     return '${wd[d.weekday - 1]} · ${Dates.format(d)}';
   }
+}
+
+/// Item da lista: lançamento (ou parte de uma compra no cartão) ou fatura.
+sealed class _Entry {
+  DateTime get date;
+  DateTime get createdAt;
+}
+
+class _TxEntry extends _Entry {
+  final FinTransaction tx;
+  @override
+  final DateTime date;
+
+  /// Valor exibido (parte da compra quando a fatura foi paga em partes).
+  final Money amount;
+
+  /// Compra no cartão exibida individualmente (mostra a fatura).
+  final bool isCard;
+  _TxEntry(this.tx, this.date, this.amount, {this.isCard = false});
+  @override
+  DateTime get createdAt => tx.createdAt;
+}
+
+class _InvoiceEntry extends _Entry {
+  final Invoice invoice;
+  final InvoiceSlice slice;
+  _InvoiceEntry(this.invoice, this.slice);
+  String get key => '${invoice.card.id}|${invoice.key}';
+  @override
+  DateTime get date => slice.date;
+  @override
+  DateTime get createdAt => invoice.dueDate;
 }
 
 class _Total extends StatelessWidget {

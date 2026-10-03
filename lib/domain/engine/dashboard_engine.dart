@@ -317,7 +317,7 @@ class DashboardEngine {
     for (final e in engine.recognizedEvents(filter, last)) {
       if (!monthSet.contains(e.month)) continue;
       if (period.hasDateBounds) {
-        final d = engine.recognitionDate(e.tx);
+        final d = e.date;
         if (d.isBefore(period.from!) || d.isAfter(period.to!)) continue;
       }
       final v = c.source == DataSource.net

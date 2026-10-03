@@ -151,7 +151,15 @@ class TransactionDetailsScreen extends StatelessWidget {
                 if (!t.isTransfer)
                   InfoRow.text(
                     'Reconhecido em',
-                    e.recognitionMonth(t)?.longLabel ?? '—',
+                    card == null
+                        ? e.recognitionMonth(t)?.longLabel ?? '—'
+                        : e
+                              .sharesOf(t)
+                              .map(
+                                (s) =>
+                                    '${s.month.longLabel}${s.slice.settled ? '' : ' (previsto)'}',
+                              )
+                              .join(' + '),
                   ),
                 if (project != null) InfoRow.text('Projeto', project.name),
                 if (t.isInstallment)
@@ -168,7 +176,19 @@ class TransactionDetailsScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          if (t.status != TransactionStatus.completed &&
+          if (card != null && !t.isTransfer)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                'Compras no cartão são pagas pela fatura: ao pagar a fatura, todas as compras dela ficam pagas.',
+                textAlign: TextAlign.center,
+                style: context.text.bodySmall?.copyWith(
+                  color: context.fin.subtle,
+                ),
+              ),
+            ),
+          if (card == null &&
+              t.status != TransactionStatus.completed &&
               t.status != TransactionStatus.cancelled)
             FilledButton.icon(
               icon: const Icon(Icons.check),
@@ -181,7 +201,7 @@ class TransactionDetailsScreen extends StatelessWidget {
                 success: 'Status atualizado',
               ),
             ),
-          if (t.status == TransactionStatus.completed)
+          if (card == null && t.status == TransactionStatus.completed)
             OutlinedButton.icon(
               icon: const Icon(Icons.undo),
               label: const Text('Voltar para pendente'),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/dates.dart';
+import '../../core/money.dart';
 import '../../domain/engine/financial_engine.dart';
 import '../../domain/models/entities.dart';
 import '../theme.dart';
@@ -23,6 +24,14 @@ class TransactionTile extends StatelessWidget {
   /// Quando informado, exibe uma caixa de seleção para alternar o status
   /// entre Concluída e Pendente sem abrir os detalhes (`true` = concluída).
   final ValueChanged<bool>? onStatusToggle;
+
+  /// Valor exibido no lugar do valor da compra (parte de uma compra quando a
+  /// fatura foi paga em partes).
+  final Money? shareAmount;
+
+  /// Para compras no cartão na lista geral: mostra a data original da compra
+  /// e um link para a fatura a que ela pertence.
+  final VoidCallback? onInvoiceTap;
   const TransactionTile({
     super.key,
     required this.tx,
@@ -30,11 +39,16 @@ class TransactionTile extends StatelessWidget {
     this.onTap,
     this.showDate = true,
     this.onStatusToggle,
+    this.shareAmount,
+    this.onInvoiceTap,
   });
 
   /// Receitas e despesas não canceladas podem ter o status alternado.
+  /// Compras no cartão não: elas são pagas junto com a fatura.
   static bool canToggle(FinTransaction t) =>
-      !t.isTransfer && t.status != TransactionStatus.cancelled;
+      !t.isTransfer &&
+      t.cardId == null &&
+      t.status != TransactionStatus.cancelled;
 
   @override
   Widget build(BuildContext context) {
@@ -51,11 +65,19 @@ class TransactionTile extends StatelessWidget {
     // Lançamentos ainda não concluídos ficam com valor esmaecido.
     final openOpacity = completed || cancelled || isTransfer ? 1.0 : 0.72;
     final overdue = !completed && !cancelled && tx.date.isBefore(engine.today);
+    final invoice = onInvoiceTap != null ? engine.invoiceOf(tx) : null;
     final subtitle = [
-      if (showDate) Dates.format(tx.date),
-      engine.locationLabel(tx),
+      if (invoice != null)
+        'Compra em ${Dates.format(tx.date)}'
+      else if (showDate)
+        Dates.format(tx.date),
+      if (invoice != null)
+        engine.categoryLabel(tx.categoryId)
+      else
+        engine.locationLabel(tx),
       if (tx.isInstallment) 'Parcela ${tx.installmentLabel}',
     ].join(' · ');
+    final amount = shareAmount ?? tx.amount;
 
     return ListTile(
       onTap: onTap,
@@ -95,12 +117,58 @@ class TransactionTile extends StatelessWidget {
           ],
         ],
       ),
-      subtitle: Text(
-        subtitle,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: context.text.bodySmall?.copyWith(color: context.fin.subtle),
-      ),
+      subtitle: invoice == null
+          ? Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.bodySmall?.copyWith(
+                color: context.fin.subtle,
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodySmall?.copyWith(
+                    color: context.fin.subtle,
+                  ),
+                ),
+                InkWell(
+                  onTap: onInvoiceTap,
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.receipt_long_outlined,
+                          size: 14,
+                          color: context.colors.primary,
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            '${invoice.title} ›',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: context.text.labelMedium?.copyWith(
+                              color: context.colors.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
       trailing: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -108,7 +176,7 @@ class TransactionTile extends StatelessWidget {
           Opacity(
             opacity: openOpacity,
             child: MoneyText(
-              isIncome || isTransfer ? tx.amount : -tx.amount,
+              isIncome || isTransfer ? amount : -amount,
               showPlus: isIncome,
               style: context.text.bodyLarge?.copyWith(
                 fontWeight: FontWeight.w600,
