@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Necessário para a API (fase 3) e Open Finance em builds de release. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="Finanças"
         android:name="${applicationName}"

@@ -14,12 +14,28 @@ Moeda BRL, locale pt-BR, datas DD/MM/AAAA.
 | 4 — Open Finance | 🟡 Interface de provedor, provedor *sandbox*, consentimento, importação, deduplicação e conciliação. **Falta:** provedor real via backend |
 | 5 — Produção | ⏳ 19 testes automatizados do motor e das regras; falta monitoramento de erros, build de release assinado e ficha da Play Store |
 
+## Plataformas: web, Android e iOS
+
+O mesmo código roda nas três. A persistência escolhe a implementação por
+plataforma (`lib/data/db_factory.dart`): arquivo local no Android/iOS e
+IndexedDB no navegador.
+
+| Plataforma | Situação | Como gerar |
+|---|---|---|
+| Web | ✅ Compilado e testado no Chromium | `flutter build web --release --no-web-resources-cdn` → pasta `build/web`, publicável em qualquer hospedagem estática (Firebase Hosting, Netlify, Vercel, S3) |
+| Android | ✅ Configurado (nome “Finanças”, ícone adaptativo, permissão de internet, `br.com.financas.financas_app`) | `flutter build apk --release` ou `flutter build appbundle` (Play Store). Requer Android SDK |
+| iOS | ✅ Configurado (nome “Finanças”, idioma pt-BR, ícones, iOS 15+) | Em um Mac com Xcode: `flutter build ipa` ou abrir `ios/Runner.xcworkspace`. Requer conta Apple Developer para assinar |
+
+Antes de publicar nas lojas, troque o identificador `br.com.financas.financas_app`
+pelo seu (Android: `android/app/build.gradle.kts`; iOS: *Bundle Identifier*
+no Xcode) e configure a assinatura de release.
+
 ## Como rodar
 
 ```bash
 flutter pub get
 flutter test                 # motor financeiro + regras de negócio
-flutter run                  # Android (emulador/dispositivo)
+flutter run                  # Android ou iOS (emulador/dispositivo)
 flutter run -d chrome        # web, útil para revisão rápida
 ```
 
