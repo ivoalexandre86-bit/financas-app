@@ -8,6 +8,7 @@ import '../accounts/accounts_screen.dart';
 import '../cards/cards_screen.dart';
 import '../cards/invoices_screen.dart';
 import '../categories/categories_screen.dart';
+import '../dashboards/dashboards_screen.dart';
 import '../installments/installments_screen.dart';
 import '../open_finance/open_finance_screen.dart';
 import '../recurring/recurring_screen.dart';
@@ -44,6 +45,12 @@ class MoreScreen extends StatelessWidget {
           ),
           const Divider(),
           _Header('Finanças'),
+          item(
+            Icons.space_dashboard_outlined,
+            'Painéis personalizados',
+            'Gráficos, comparações, Pareto, realizado × previsto',
+            const DashboardsScreen(),
+          ),
           item(
             Icons.account_balance_outlined,
             'Contas',

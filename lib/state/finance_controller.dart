@@ -4,12 +4,15 @@ import '../core/dates.dart';
 import '../core/ids.dart';
 import '../core/money.dart';
 import '../data/default_categories.dart';
+import '../data/default_dashboards.dart' as seed;
 import '../data/finance_repository.dart';
 import '../data/open_finance.dart';
 import '../data/sample_data.dart';
 import '../domain/engine/billing_cycle.dart';
+import '../domain/engine/dashboard_engine.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/engine/installments.dart';
+import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
 
 /// Escopo de alteração de uma regra recorrente.
@@ -44,6 +47,16 @@ class FinanceController extends ChangeNotifier {
   List<OpenFinanceConnection> connections = [];
   List<ExternalTransaction> externalTransactions = [];
 
+  /// Painéis personalizados, ordenados.
+  List<Dashboard> dashboards = [];
+
+  /// Motor dos gráficos, sempre derivado do [engine] atual — qualquer
+  /// mudança nas transações recalcula todos os painéis.
+  DashboardEngine get dashboardEngine => _dashEngine?.engine == engine
+      ? _dashEngine!
+      : (_dashEngine = DashboardEngine(engine));
+  DashboardEngine? _dashEngine;
+
   bool loading = true;
   String? error;
 
@@ -70,6 +83,13 @@ class FinanceController extends ChangeNotifier {
       _set(d);
       connections = await repo.loadConnections();
       externalTransactions = await repo.loadExternalTransactions();
+      dashboards = await repo.loadDashboards();
+      if (dashboards.isEmpty) {
+        final d = seed.defaultDashboard();
+        await repo.write([WriteOp.put(Coll.dashboards, d.id, d.toJson())]);
+        dashboards = [d];
+      }
+      _sortDashboards();
     } catch (e) {
       error = 'Falha ao carregar dados: $e';
     }
@@ -129,6 +149,39 @@ class FinanceController extends ChangeNotifier {
 
   Future<void> setStatus(FinTransaction t, TransactionStatus status) =>
       saveTransaction(t.copyWith(status: status));
+
+  /// Alterna o status direto da lista (Concluída ⇄ Pendente).
+  ///
+  /// A mudança é aplicada de forma otimista na memória — telas, indicadores
+  /// e painéis recalculam no mesmo quadro — e em seguida gravada no banco.
+  /// Se a gravação falhar, os dados são recarregados do banco (desfaz).
+  Future<void> toggleCompleted(FinTransaction t, bool completed) async {
+    final status = completed
+        ? TransactionStatus.completed
+        : TransactionStatus.pending;
+    if (t.status == status) return;
+    final err = validateTransaction(t);
+    if (err != null) throw ArgumentError(err);
+    final tx = t.isVirtual
+        ? t.copyWith(id: newId('tx_'), isVirtual: false, status: status)
+        : t.copyWith(status: status);
+    _set(
+      data.copyWith(
+        transactions: [
+          for (final x in data.transactions)
+            if (x.id != tx.id) x,
+          tx,
+        ],
+      ),
+    );
+    notifyListeners();
+    try {
+      await repo.write([_putTx(tx)]);
+    } finally {
+      _set(await repo.load());
+      notifyListeners();
+    }
+  }
 
   /// Exclui um lançamento. Para ocorrência virtual de recorrência, grava uma
   /// ocorrência cancelada (para que a regra não volte a gerá-la).
@@ -461,6 +514,91 @@ class FinanceController extends ChangeNotifier {
     await repo.saveSettings(s);
     _set(await repo.load());
     notifyListeners();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Painéis personalizados
+
+  void _sortDashboards() => dashboards.sort((a, b) {
+    final c = a.order.compareTo(b.order);
+    return c != 0 ? c : a.createdAt.compareTo(b.createdAt);
+  });
+
+  Dashboard? dashboardById(String? id) =>
+      dashboards.where((d) => d.id == id).firstOrNull;
+
+  /// Painel padrão (exibido na tela inicial).
+  Dashboard? get defaultDashboard =>
+      dashboards.where((d) => d.isDefault).firstOrNull ??
+      dashboards.firstOrNull;
+
+  /// Aplica a mudança na memória (UI responde na hora) e grava em seguida.
+  Future<void> _writeDashboards(
+    List<Dashboard> changed, {
+    String? deleted,
+  }) async {
+    final byId = {for (final d in dashboards) d.id: d};
+    for (final d in changed) {
+      byId[d.id] = d;
+    }
+    if (deleted != null) byId.remove(deleted);
+    dashboards = byId.values.toList();
+    _sortDashboards();
+    notifyListeners();
+    await repo.write([
+      for (final d in changed) WriteOp.put(Coll.dashboards, d.id, d.toJson()),
+      if (deleted != null) WriteOp.delete(Coll.dashboards, deleted),
+    ]);
+  }
+
+  Future<void> saveDashboard(Dashboard d) {
+    if (d.name.trim().isEmpty) throw ArgumentError('Informe um nome');
+    return _writeDashboards([d]);
+  }
+
+  Future<Dashboard> createDashboard(String name) async {
+    final d = seed.emptyDashboard(
+      name.trim().isEmpty ? 'Novo painel' : name.trim(),
+      order: dashboards.length,
+    );
+    await _writeDashboards([d]);
+    return d;
+  }
+
+  Future<Dashboard> duplicateDashboard(Dashboard d) async {
+    final copy = Dashboard(
+      id: newId('dash_'),
+      name: '${d.name} (cópia)',
+      order: dashboards.length,
+      filter: d.filter,
+      charts: [for (final c in d.charts) c.copyWith(id: newId('ch_'))],
+    );
+    await _writeDashboards([copy]);
+    return copy;
+  }
+
+  Future<void> renameDashboard(Dashboard d, String name) =>
+      saveDashboard(d.copyWith(name: name.trim()));
+
+  Future<void> setDefaultDashboard(Dashboard d) => _writeDashboards([
+    for (final x in dashboards)
+      if (x.id == d.id && !x.isDefault)
+        x.copyWith(isDefault: true)
+      else if (x.id != d.id && x.isDefault)
+        x.copyWith(isDefault: false),
+  ]);
+
+  /// Exclui o painel. O último painel não pode ser excluído; se o padrão for
+  /// excluído, o primeiro restante passa a ser o padrão.
+  Future<void> deleteDashboard(Dashboard d) async {
+    if (dashboards.length <= 1) {
+      throw StateError('Mantenha ao menos um painel.');
+    }
+    final rest = dashboards.where((x) => x.id != d.id).toList();
+    final promote = d.isDefault && !rest.any((x) => x.isDefault)
+        ? [rest.first.copyWith(isDefault: true)]
+        : <Dashboard>[];
+    await _writeDashboards(promote, deleted: d.id);
   }
 
   // ---------------------------------------------------------------------------

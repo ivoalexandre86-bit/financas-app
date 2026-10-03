@@ -12,7 +12,7 @@ Moeda BRL, locale pt-BR, datas DD/MM/AAAA.
 | 2 — Motor financeiro | ✅ Recorrências, parcelas, ciclo de faturamento, faturas e pagamentos, saldos projetados, drill-down |
 | 3 — Backend e segurança | 🟡 Esquema PostgreSQL com migrations, RLS e isolamento por usuário (`backend/db`). Autenticação local com PBKDF2. **Falta:** API REST e sincronização |
 | 4 — Open Finance | 🟡 Interface de provedor, provedor *sandbox*, consentimento, importação, deduplicação e conciliação. **Falta:** provedor real via backend |
-| 5 — Produção | ⏳ 19 testes automatizados do motor e das regras; falta monitoramento de erros, build de release assinado e ficha da Play Store |
+| 5 — Produção | ⏳ 31 testes automatizados do motor e das regras; falta monitoramento de erros, build de release assinado e ficha da Play Store |
 
 ## Plataformas: web, Android e iOS
 
@@ -114,6 +114,34 @@ reconhecido antes do primeiro mês, ou um valor informado para simular.
 Com filtros de categoria/projeto/tipo/origem/status o acumulado começa em
 zero (é o acumulado do recorte). Períodos de 3, 6, 12, 24 meses ou
 personalizado; primeira coluna fixa; negativos destacados.
+
+**Status rápido.** Na lista de transações, cada receita/despesa tem uma
+caixa de seleção que alterna Concluída ⇄ Pendente com um toque (sem abrir
+os detalhes). A mudança é aplicada na hora e gravada em seguida; saldos,
+indicadores e painéis recalculam juntos. Lançamentos pendentes aparecem com
+valor esmaecido e marcados como atrasados quando a data já passou. Filtros
+rápidos: Tudo / Receitas / Despesas e Todas / Pendentes (planejadas +
+pendentes) / Concluídas, sempre dentro do mês selecionado. Concluir uma
+ocorrência prevista de recorrência a materializa (mantendo o vínculo com a
+regra).
+
+**Painéis personalizados.** A tela inicial mostra o painel padrão; o botão
+**Personalizar painel** abre o modo de edição. Cada painel tem filtros
+aplicados a todos os gráficos (período, status e categorias) e um mês de
+referência. Cada gráfico define título, fonte (receitas, despesas, ambos,
+resultado ou saldo projetado), categorias, status, período próprio ou do
+painel (mês, vários meses, ano, intervalo de datas, janela relativa),
+comparação (período anterior ou ano anterior), eixo X, valor do eixo Y
+(soma, quantidade, média), séries, totais/percentuais/variações, cores e
+tamanho. Tipos: barras, barras empilhadas, linhas, área, tendência
+(mínimos quadrados), cascata, Pareto 80/20, pizza, rosca, comparativo,
+evolução mensal e acumulado; dá para trocar o tipo sem recriar o gráfico.
+Painéis podem ser criados, renomeados, duplicados, excluídos e definidos
+como padrão; gráficos podem ser adicionados, removidos, duplicados,
+redimensionados e reorganizados (arrastar). Os painéis guardam só
+configuração: os números vêm do mesmo `FinancialEngine`
+(`lib/domain/engine/dashboard_engine.dart`), então qualquer alteração em
+transações aparece em todos eles.
 
 **Saldo atual × projetado.** “Saldo atual” usa apenas lançamentos concluídos
 e pagamentos de fatura. “Projetado” assume que tudo o que está planejado
