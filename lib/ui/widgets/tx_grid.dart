@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme.dart';
 
@@ -690,4 +691,346 @@ class NeonStatus extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Realce de uma célula editável: contorno neon ao passar o mouse, para
+/// indicar que o clique edita o campo ali mesmo.
+class _EditableHover extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  final String tooltip;
+  const _EditableHover({
+    
+    required this.child,
+    required this.onTap,
+    required this.tooltip,
+  });
+
+  @override
+  State<_EditableHover> createState() => _EditableHoverState();
+}
+
+class _EditableHoverState extends State<_EditableHover> {
+  bool hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = GridPalette.of(context);
+    return MouseRegion(
+      cursor: SystemMouseCursors.text,
+      onEnter: (_) => setState(() => hover = true),
+      onExit: (_) => setState(() => hover = false),
+      child: Tooltip(
+        message: widget.tooltip,
+        waitDuration: const Duration(milliseconds: 700),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          child: DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: hover
+                    ? p.neon.withValues(alpha: 0.55)
+                    : Colors.transparent,
+                width: 1,
+              ),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Campo de texto editável direto na grade, como numa planilha: um clique
+/// abre a edição; Enter ou clicar fora grava; Esc desfaz.
+class InlineTextCell extends StatefulWidget {
+  /// Texto inicial do editor (ex.: valor sem "R$").
+  final String value;
+
+  /// O que a célula mostra fora da edição.
+  final Widget display;
+  final bool right;
+  final Color? background;
+  final TextInputType? keyboardType;
+  final String hint;
+
+  /// Devolve a mensagem de erro, ou null quando o texto é válido.
+  final String? Function(String text)? validate;
+  final Future<void> Function(String text) onSubmit;
+
+  /// Sem o preenchimento lateral da [GridCell] (linhas do celular).
+  final bool dense;
+  const InlineTextCell({
+    super.key,
+    required this.value,
+    required this.display,
+    required this.onSubmit,
+    this.right = false,
+    this.background,
+    this.keyboardType,
+    this.hint = '',
+    this.validate,
+    this.dense = false,
+  });
+
+  @override
+  State<InlineTextCell> createState() => _InlineTextCellState();
+}
+
+class _InlineTextCellState extends State<InlineTextCell> {
+  bool editing = false;
+  String? error;
+  final ctrl = TextEditingController();
+  final focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    focus.addListener(() {
+      if (!focus.hasFocus && editing) _commit();
+    });
+  }
+
+  @override
+  void dispose() {
+    ctrl.dispose();
+    focus.dispose();
+    super.dispose();
+  }
+
+  void _start() {
+    ctrl.text = widget.value;
+    ctrl.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: ctrl.text.length,
+    );
+    setState(() {
+      editing = true;
+      error = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && editing) focus.requestFocus();
+    });
+  }
+
+  void _cancel() {
+    if (!editing) return;
+    setState(() {
+      editing = false;
+      error = null;
+    });
+  }
+
+  Future<void> _commit() async {
+    if (!editing) return;
+    final text = ctrl.text.trim();
+    if (text == widget.value.trim()) return _cancel();
+    final err = widget.validate?.call(text);
+    if (err != null) {
+      // Com o foco ainda no campo, mostra o erro; se o usuário saiu, desfaz.
+      if (focus.hasFocus) {
+        setState(() => error = err);
+      } else {
+        _cancel();
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text(err)));
+      }
+      return;
+    }
+    setState(() {
+      editing = false;
+      error = null;
+    });
+    await widget.onSubmit(text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pad = EdgeInsets.symmetric(horizontal: widget.dense ? 0 : 10);
+    if (!editing) {
+      return _EditableHover(
+        tooltip: 'Clique para editar',
+        onTap: _start,
+        child: Container(
+          color: widget.background,
+          padding: pad,
+          alignment: widget.right
+              ? Alignment.centerRight
+              : Alignment.centerLeft,
+          child: widget.display,
+        ),
+      );
+    }
+    final p = GridPalette.of(context);
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(4),
+      borderSide: BorderSide(
+        color: error != null ? context.fin.negative : p.neon,
+        width: 1.4,
+      ),
+    );
+    return Container(
+      color: widget.background,
+      padding: EdgeInsets.symmetric(
+        horizontal: widget.dense ? 0 : 3,
+        vertical: widget.dense ? 0 : 3,
+      ),
+      alignment: Alignment.center,
+      child: CallbackShortcuts(
+        bindings: {const SingleActivator(LogicalKeyboardKey.escape): _cancel},
+        child: TextField(
+          controller: ctrl,
+          focusNode: focus,
+          keyboardType: widget.keyboardType,
+          textAlign: widget.right ? TextAlign.right : TextAlign.left,
+          style: context.text.bodyMedium,
+          // Enter grava sem tirar o foco antes (para mostrar o erro).
+          onEditingComplete: () {},
+          onSubmitted: (_) => _commit(),
+          onChanged: (_) {
+            if (error != null) setState(() => error = null);
+          },
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: widget.hint,
+            filled: true,
+            fillColor: p.panel,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 7,
+              vertical: 7,
+            ),
+            enabledBorder: border,
+            focusedBorder: border,
+            border: border,
+            errorText: null,
+            suffixIcon: error == null
+                ? null
+                : Tooltip(
+                    message: error!,
+                    child: Icon(
+                      Icons.error_outline,
+                      size: 16,
+                      color: context.fin.negative,
+                    ),
+                  ),
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 22,
+              minHeight: 16,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Célula que abre um menu de opções (categoria, subcategoria) ou outro
+/// seletor (data) ao ser clicada.
+class InlinePickerCell extends StatelessWidget {
+  final Widget display;
+  final Future<void> Function(BuildContext cellContext) onPick;
+  final String tooltip;
+  final bool dense;
+  const InlinePickerCell({
+    super.key,
+    required this.display,
+    required this.onPick,
+    this.tooltip = 'Clique para alterar',
+    this.dense = false,
+  });
+
+  @override
+  Widget build(BuildContext context) => Builder(
+    builder: (cellContext) => _EditableHover(
+      tooltip: tooltip,
+      onTap: () => onPick(cellContext),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: dense ? 0 : 10),
+        alignment: Alignment.centerLeft,
+        child: display,
+      ),
+    ),
+  );
+}
+
+/// Opção de um menu de [showCellMenu].
+class CellMenuOption<T> {
+  final T value;
+  final String label;
+  final Color? color;
+  final bool indent;
+  final bool selected;
+  const CellMenuOption(
+    this.value,
+    this.label, {
+    this.color,
+    this.indent = false,
+    this.selected = false,
+  });
+}
+
+/// Abre um menu logo abaixo da célula e devolve a opção escolhida.
+Future<T?> showCellMenu<T>(
+  BuildContext cellContext,
+  List<CellMenuOption<T>> options,
+) {
+  final box = cellContext.findRenderObject()! as RenderBox;
+  final overlay =
+      Overlay.of(cellContext).context.findRenderObject()! as RenderBox;
+  final topLeft = box.localToGlobal(
+    Offset(0, box.size.height),
+    ancestor: overlay,
+  );
+  final rect = RelativeRect.fromRect(
+    topLeft & Size(box.size.width, 0),
+    Offset.zero & overlay.size,
+  );
+  final p = GridPalette.of(cellContext);
+  return showMenu<T>(
+    context: cellContext,
+    position: rect,
+    constraints: BoxConstraints(
+      minWidth: box.size.width.clamp(180, 320),
+      maxWidth: 320,
+      maxHeight: 420,
+    ),
+    items: [
+      for (final o in options)
+        PopupMenuItem<T>(
+          value: o.value,
+          height: 36,
+          padding: EdgeInsets.only(left: o.indent ? 28 : 12, right: 12),
+          child: Row(
+            children: [
+              if (o.color != null) ...[
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: o.color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  o.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: o.selected
+                      ? TextStyle(color: p.neon, fontWeight: FontWeight.w700)
+                      : null,
+                ),
+              ),
+              if (o.selected) Icon(Icons.check, size: 16, color: p.neon),
+            ],
+          ),
+        ),
+    ],
+  );
 }

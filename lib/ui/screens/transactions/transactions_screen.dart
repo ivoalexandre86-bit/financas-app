@@ -711,8 +711,29 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       decoration: cancelled ? TextDecoration.lineThrough : null,
     );
     void open() => push(context, TransactionDetailsScreen(tx: tx));
+    Future<void> save(FinTransaction t) => _saveInline(context, fc, t);
+    final key = '${tx.id}-${tx.date.toIso8601String()}';
 
     if (layout.compact) {
+      // No celular: data, descrição, categoria e valor também editam ali
+      // mesmo; tocar no resto da linha abre os detalhes.
+      final catLine = Row(
+        children: [
+          _Dot(catColor),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              [
+                subName.isEmpty || !showSub ? catName : '$catName › $subName',
+                if (extras.isNotEmpty) extras,
+              ].join(' · '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: subtle,
+            ),
+          ),
+        ],
+      );
       return GridRowShell(
         accent: accent,
         zebra: index.isOdd,
@@ -722,53 +743,60 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           padding: const EdgeInsets.fromLTRB(8, 5, 10, 5),
           child: Row(
             children: [
-              _DateBadge(it.date),
+              InlinePickerCell(
+                key: ValueKey('tx-edit-date-$key'),
+                dense: true,
+                tooltip: 'Alterar data',
+                onPick: (_) => _pickDate(context, fc, tx),
+                display: _DateBadge(it.date),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            desc,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: descStyle,
+                    InlineTextCell(
+                      key: ValueKey('tx-edit-description-$key'),
+                      dense: true,
+                      value: tx.description,
+                      hint: 'Descrição',
+                      validate: (v) =>
+                          v.isEmpty ? 'Informe uma descrição' : null,
+                      onSubmit: (v) => save(tx.copyWith(description: v)),
+                      display: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              desc,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: descStyle,
+                            ),
                           ),
-                        ),
-                        if (tx.isRecurring) ...[
-                          const SizedBox(width: 4),
-                          Icon(
-                            Icons.autorenew,
-                            size: 12,
-                            color: context.fin.subtle,
-                          ),
+                          if (tx.isRecurring) ...[
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.autorenew,
+                              size: 12,
+                              color: context.fin.subtle,
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                     const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        _Dot(catColor),
-                        const SizedBox(width: 5),
-                        Flexible(
-                          child: Text(
-                            [
-                              subName.isEmpty || !showSub
-                                  ? catName
-                                  : '$catName › $subName',
-                              if (extras.isNotEmpty) extras,
-                            ].join(' · '),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: subtle,
+                    tx.isTransfer
+                        ? catLine
+                        : InlinePickerCell(
+                            key: ValueKey('tx-edit-category-$key'),
+                            dense: true,
+                            tooltip: 'Alterar categoria',
+                            onPick: (cell) =>
+                                _pickCategory(cell, fc, tx, onlyRoots: false),
+                            display: catLine,
                           ),
-                        ),
-                      ],
-                    ),
                     ?invoiceLink,
                     if (notes.isNotEmpty && layout.shows(GridColumn.notes))
                       Padding(
@@ -801,7 +829,27 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.end,
-                children: [money, const SizedBox(height: 4), status],
+                children: [
+                  SizedBox(
+                    width: 112,
+                    child: InlineTextCell(
+                      key: ValueKey('tx-edit-amount-$key'),
+                      dense: true,
+                      right: true,
+                      value: tx.amount.formatPlain(),
+                      hint: '0,00',
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      validate: _validateAmount,
+                      onSubmit: (v) =>
+                          save(tx.copyWith(amount: Money.tryParse(v))),
+                      display: money,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  status,
+                ],
               ),
             ],
           ),
@@ -809,9 +857,36 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       );
     }
 
+    // Edição direta na grade (como numa planilha). A compra no cartão
+    // mostra a data da fatura, mas a edição altera a data da compra.
+    final canCategorize = !tx.isTransfer;
+    final catLabel = Row(
+      children: [
+        _Dot(catColor),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            showSub || subName.isEmpty ? catName : '$catName › $subName',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.text.bodyMedium,
+          ),
+        ),
+      ],
+    );
+    final subLabel = Text(
+      subName.isEmpty ? '—' : subName,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: subName.isEmpty ? subtle : context.text.bodyMedium,
+    );
+
     Widget cell(GridColumn c) => switch (c) {
-      GridColumn.date => GridCell(
-        child: Text(
+      GridColumn.date => InlinePickerCell(
+        key: ValueKey('tx-edit-date-$key'),
+        tooltip: invoice == null ? 'Alterar data' : 'Alterar data da compra',
+        onPick: (_) => _pickDate(context, fc, tx),
+        display: Text(
           Dates.format(it.date),
           style: context.text.bodySmall?.copyWith(
             fontFeatures: const [FontFeature.tabularFigures()],
@@ -819,32 +894,32 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           ),
         ),
       ),
-      GridColumn.category => GridCell(
-        child: Row(
-          children: [
-            _Dot(catColor),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                showSub || subName.isEmpty ? catName : '$catName › $subName',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: context.text.bodyMedium,
-              ),
-            ),
-          ],
-        ),
-      ),
-      GridColumn.subcategory => GridCell(
-        child: Text(
-          subName.isEmpty ? '—' : subName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: subName.isEmpty ? subtle : context.text.bodyMedium,
-        ),
-      ),
-      GridColumn.description => GridCell(
-        child: Row(
+      GridColumn.category =>
+        canCategorize
+            ? InlinePickerCell(
+                key: ValueKey('tx-edit-category-$key'),
+                tooltip: 'Alterar categoria',
+                onPick: (cell) =>
+                    _pickCategory(cell, fc, tx, onlyRoots: showSub),
+                display: catLabel,
+              )
+            : GridCell(child: catLabel),
+      GridColumn.subcategory =>
+        canCategorize && cat != null
+            ? InlinePickerCell(
+                key: ValueKey('tx-edit-subcategory-$key'),
+                tooltip: 'Alterar subcategoria',
+                onPick: (cell) => _pickSubcategory(cell, fc, tx),
+                display: subLabel,
+              )
+            : GridCell(child: subLabel),
+      GridColumn.description => InlineTextCell(
+        key: ValueKey('tx-edit-description-$key'),
+        value: tx.description,
+        hint: 'Descrição',
+        validate: (v) => v.isEmpty ? 'Informe uma descrição' : null,
+        onSubmit: (v) => save(tx.copyWith(description: v)),
+        display: Row(
           children: [
             Flexible(
               child: Text(
@@ -876,23 +951,30 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           ],
         ),
       ),
-      GridColumn.notes => GridCell(
-        child: Tooltip(
-          message: notes,
-          child: Text(
-            notes.isEmpty ? '—' : notes,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: notes.isEmpty
-                ? subtle
-                : context.text.bodySmall?.copyWith(fontStyle: FontStyle.italic),
-          ),
+      GridColumn.notes => InlineTextCell(
+        key: ValueKey('tx-edit-notes-$key'),
+        value: tx.notes,
+        hint: 'Observações',
+        onSubmit: (v) => save(tx.copyWith(notes: v)),
+        display: Text(
+          notes.isEmpty ? '—' : notes,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: notes.isEmpty
+              ? subtle
+              : context.text.bodySmall?.copyWith(fontStyle: FontStyle.italic),
         ),
       ),
-      GridColumn.amount => GridCell(
+      GridColumn.amount => InlineTextCell(
+        key: ValueKey('tx-edit-amount-$key'),
+        value: tx.amount.formatPlain(),
         right: true,
+        hint: '0,00',
         background: GridPalette.of(context).valueBg,
-        child: Opacity(opacity: completed ? 1 : 0.8, child: money),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        validate: _validateAmount,
+        onSubmit: (v) => save(tx.copyWith(amount: Money.tryParse(v))),
+        display: Opacity(opacity: completed ? 1 : 0.8, child: money),
       ),
       GridColumn.status => GridCell(child: status),
     };
@@ -902,12 +984,24 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       zebra: index.isOdd,
       dimmed: cancelled,
       height: GridLayout.rowH,
-      onTap: open,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (final (c, w) in layout.cells) SizedBox(width: w, child: cell(c)),
-          const SizedBox(width: GridLayout.actionW),
+          SizedBox(
+            width: GridLayout.actionW,
+            child: Center(
+              child: IconButton(
+                key: ValueKey('tx-open-$key'),
+                tooltip: 'Abrir detalhes',
+                visualDensity: VisualDensity.compact,
+                iconSize: 20,
+                color: GridPalette.of(context).neon,
+                icon: const Icon(Icons.chevron_right),
+                onPressed: open,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1098,6 +1192,116 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _saveInline(
+    BuildContext context,
+    FinanceController fc,
+    FinTransaction t,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await fc.saveInline(t);
+    } catch (e) {
+      final msg = e is ArgumentError ? '${e.message}' : '$e';
+      messenger.showSnackBar(
+        SnackBar(content: Text('Não foi possível salvar: $msg')),
+      );
+    }
+  }
+
+  static String? _validateAmount(String v) {
+    final m = Money.tryParse(v);
+    if (m == null) return 'Valor inválido';
+    if (m.cents <= 0) return 'O valor deve ser maior que zero';
+    return null;
+  }
+
+  Future<void> _pickDate(
+    BuildContext context,
+    FinanceController fc,
+    FinTransaction tx,
+  ) async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: tx.date,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(fc.today.year + 30),
+      locale: const Locale('pt', 'BR'),
+    );
+    if (d == null || !context.mounted) return;
+    if (Dates.dateOnly(d) == Dates.dateOnly(tx.date)) return;
+    await _saveInline(context, fc, tx.copyWith(date: d));
+  }
+
+  /// Categorias do tipo do lançamento. Com a coluna Subcategoria visível,
+  /// a coluna Categoria lista só as principais; sem ela, mostra a árvore.
+  Future<void> _pickCategory(
+    BuildContext cell,
+    FinanceController fc,
+    FinTransaction tx, {
+    required bool onlyRoots,
+  }) async {
+    final kind = tx.type == TransactionType.income
+        ? CategoryKind.income
+        : CategoryKind.expense;
+    List<FinCategory> sorted(bool Function(FinCategory) test) =>
+        fc.data.categories.where(test).toList()..sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        );
+    final current = fc.data.categoryById[tx.categoryId];
+    final rootId = current?.parentId ?? current?.id;
+    final picked = await showCellMenu(cell, [
+      for (final r in sorted((c) => c.kind == kind && c.parentId == null)) ...[
+        CellMenuOption(
+          r.id,
+          r.name,
+          color: Color(r.color),
+          selected: onlyRoots ? r.id == rootId : r.id == tx.categoryId,
+        ),
+        if (!onlyRoots)
+          for (final s in sorted((c) => c.parentId == r.id))
+            CellMenuOption(
+              s.id,
+              s.name,
+              indent: true,
+              selected: s.id == tx.categoryId,
+            ),
+      ],
+    ]);
+    if (picked == null || !cell.mounted) return;
+    // Mesma categoria principal: mantém a subcategoria escolhida.
+    if (picked == tx.categoryId || (onlyRoots && picked == rootId)) return;
+    await _saveInline(cell, fc, tx.copyWith(categoryId: picked));
+  }
+
+  Future<void> _pickSubcategory(
+    BuildContext cell,
+    FinanceController fc,
+    FinTransaction tx,
+  ) async {
+    final current = fc.data.categoryById[tx.categoryId];
+    final root = fc.data.categoryById[current?.parentId] ?? current;
+    if (root == null) return;
+    final subs = fc.data.categories.where((c) => c.parentId == root.id).toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    if (subs.isEmpty) {
+      ScaffoldMessenger.of(cell).showSnackBar(
+        SnackBar(content: Text('${root.name} não tem subcategorias')),
+      );
+      return;
+    }
+    final picked = await showCellMenu(cell, [
+      CellMenuOption(
+        root.id,
+        'Nenhuma (só ${root.name})',
+        selected: tx.categoryId == root.id,
+      ),
+      for (final s in subs)
+        CellMenuOption(s.id, s.name, selected: s.id == tx.categoryId),
+    ]);
+    if (picked == null || picked == tx.categoryId || !cell.mounted) return;
+    await _saveInline(cell, fc, tx.copyWith(categoryId: picked));
   }
 
   void _select(_InvoiceEntry it) => setState(() => selectedInvoice = it.key);
