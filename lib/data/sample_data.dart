@@ -422,6 +422,22 @@ List<WriteOp> buildSampleData({DateTime? today}) {
     ),
   ]);
 
+  // Compras no cartão acompanham a fatura: pagas (concluídas) só quando a
+  // fatura já venceu e foi paga abaixo; nas demais ficam pendentes.
+  for (final (i, t) in txs.indexed) {
+    final card = [nuCard, itauCard].where((c) => c.id == t.cardId).firstOrNull;
+    if (card == null || t.status == TransactionStatus.planned) continue;
+    final due = BillingCycle.dueDate(
+      card,
+      BillingCycle.invoiceForTransaction(card, t),
+    );
+    txs[i] = t.copyWith(
+      status: due.isBefore(now)
+          ? TransactionStatus.completed
+          : TransactionStatus.pending,
+    );
+  }
+
   for (final t in txs) {
     ops.add(WriteOp.put(Coll.transactions, t.id, t.toJson()));
   }

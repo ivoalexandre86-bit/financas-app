@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app.dart';
-import '../../../domain/models/entities.dart';
 import '../../../state/auth_controller.dart';
 import '../../../state/finance_controller.dart';
 import '../../theme.dart';
@@ -36,23 +35,39 @@ class SettingsScreen extends StatelessWidget {
               },
             ),
           ),
-          _h(context, 'Regras de cálculo'),
-          for (final b in CardExpenseBasis.values)
+          _h(context, 'Lista de transações'),
+          for (final group in [true, false])
             ListTile(
+              key: ValueKey('group-invoices-$group'),
               leading: Icon(
-                s.cardExpenseBasis == b
+                s.groupCardInvoices == group
                     ? Icons.radio_button_checked
                     : Icons.radio_button_unchecked,
-                color: s.cardExpenseBasis == b ? context.colors.primary : null,
+                color: s.groupCardInvoices == group
+                    ? context.colors.primary
+                    : null,
               ),
-              title: Text('Despesas de cartão: ${b.label.toLowerCase()}'),
+              title: Text(
+                group
+                    ? 'Agrupar compras do cartão por fatura'
+                    : 'Mostrar compras individualmente',
+              ),
               subtitle: Text(
-                b == CardExpenseBasis.invoiceDue
-                    ? 'Visão de caixa: a compra pesa no mês em que a fatura vence (recomendado para projeção de saldo).'
-                    : 'Visão de competência: a compra pesa no mês em que foi feita.',
+                group
+                    ? 'Cada fatura aparece como uma única linha, com o valor que sai da conta (padrão).'
+                    : 'Cada compra do cartão aparece na lista, no mês de pagamento da fatura.',
               ),
-              onTap: () => fc.saveSettings(s.copyWith(cardExpenseBasis: b)),
+              onTap: () =>
+                  fc.saveSettings(s.copyWith(groupCardInvoices: group)),
             ),
+          _h(context, 'Regras de cálculo'),
+          const ListTile(
+            leading: Icon(Icons.event_available_outlined),
+            title: Text('Regime de caixa'),
+            subtitle: Text(
+              'Compras no cartão contam no mês em que a fatura é paga (no vencimento, enquanto não for paga). Totais, categorias e orçamentos usam o mesmo critério.',
+            ),
+          ),
           const ListTile(
             leading: Icon(Icons.info_outline),
             title: Text('Pagamentos de fatura e transferências'),

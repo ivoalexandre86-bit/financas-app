@@ -442,10 +442,44 @@ class FinanceController extends ChangeNotifier {
       accountId: accountId,
     );
     await _commit([WriteOp.put(Coll.invoicePayments, p.id, p.toJson())]);
+    await _syncInvoiceItems(inv.card.id, inv.month);
   }
 
-  Future<void> deleteInvoicePayment(InvoicePayment p) =>
-      _commit([WriteOp.delete(Coll.invoicePayments, p.id)]);
+  Future<void> deleteInvoicePayment(InvoicePayment p) async {
+    await _commit([WriteOp.delete(Coll.invoicePayments, p.id)]);
+    await _syncInvoiceItems(p.cardId, YearMonth.parse(p.invoiceKey));
+  }
+
+  /// O status das compras acompanha a fatura: quitada, todas ficam
+  /// concluídas; reaberta (pagamento desfeito), as concluídas voltam a
+  /// pendente. As compras não são pagas uma a uma.
+  Future<void> _syncInvoiceItems(String cardId, YearMonth month) async {
+    final card = data.cardById[cardId];
+    if (card == null) return;
+    final inv = engine.invoice(card, month);
+    final settled = inv.total.isPositive && inv.paid >= inv.total;
+    final ops = <WriteOp>[];
+    for (final t in inv.transactions) {
+      if (settled && t.status != TransactionStatus.completed) {
+        ops.add(
+          _putTx(
+            t.isVirtual
+                ? t.copyWith(
+                    id: newId('tx_'),
+                    isVirtual: false,
+                    status: TransactionStatus.completed,
+                  )
+                : t.copyWith(status: TransactionStatus.completed),
+          ),
+        );
+      } else if (!settled &&
+          !t.isVirtual &&
+          t.status == TransactionStatus.completed) {
+        ops.add(_putTx(t.copyWith(status: TransactionStatus.pending)));
+      }
+    }
+    if (ops.isNotEmpty) await _commit(ops);
+  }
 
   // ---------------------------------------------------------------------------
   // Cadastros
