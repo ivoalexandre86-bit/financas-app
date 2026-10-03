@@ -208,6 +208,8 @@ class AccountDropdown extends StatelessWidget {
   }
 }
 
+/// Categoria e, logo abaixo, as subcategorias da categoria escolhida.
+/// O valor é a subcategoria quando houver uma escolhida; senão, a categoria.
 class CategoryDropdown extends StatelessWidget {
   final FinanceController fc;
   final CategoryKind kind;
@@ -221,42 +223,71 @@ class CategoryDropdown extends StatelessWidget {
     required this.onChanged,
   });
 
+  List<FinCategory> _sorted(bool Function(FinCategory) test) =>
+      fc.data.categories.where(test).toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
   @override
   Widget build(BuildContext context) {
-    final roots =
-        fc.data.categories
-            .where((c) => c.kind == kind && c.parentId == null)
-            .toList()
-          ..sort((a, b) => a.name.compareTo(b.name));
-    final items = <DropdownMenuItem<String>>[];
-    for (final r in roots) {
-      items.add(_item(r, false));
-      final subs = fc.data.categories.where((c) => c.parentId == r.id).toList()
-        ..sort((a, b) => a.name.compareTo(b.name));
-      for (final s in subs) {
-        items.add(_item(s, true));
-      }
-    }
-    return DropdownButtonFormField<String>(
-      initialValue: items.any((i) => i.value == value) ? value : null,
-      isExpanded: true,
-      decoration: const InputDecoration(labelText: 'Categoria'),
-      items: items,
-      onChanged: onChanged,
+    final roots = _sorted((c) => c.kind == kind && c.parentId == null);
+    final selected = fc.data.categories.where((c) => c.id == value).firstOrNull;
+    final rootId = selected?.parentId ?? selected?.id;
+    final root = roots.where((r) => r.id == rootId).firstOrNull;
+    final subs = root == null
+        ? const <FinCategory>[]
+        : _sorted((c) => c.parentId == root.id);
+    final subId = selected?.parentId != null ? selected!.id : null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DropdownButtonFormField<String>(
+          key: ValueKey('category-${kind.name}-${root?.id}'),
+          initialValue: root?.id,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Categoria'),
+          items: [for (final r in roots) _item(r, subCount(r))],
+          onChanged: onChanged,
+        ),
+        if (subs.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String?>(
+            key: ValueKey('subcategory-${root!.id}-$subId'),
+            initialValue: subId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Subcategoria'),
+            items: [
+              DropdownMenuItem<String?>(
+                value: null,
+                child: Text('Nenhuma (só ${root.name})'),
+              ),
+              for (final s in subs) _item(s, 0),
+            ],
+            onChanged: (v) => onChanged(v ?? root.id),
+          ),
+        ],
+      ],
     );
   }
 
-  DropdownMenuItem<String> _item(FinCategory c, bool sub) => DropdownMenuItem(
+  int subCount(FinCategory r) =>
+      fc.data.categories.where((c) => c.parentId == r.id).length;
+
+  DropdownMenuItem<String> _item(FinCategory c, int subs) => DropdownMenuItem(
     value: c.id,
-    child: Padding(
-      padding: EdgeInsets.only(left: sub ? 20 : 0),
-      child: Row(
-        children: [
-          Icon(categoryIcon(c.icon), size: 18, color: Color(c.color)),
-          const SizedBox(width: 8),
-          Flexible(child: Text(c.name, overflow: TextOverflow.ellipsis)),
+    child: Row(
+      children: [
+        Icon(categoryIcon(c.icon), size: 18, color: Color(c.color)),
+        const SizedBox(width: 8),
+        Flexible(child: Text(c.name, overflow: TextOverflow.ellipsis)),
+        if (subs > 0) ...[
+          const SizedBox(width: 6),
+          Text(
+            '· $subs ${subs == 1 ? 'subcategoria' : 'subcategorias'}',
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
         ],
-      ),
+      ],
     ),
   );
 }
