@@ -11,9 +11,10 @@ import '../../../state/finance_controller.dart';
 import '../../app_shell.dart';
 import '../../nav.dart';
 import '../../theme.dart';
-import '../../widgets/charts.dart';
 import '../../widgets/common.dart';
 import '../cards/invoice_details_screen.dart';
+import '../dashboards/dashboard_view.dart';
+import '../dashboards/dashboards_screen.dart';
 import '../installments/installments_screen.dart';
 import '../projection/drilldown_screen.dart';
 import '../recurring/recurring_screen.dart';
@@ -124,46 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              SectionCard(
-                title: 'Receitas × Despesas',
-                child: IncomeExpenseChart(
-                  points: [
-                    for (final m in YearMonth.range(
-                      month.add(-3),
-                      month.add(2),
-                    ))
-                      () {
-                        final t = e.monthTotals(ProjectionFilter.none, m);
-                        return BarPoint(
-                          m.shortLabel,
-                          t.income,
-                          t.expenses,
-                          highlight: m == month,
-                        );
-                      }(),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              SectionCard(
-                title: 'Tendência do saldo',
-                trailing: TextButton(
-                  onPressed: () => AppShell.goToTab(context, 2),
-                  child: const Text('Projeção'),
-                ),
-                child: () {
-                  final p = e.projection(
-                    MonthRange(month.add(-2), month.add(5)),
-                  );
-                  return BalanceTrendChart(
-                    points: [
-                      for (final c in p.columns)
-                        (c.month.shortLabel, c.accumulated),
-                    ],
-                    currentIndex: 2,
-                  );
-                }(),
-              ),
+              _DefaultDashboardSection(reference: month),
               const SizedBox(height: 12),
               _UpcomingCard(engine: e),
               const SizedBox(height: 12),
@@ -211,6 +173,67 @@ class _Header extends StatelessWidget {
           ),
         ),
         MonthSwitcher(month: month, onChanged: onMonth),
+      ],
+    );
+  }
+}
+
+/// Painel padrão do usuário (personalizável) exibido na tela inicial.
+/// Segue o mês selecionado no topo como mês de referência.
+class _DefaultDashboardSection extends StatelessWidget {
+  final YearMonth reference;
+  const _DefaultDashboardSection({required this.reference});
+
+  @override
+  Widget build(BuildContext context) {
+    final fc = context.watch<FinanceController>();
+    final d = fc.defaultDashboard;
+    if (d == null) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.space_dashboard_outlined,
+                    color: context.colors.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(d.name, style: context.text.titleMedium),
+                ],
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton(
+                    onPressed: () => push(
+                      context,
+                      DashboardsScreen(dashboardId: d.id, reference: reference),
+                    ),
+                    child: const Text('Meus painéis'),
+                  ),
+                  FilledButton.tonalIcon(
+                    key: const ValueKey('customize-dashboard'),
+                    icon: const Icon(Icons.dashboard_customize_outlined),
+                    label: const Text('Personalizar painel'),
+                    onPressed: () =>
+                        push(context, customizeDashboard(d, reference)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        DashboardGrid(dashboard: d, reference: reference),
       ],
     );
   }

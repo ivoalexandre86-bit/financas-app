@@ -19,13 +19,22 @@ class TransactionTile extends StatelessWidget {
   final FinancialEngine engine;
   final VoidCallback? onTap;
   final bool showDate;
+
+  /// Quando informado, exibe uma caixa de seleção para alternar o status
+  /// entre Concluída e Pendente sem abrir os detalhes (`true` = concluída).
+  final ValueChanged<bool>? onStatusToggle;
   const TransactionTile({
     super.key,
     required this.tx,
     required this.engine,
     this.onTap,
     this.showDate = true,
+    this.onStatusToggle,
   });
+
+  /// Receitas e despesas não canceladas podem ter o status alternado.
+  static bool canToggle(FinTransaction t) =>
+      !t.isTransfer && t.status != TransactionStatus.cancelled;
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +46,11 @@ class TransactionTile extends StatelessWidget {
         : Color(cat?.color ?? context.fin.subtle.toARGB32());
     final icon = isTransfer ? Icons.swap_horiz : categoryIcon(cat?.icon);
     final cancelled = tx.status == TransactionStatus.cancelled;
+    final completed = tx.status == TransactionStatus.completed;
+    final showToggle = onStatusToggle != null && canToggle(tx);
+    // Lançamentos ainda não concluídos ficam com valor esmaecido.
+    final openOpacity = completed || cancelled || isTransfer ? 1.0 : 0.72;
+    final overdue = !completed && !cancelled && tx.date.isBefore(engine.today);
     final subtitle = [
       if (showDate) Dates.format(tx.date),
       engine.locationLabel(tx),
@@ -45,10 +59,23 @@ class TransactionTile extends StatelessWidget {
 
     return ListTile(
       onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-      leading: CircleAvatar(
-        backgroundColor: color.withValues(alpha: 0.12),
-        child: Icon(icon, color: color, size: 20),
+      contentPadding: showToggle
+          ? const EdgeInsets.only(left: 4, right: 16, top: 2, bottom: 2)
+          : const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showToggle)
+            _StatusCheck(
+              completed: completed,
+              isIncome: isIncome,
+              onChanged: onStatusToggle!,
+            ),
+          CircleAvatar(
+            backgroundColor: color.withValues(alpha: 0.12),
+            child: Icon(icon, color: color, size: 20),
+          ),
+        ],
       ),
       title: Row(
         children: [
@@ -78,27 +105,61 @@ class TransactionTile extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          MoneyText(
-            isIncome || isTransfer ? tx.amount : -tx.amount,
-            showPlus: isIncome,
-            style: context.text.bodyLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-              decoration: cancelled ? TextDecoration.lineThrough : null,
+          Opacity(
+            opacity: openOpacity,
+            child: MoneyText(
+              isIncome || isTransfer ? tx.amount : -tx.amount,
+              showPlus: isIncome,
+              style: context.text.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+                decoration: cancelled ? TextDecoration.lineThrough : null,
+              ),
+              color: isTransfer
+                  ? null
+                  : isIncome
+                  ? context.fin.positive
+                  : null,
             ),
-            color: isTransfer
-                ? null
-                : isIncome
-                ? context.fin.positive
-                : null,
           ),
           const SizedBox(height: 2),
           Text(
-            tx.status.label,
+            overdue ? '${tx.status.label} · atrasada' : tx.status.label,
             style: context.text.labelSmall?.copyWith(
-              color: statusColor(context, tx.status),
+              color: overdue
+                  ? context.fin.negative
+                  : statusColor(context, tx.status),
+              fontWeight: completed ? null : FontWeight.w600,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Caixa de seleção redonda para concluir/reabrir um lançamento com um toque.
+class _StatusCheck extends StatelessWidget {
+  final bool completed;
+  final bool isIncome;
+  final ValueChanged<bool> onChanged;
+  const _StatusCheck({
+    required this.completed,
+    required this.isIncome,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final done = isIncome ? 'recebida' : 'paga';
+    return Tooltip(
+      message: completed ? 'Voltar para pendente' : 'Marcar como $done',
+      child: Checkbox(
+        value: completed,
+        shape: const CircleBorder(),
+        activeColor: context.fin.positive,
+        side: BorderSide(color: context.fin.warning, width: 2),
+        semanticLabel: completed ? 'Concluída' : 'Pendente',
+        onChanged: (v) => onChanged(v ?? false),
       ),
     );
   }

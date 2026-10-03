@@ -218,6 +218,9 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
               TransactionTile(
                 tx: x.tx,
                 engine: e,
+                onStatusToggle: (done) => context
+                    .read<FinanceController>()
+                    .toggleCompleted(x.tx, done),
                 onTap: () => push(context, TransactionDetailsScreen(tx: x.tx)),
               ),
         ],

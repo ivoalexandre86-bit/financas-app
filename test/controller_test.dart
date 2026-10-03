@@ -2,6 +2,7 @@ import 'package:financas_app/core/dates.dart';
 import 'package:financas_app/core/money.dart';
 import 'package:financas_app/data/finance_repository.dart';
 import 'package:financas_app/domain/engine/financial_engine.dart';
+import 'package:financas_app/domain/models/dashboard.dart';
 import 'package:financas_app/domain/models/entities.dart';
 import 'package:financas_app/state/finance_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,6 +35,9 @@ class MemoryRepo implements FinanceRepository {
   @override
   Future<List<ExternalTransaction>> loadExternalTransactions() async =>
       _all(Coll.externalTransactions, ExternalTransaction.fromJson);
+  @override
+  Future<List<Dashboard>> loadDashboards() async =>
+      _all(Coll.dashboards, Dashboard.fromJson);
   @override
   Future<void> write(List<WriteOp> ops) async {
     for (final op in ops) {
@@ -168,6 +172,71 @@ void main() {
     expect(cancelled, n);
     expect(n, inInclusiveRange(7, 9));
     expect(parts.length, 12);
+  });
+
+  test('alternar status direto da lista atualiza os indicadores', () async {
+    final t = FinTransaction(
+      id: 'p',
+      type: TransactionType.expense,
+      amount: const Money(10000),
+      description: 'Luz',
+      date: today,
+      accountId: 'a',
+      status: TransactionStatus.pending,
+    );
+    await fc.saveTransaction(t);
+    expect(fc.engine.accountBalance('a'), Money.zero);
+    final pending = fc.toggleCompleted(t, true);
+    // Otimista: já refletido antes de terminar a gravação.
+    expect(fc.engine.accountBalance('a'), const Money(-10000));
+    await pending;
+    expect(fc.data.transactions.single.status, TransactionStatus.completed);
+    expect(
+      repo.stores[Coll.transactions]!['p']!['status'],
+      TransactionStatus.completed.name,
+    );
+    await fc.toggleCompleted(fc.data.transactions.single, false);
+    expect(fc.data.transactions.single.status, TransactionStatus.pending);
+  });
+
+  test('ocorrência prevista é materializada ao concluir', () async {
+    final rule = RecurringRule(
+      id: 'r',
+      type: TransactionType.expense,
+      amount: const Money(5000),
+      description: 'Internet',
+      accountId: 'a',
+      startDate: today,
+    );
+    await fc.createRule(rule);
+    final v = fc.engine.transactionsUntil(today).firstWhere((t) => t.isVirtual);
+    await fc.toggleCompleted(v, true);
+    final saved = fc.data.transactions.single;
+    expect(saved.isVirtual, isFalse);
+    expect(saved.recurringId, 'r');
+    expect(saved.status, TransactionStatus.completed);
+    expect(
+      fc.engine.transactionsUntil(today).where((t) => t.isVirtual),
+      isEmpty,
+    );
+  });
+
+  test('painéis: padrão criado, duplicar, padrão e excluir', () async {
+    expect(fc.dashboards.length, 1);
+    final first = fc.defaultDashboard!;
+    expect(first.charts, isNotEmpty);
+    final copy = await fc.duplicateDashboard(first);
+    expect(fc.dashboards.length, 2);
+    expect(copy.charts.length, first.charts.length);
+    expect(copy.charts.first.id, isNot(first.charts.first.id));
+    await fc.setDefaultDashboard(copy);
+    expect(fc.defaultDashboard!.id, copy.id);
+    await fc.deleteDashboard(fc.dashboardById(copy.id)!);
+    expect(fc.defaultDashboard!.id, first.id);
+    expect(fc.defaultDashboard!.isDefault, isTrue);
+    expect(() => fc.deleteDashboard(fc.defaultDashboard!), throwsStateError);
+    final reloaded = await repo.loadDashboards();
+    expect(reloaded.single.id, first.id);
   });
 
   test('validações de transação', () {

@@ -1,6 +1,7 @@
 import 'package:sembast/sembast.dart';
 
 import '../domain/engine/financial_engine.dart';
+import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
 import 'db_factory.dart';
 
@@ -17,6 +18,7 @@ enum Coll {
   invoicePayments,
   openFinanceConnections,
   externalTransactions,
+  dashboards,
 }
 
 /// Uma operação de escrita (upsert ou delete) para gravação em lote.
@@ -37,6 +39,7 @@ abstract class FinanceRepository {
   Future<FinanceData> load();
   Future<List<OpenFinanceConnection>> loadConnections();
   Future<List<ExternalTransaction>> loadExternalTransactions();
+  Future<List<Dashboard>> loadDashboards();
   Future<void> write(List<WriteOp> ops);
   Future<void> saveSettings(AppSettings settings);
   Future<void> close();
@@ -95,6 +98,10 @@ class LocalFinanceRepository implements FinanceRepository {
   @override
   Future<List<ExternalTransaction>> loadExternalTransactions() =>
       _all(Coll.externalTransactions, ExternalTransaction.fromJson);
+
+  @override
+  Future<List<Dashboard>> loadDashboards() =>
+      _all(Coll.dashboards, Dashboard.fromJson);
 
   /// Grava todas as operações atomicamente (tudo ou nada).
   @override

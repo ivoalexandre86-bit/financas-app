@@ -34,6 +34,34 @@ class TxListFilter {
       (projectId == null ? 0 : 1);
 }
 
+/// Filtro rápido de status (barra acima da lista).
+enum QuickStatus {
+  all('Todas'),
+  pending('Pendentes'),
+  completed('Concluídas');
+
+  final String label;
+  const QuickStatus(this.label);
+
+  bool matches(TransactionStatus s) => switch (this) {
+    QuickStatus.all => true,
+    QuickStatus.pending =>
+      s == TransactionStatus.pending || s == TransactionStatus.planned,
+    QuickStatus.completed => s == TransactionStatus.completed,
+  };
+}
+
+/// Filtro rápido de seção (Receitas / Despesas).
+enum QuickType {
+  all('Tudo', null),
+  income('Receitas', TransactionType.income),
+  expense('Despesas', TransactionType.expense);
+
+  final String label;
+  final TransactionType? type;
+  const QuickType(this.label, this.type);
+}
+
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
   @override
@@ -47,6 +75,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   bool searching = false;
   String query = '';
   TxListFilter filter = const TxListFilter();
+  QuickStatus quickStatus = QuickStatus.all;
+  QuickType quickType = QuickType.all;
   final searchCtrl = TextEditingController();
 
   @override
@@ -77,6 +107,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           if (filter.types.isNotEmpty && !filter.types.contains(t.type)) {
             return false;
           }
+          if (quickType.type != null && t.type != quickType.type) return false;
+          if (!quickStatus.matches(t.status)) return false;
           if (filter.statuses.isNotEmpty &&
               !filter.statuses.contains(t.status)) {
             return false;
@@ -117,10 +149,18 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final e = fc.engine;
     final items = _items(fc);
     var inc = Money.zero, exp = Money.zero;
+    var incOpen = Money.zero, expOpen = Money.zero;
     for (final t in items) {
       if (t.status == TransactionStatus.cancelled) continue;
-      if (t.type == TransactionType.income) inc += t.amount;
-      if (t.type == TransactionType.expense) exp += t.amount;
+      final open = t.status != TransactionStatus.completed;
+      if (t.type == TransactionType.income) {
+        inc += t.amount;
+        if (open) incOpen += t.amount;
+      }
+      if (t.type == TransactionType.expense) {
+        exp += t.amount;
+        if (open) expOpen += t.amount;
+      }
     }
 
     // Agrupa por dia.
@@ -222,13 +262,24 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               ],
             ),
           ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _QuickFilters(
+              type: quickType,
+              status: quickStatus,
+              onType: (v) => setState(() => quickType = v),
+              onStatus: (v) => setState(() => quickStatus = v),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Row(
               children: [
-                _Total('Receitas', inc, context.fin.positive),
-                const SizedBox(width: 16),
-                _Total('Despesas', exp, context.fin.negative),
+                if (quickType != QuickType.expense)
+                  _Total('Receitas', inc, context.fin.positive, incOpen),
+                if (quickType == QuickType.all) const SizedBox(width: 16),
+                if (quickType != QuickType.income)
+                  _Total('Despesas', exp, context.fin.negative, expOpen),
                 const Spacer(),
                 Text(
                   '${items.length} itens',
@@ -277,6 +328,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                               tx: t,
                               engine: e,
                               showDate: false,
+                              onStatusToggle: (done) =>
+                                  _toggle(context, fc, t, done),
                               onTap: () => push(
                                 context,
                                 TransactionDetailsScreen(tx: t),
@@ -290,6 +343,22 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _toggle(
+    BuildContext context,
+    FinanceController fc,
+    FinTransaction t,
+    bool done,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await fc.toggleCompleted(t, done);
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Não foi possível alterar o status: $e')),
+      );
+    }
   }
 
   static String _dayLabel(DateTime d, DateTime today) {
@@ -309,7 +378,8 @@ class _Total extends StatelessWidget {
   final String label;
   final Money value;
   final Color color;
-  const _Total(this.label, this.value, this.color);
+  final Money open;
+  const _Total(this.label, this.value, this.color, this.open);
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -319,8 +389,84 @@ class _Total extends StatelessWidget {
         style: context.text.labelSmall?.copyWith(color: context.fin.subtle),
       ),
       MoneyText(value, style: context.text.titleSmall?.copyWith(color: color)),
+      Text(
+        open.isZero ? 'Tudo concluído' : 'Pendente ${open.format()}',
+        style: context.text.labelSmall?.copyWith(
+          color: open.isZero ? context.fin.subtle : context.fin.warning,
+        ),
+      ),
     ],
   );
+}
+
+/// Barra de filtros rápidos: seção (receitas/despesas) e status.
+class _QuickFilters extends StatelessWidget {
+  final QuickType type;
+  final QuickStatus status;
+  final ValueChanged<QuickType> onType;
+  final ValueChanged<QuickStatus> onStatus;
+  const _QuickFilters({
+    required this.type,
+    required this.status,
+    required this.onType,
+    required this.onStatus,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget chip(String label, bool selected, VoidCallback onTap, {Key? key}) =>
+        Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: ChoiceChip(
+            key: key,
+            label: Text(label),
+            selected: selected,
+            showCheckmark: false,
+            visualDensity: VisualDensity.compact,
+            onSelected: (_) => onTap(),
+          ),
+        );
+    // Em telas estreitas os dois grupos quebram em duas linhas.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Wrap(
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final t in QuickType.values)
+                chip(
+                  t.label,
+                  type == t,
+                  () => onType(t),
+                  key: ValueKey('qt-${t.name}'),
+                ),
+              Container(
+                width: 1,
+                height: 24,
+                margin: const EdgeInsets.only(left: 2, right: 8),
+                color: context.colors.outlineVariant,
+              ),
+            ],
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final s in QuickStatus.values)
+                chip(
+                  s.label,
+                  status == s,
+                  () => onStatus(s),
+                  key: ValueKey('qs-${s.name}'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _FilterSheet extends StatefulWidget {

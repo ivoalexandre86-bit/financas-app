@@ -49,6 +49,18 @@ class FinanceData {
     this.invoicePayments = const [],
     this.settings = const AppSettings(),
   });
+
+  FinanceData copyWith({List<FinTransaction>? transactions}) => FinanceData(
+    accounts: accounts,
+    cards: cards,
+    categories: categories,
+    projects: projects,
+    transactions: transactions ?? this.transactions,
+    recurringRules: recurringRules,
+    installmentGroups: installmentGroups,
+    invoicePayments: invoicePayments,
+    settings: settings,
+  );
 }
 
 /// Evento reconhecido em um mês, com valor assinado (+ receita, − despesa).
@@ -297,6 +309,16 @@ class FinancialEngine {
       );
     }
     return tx.date;
+  }
+
+  /// Data em que o lançamento é reconhecido como receita/despesa (mesma
+  /// regra de [recognitionMonth], com precisão de dia).
+  DateTime recognitionDate(FinTransaction tx) {
+    if (tx.cardId != null &&
+        data.settings.cardExpenseBasis == CardExpenseBasis.invoiceDue) {
+      return cashDate(tx);
+    }
+    return listDate(tx);
   }
 
   /// Lançamento já realizado: concluído, ou compra no cartão cuja fatura já
