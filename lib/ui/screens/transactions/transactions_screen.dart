@@ -12,6 +12,7 @@ import '../import/expense_import_screen.dart';
 import '../../widgets/common.dart';
 import '../../widgets/invoice_tile.dart';
 import '../../widgets/transaction_tile.dart';
+import '../../widgets/tx_grid.dart';
 import '../cards/invoice_details_screen.dart';
 import 'transaction_details_screen.dart';
 import 'transaction_form_screen.dart';
@@ -85,6 +86,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
   /// Fatura selecionada com clique simples (desktop).
   String? selectedInvoice;
+
+  /// Ordenação da grade (clique no cabeçalho da coluna).
+  GridSort sort = GridSort.date;
+  bool ascending = false;
 
   @override
   void dispose() {
@@ -252,12 +257,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       }
     }
 
-    // Agrupa por dia.
-    final groups = <DateTime, List<_Entry>>{};
-    for (final it in items) {
-      groups.putIfAbsent(Dates.dateOnly(it.date), () => []).add(it);
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: searching
@@ -409,57 +408,52 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                     onAction: () =>
                         push(context, const TransactionFormScreen()),
                   )
-                : ListView.builder(
-                    padding: const EdgeInsets.only(bottom: 96),
-                    itemCount: groups.length,
-                    itemBuilder: (context, i) {
-                      final day = groups.keys.elementAt(i);
-                      final txs = groups[day]!;
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                            child: Text(
-                              _dayLabel(day, e.today),
-                              style: context.text.labelLarge?.copyWith(
-                                color: context.fin.subtle,
+                : LayoutBuilder(
+                    builder: (context, box) {
+                      final layout = GridLayout.of(box.maxWidth);
+                      _sortItems(items, e);
+                      return Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          layout.compact ? 8 : 16,
+                          8,
+                          layout.compact ? 8 : 16,
+                          0,
+                        ),
+                        child: GridPanel(
+                          child: Column(
+                            children: [
+                              if (!layout.compact)
+                                GridHeader(
+                                  layout: layout,
+                                  sort: sort,
+                                  ascending: ascending,
+                                  onSort: _onSort,
+                                ),
+                              Expanded(
+                                child: ListView.builder(
+                                  padding: const EdgeInsets.only(bottom: 88),
+                                  itemCount: items.length,
+                                  itemBuilder: (context, i) =>
+                                      switch (items[i]) {
+                                        final _TxEntry it => _txRow(
+                                          context,
+                                          fc,
+                                          it,
+                                          i,
+                                          layout,
+                                        ),
+                                        final _InvoiceEntry it => _invoiceRow(
+                                          context,
+                                          it,
+                                          i,
+                                          layout,
+                                        ),
+                                      },
+                                ),
                               ),
-                            ),
+                            ],
                           ),
-                          for (final it in txs)
-                            switch (it) {
-                              _TxEntry(
-                                :final tx,
-                                :final amount,
-                                :final isCard,
-                              ) =>
-                                TransactionTile(
-                                  tx: tx,
-                                  engine: e,
-                                  showDate: false,
-                                  shareAmount: amount,
-                                  onStatusToggle: (done) =>
-                                      _toggle(context, fc, tx, done),
-                                  onInvoiceTap: isCard
-                                      ? () => _openInvoice(e.invoiceOf(tx)!)
-                                      : null,
-                                  onTap: () => push(
-                                    context,
-                                    TransactionDetailsScreen(tx: tx),
-                                  ),
-                                ),
-                              _InvoiceEntry(:final invoice, :final slice) =>
-                                InvoiceTile(
-                                  invoice: invoice,
-                                  slice: slice,
-                                  selected: selectedInvoice == it.key,
-                                  onSelect: () =>
-                                      setState(() => selectedInvoice = it.key),
-                                  onOpen: () => _openInvoice(invoice),
-                                ),
-                            },
-                        ],
+                        ),
                       );
                     },
                   ),
@@ -468,6 +462,526 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       ),
     );
   }
+
+  void _onSort(GridSort s) => setState(() {
+    if (s == sort) {
+      ascending = !ascending;
+    } else {
+      sort = s;
+      // Datas e valores começam do maior; textos, de A a Z.
+      ascending = s != GridSort.date && s != GridSort.amount;
+    }
+  });
+
+  void _sortItems(List<_Entry> items, FinancialEngine e) {
+    if (sort == GridSort.date && !ascending) return; // ordem de _items
+    int cmp(_Entry a, _Entry b) => switch (sort) {
+      GridSort.date => a.date.compareTo(b.date),
+      GridSort.category => _cols(e, a).$1.compareTo(_cols(e, b).$1),
+      GridSort.subcategory => _cols(e, a).$2.compareTo(_cols(e, b).$2),
+      GridSort.description => _cols(
+        e,
+        a,
+      ).$3.toLowerCase().compareTo(_cols(e, b).$3.toLowerCase()),
+      GridSort.amount => _amount(a).cents.compareTo(_amount(b).cents),
+      GridSort.status => _statusRank(e, a).compareTo(_statusRank(e, b)),
+    };
+    items.sort((a, b) {
+      final c = ascending ? cmp(a, b) : cmp(b, a);
+      return c != 0 ? c : b.date.compareTo(a.date);
+    });
+  }
+
+  /// (categoria, subcategoria, descrição) exibidas na grade.
+  static (String, String, String) _cols(FinancialEngine e, _Entry it) {
+    switch (it) {
+      case _InvoiceEntry(:final invoice):
+        return ('Cartão', invoice.card.name, invoice.title);
+      case _TxEntry(:final tx):
+        if (tx.isTransfer) {
+          return ('Transferência', e.locationLabel(tx), tx.description);
+        }
+        final cat = e.data.categoryById[tx.categoryId];
+        final parent = e.data.categoryById[cat?.parentId];
+        if (cat == null) return ('Sem categoria', '', tx.description);
+        return parent == null
+            ? (cat.name, '', tx.description)
+            : (parent.name, cat.name, tx.description);
+    }
+  }
+
+  /// Valor com sinal: receitas positivas, despesas negativas.
+  static Money _amount(_Entry it) => switch (it) {
+    _InvoiceEntry(:final slice) => -slice.amount,
+    _TxEntry(:final tx, :final amount) =>
+      tx.type == TransactionType.expense ? -amount : amount,
+  };
+
+  static int _statusRank(FinancialEngine e, _Entry it) => switch (it) {
+    _InvoiceEntry(:final slice) => slice.settled ? 3 : 1,
+    _TxEntry(:final tx) => switch (tx.status) {
+      TransactionStatus.completed => 3,
+      TransactionStatus.cancelled => 4,
+      TransactionStatus.planned => 2,
+      TransactionStatus.pending => tx.date.isBefore(e.today) ? 0 : 1,
+    },
+  };
+
+  Widget _txRow(
+    BuildContext context,
+    FinanceController fc,
+    _TxEntry it,
+    int index,
+    GridLayout layout,
+  ) {
+    final e = fc.engine;
+    final tx = it.tx;
+    final (catName, subName, desc) = _cols(e, it);
+    final cat = e.data.categoryById[tx.categoryId];
+    final catColor = tx.isTransfer
+        ? context.fin.subtle
+        : Color(cat?.color ?? context.fin.subtle.toARGB32());
+    final isIncome = tx.type == TransactionType.income;
+    final accent = tx.isTransfer
+        ? context.fin.subtle
+        : isIncome
+        ? context.fin.positive
+        : context.fin.expense;
+    final cancelled = tx.status == TransactionStatus.cancelled;
+    final completed = tx.status == TransactionStatus.completed;
+    final overdue = !completed && !cancelled && tx.date.isBefore(e.today);
+    final (statusLabel, statusColor) = cancelled
+        ? ('Cancelada', context.fin.subtle)
+        : completed
+        ? (
+            tx.isTransfer ? 'Concluída' : (isIncome ? 'Recebida' : 'Paga'),
+            context.fin.positive,
+          )
+        : overdue
+        ? ('Atrasada', context.fin.negative)
+        : tx.status == TransactionStatus.planned
+        ? ('Prevista', context.colors.primary)
+        : ('Pendente', context.fin.warning);
+    final canToggle = TransactionTile.canToggle(tx);
+    final status = NeonStatus(
+      key: ValueKey('tx-status-${tx.id}-${tx.date.toIso8601String()}'),
+      label: statusLabel,
+      color: statusColor,
+      done: completed,
+      tooltip: completed
+          ? 'Voltar para pendente'
+          : 'Marcar como ${isIncome ? 'recebida' : 'paga'}',
+      onTap: canToggle ? () => _toggle(context, fc, tx, !completed) : null,
+    );
+    final money = MoneyText(
+      isIncome || tx.isTransfer ? it.amount : -it.amount,
+      showPlus: isIncome,
+      color: tx.isTransfer
+          ? context.fin.subtle
+          : isIncome
+          ? context.fin.positive
+          : null,
+      style: context.text.bodyMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+        decoration: cancelled ? TextDecoration.lineThrough : null,
+      ),
+    );
+    final invoice = it.isCard ? e.invoiceOf(tx) : null;
+    final invoiceLink = invoice == null
+        ? null
+        : InkWell(
+            onTap: () => _openInvoice(invoice),
+            borderRadius: BorderRadius.circular(4),
+            child: Text(
+              '${invoice.title} ›',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.labelSmall?.copyWith(
+                color: GridPalette.of(context).neon,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          );
+    final extras = [
+      if (tx.isInstallment) tx.installmentLabel,
+      if (invoice != null) 'compra ${Dates.formatShort(tx.date)}',
+    ].join(' · ');
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    final descStyle = context.text.bodyMedium?.copyWith(
+      fontWeight: layout.compact ? FontWeight.w600 : null,
+      decoration: cancelled ? TextDecoration.lineThrough : null,
+    );
+    void open() => push(context, TransactionDetailsScreen(tx: tx));
+
+    if (layout.compact) {
+      return GridRowShell(
+        accent: accent,
+        zebra: index.isOdd,
+        dimmed: cancelled,
+        onTap: open,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 5, 10, 5),
+          child: Row(
+            children: [
+              _DateBadge(it.date),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            desc,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: descStyle,
+                          ),
+                        ),
+                        if (tx.isRecurring) ...[
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.autorenew,
+                            size: 12,
+                            color: context.fin.subtle,
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        _Dot(catColor),
+                        const SizedBox(width: 5),
+                        Flexible(
+                          child: Text(
+                            [
+                              subName.isEmpty ? catName : '$catName › $subName',
+                              if (extras.isNotEmpty) extras,
+                            ].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: subtle,
+                          ),
+                        ),
+                      ],
+                    ),
+                    ?invoiceLink,
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [money, const SizedBox(height: 4), status],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return GridRowShell(
+      accent: accent,
+      zebra: index.isOdd,
+      dimmed: cancelled,
+      height: GridLayout.rowH,
+      onTap: open,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: GridLayout.dateW,
+            child: GridCell(
+              child: Text(
+                Dates.format(it.date),
+                style: context.text.bodySmall?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: GridCell(
+              child: Row(
+                children: [
+                  _Dot(catColor),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      layout.showSub || subName.isEmpty
+                          ? catName
+                          : '$catName › $subName',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (layout.showSub)
+            Expanded(
+              flex: 3,
+              child: GridCell(
+                child: Text(
+                  subName.isEmpty ? '—' : subName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: subName.isEmpty ? subtle : context.text.bodyMedium,
+                ),
+              ),
+            ),
+          Expanded(
+            flex: 5,
+            child: GridCell(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      desc,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: descStyle,
+                    ),
+                  ),
+                  if (tx.isRecurring) ...[
+                    const SizedBox(width: 4),
+                    Icon(Icons.autorenew, size: 13, color: context.fin.subtle),
+                  ],
+                  if (extras.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    Text(extras, style: subtle),
+                  ],
+                  if (invoiceLink != null) ...[
+                    const SizedBox(width: 8),
+                    Flexible(child: invoiceLink),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          SizedBox(
+            width: GridLayout.amountW,
+            child: GridCell(
+              right: true,
+              background: GridPalette.of(context).valueBg,
+              child: Opacity(opacity: completed ? 1 : 0.8, child: money),
+            ),
+          ),
+          SizedBox(
+            width: GridLayout.statusW,
+            child: GridCell(child: status),
+          ),
+          const SizedBox(width: GridLayout.actionW),
+        ],
+      ),
+    );
+  }
+
+  Widget _invoiceRow(
+    BuildContext context,
+    _InvoiceEntry it,
+    int index,
+    GridLayout layout,
+  ) {
+    final inv = it.invoice;
+    final slice = it.slice;
+    final p = GridPalette.of(context);
+    final n = inv.transactions.length;
+    final partial = slice.amount != inv.total && !inv.isCredit;
+    final info = [
+      '$n ${n == 1 ? 'lançamento' : 'lançamentos'}',
+      if (slice.settled)
+        'paga ${Dates.formatShort(slice.date)}'
+      else
+        'vence ${Dates.formatShort(inv.dueDate)}',
+      if (partial) 'parte de ${inv.total.format()}',
+    ].join(' · ');
+    final touch = isTouchPlatform;
+    final selected = selectedInvoice == it.key;
+    final status = NeonStatus(
+      label: invoiceSliceStatus(inv, slice),
+      color: invoiceSliceColor(context, inv, slice),
+      done: slice.settled && inv.isSettled,
+    );
+    final money = MoneyText(
+      -slice.amount,
+      showPlus: slice.amount.isNegative,
+      color: slice.amount.isNegative ? context.fin.positive : null,
+      style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+    );
+    final openBtn = IconButton(
+      key: ValueKey('invoice-open-${inv.card.id}-${inv.key}'),
+      tooltip: 'Abrir fatura',
+      visualDensity: VisualDensity.compact,
+      iconSize: 20,
+      color: p.neon,
+      icon: const Icon(Icons.chevron_right),
+      onPressed: () => _openInvoice(inv),
+    );
+    final cardColor = Color(inv.card.color);
+    final linkStyle = context.text.bodyMedium?.copyWith(
+      color: p.neon,
+      fontWeight: FontWeight.w600,
+    );
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    final title = Text(
+      inv.title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+    );
+
+    if (layout.compact) {
+      return GridRowShell(
+        key: ValueKey('invoice-${inv.card.id}-${inv.key}'),
+        accent: cardColor,
+        zebra: index.isOdd,
+        selected: selected,
+        onTap: touch ? () => _openInvoice(inv) : () => _select(it),
+        onDoubleTap: touch ? null : () => _openInvoice(inv),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 5, 0, 5),
+          child: Row(
+            children: [
+              _DateBadge(it.date),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    title,
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Icon(Icons.credit_card, size: 12, color: cardColor),
+                        const SizedBox(width: 5),
+                        Flexible(
+                          child: Text(
+                            info,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: subtle,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [money, const SizedBox(height: 4), status],
+              ),
+              openBtn,
+            ],
+          ),
+        ),
+      );
+    }
+
+    return GridRowShell(
+      key: ValueKey('invoice-${inv.card.id}-${inv.key}'),
+      accent: cardColor,
+      zebra: index.isOdd,
+      selected: selected,
+      height: GridLayout.rowH,
+      onTap: touch ? () => _openInvoice(inv) : () => _select(it),
+      onDoubleTap: touch ? null : () => _openInvoice(inv),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: GridLayout.dateW,
+            child: GridCell(
+              child: Text(
+                Dates.format(it.date),
+                style: context.text.bodySmall?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: GridCell(
+              child: Row(
+                children: [
+                  Icon(Icons.credit_card, size: 14, color: cardColor),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      layout.showSub ? 'Cartão' : 'Cartão › ${inv.card.name}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: linkStyle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (layout.showSub)
+            Expanded(
+              flex: 3,
+              child: GridCell(
+                child: Text(
+                  inv.card.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium,
+                ),
+              ),
+            ),
+          Expanded(
+            flex: 5,
+            child: GridCell(
+              child: Row(
+                children: [
+                  Flexible(flex: 3, child: title),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    flex: 2,
+                    child: Text(
+                      info,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: subtle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(
+            width: GridLayout.amountW,
+            child: GridCell(right: true, background: p.valueBg, child: money),
+          ),
+          SizedBox(
+            width: GridLayout.statusW,
+            child: GridCell(child: status),
+          ),
+          SizedBox(
+            width: GridLayout.actionW,
+            child: Center(child: openBtn),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _select(_InvoiceEntry it) => setState(() => selectedInvoice = it.key);
 
   void _openInvoice(Invoice inv) {
     setState(() => selectedInvoice = '${inv.card.id}|${inv.key}');
@@ -488,18 +1002,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         SnackBar(content: Text('Não foi possível alterar o status: $e')),
       );
     }
-  }
-
-  static String _dayLabel(DateTime d, DateTime today) {
-    if (d == today) return 'Hoje · ${Dates.format(d)}';
-    if (d == today.subtract(const Duration(days: 1))) {
-      return 'Ontem · ${Dates.format(d)}';
-    }
-    if (d == today.add(const Duration(days: 1))) {
-      return 'Amanhã · ${Dates.format(d)}';
-    }
-    const wd = ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'];
-    return '${wd[d.weekday - 1]} · ${Dates.format(d)}';
   }
 }
 
@@ -758,4 +1260,65 @@ class _FilterSheetState extends State<_FilterSheet> {
       ),
     );
   }
+}
+
+/// Data compacta (dia/mês + dia da semana) das linhas no celular.
+class _DateBadge extends StatelessWidget {
+  final DateTime date;
+  const _DateBadge(this.date);
+
+  @override
+  Widget build(BuildContext context) {
+    const wd = ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'];
+    final p = GridPalette.of(context);
+    return Container(
+      width: 44,
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        color: p.neon.withValues(alpha: 0.07),
+        border: Border.all(color: p.neon.withValues(alpha: 0.25), width: 0.8),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            Dates.formatShort(date),
+            style: context.text.labelMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          Text(
+            wd[date.weekday - 1].toUpperCase(),
+            style: context.text.labelSmall?.copyWith(
+              color: p.neon,
+              fontSize: 9,
+              letterSpacing: 1,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Ponto luminoso com a cor da categoria.
+class _Dot extends StatelessWidget {
+  final Color color;
+  const _Dot(this.color);
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 8,
+    height: 8,
+    decoration: BoxDecoration(
+      color: color,
+      shape: BoxShape.circle,
+      boxShadow: [
+        BoxShadow(color: color.withValues(alpha: 0.6), blurRadius: 5),
+      ],
+    ),
+  );
 }
