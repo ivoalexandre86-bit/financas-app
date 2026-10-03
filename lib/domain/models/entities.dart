@@ -983,11 +983,16 @@ class AppSettings {
   /// fatura (padrão) ou mostra as compras individualmente.
   final bool groupCardInvoices;
 
+  /// Colunas da grade de transações (ordem, visibilidade e largura), no
+  /// formato JSON de `GridColumnsConfig`. Nulo = padrão.
+  final List<Object?>? txGridColumns;
+
   const AppSettings({
     this.themeMode = 'system',
     this.cardExpenseBasis = CardExpenseBasis.invoiceDue,
     this.isSampleData = false,
     this.groupCardInvoices = true,
+    this.txGridColumns,
   });
 
   AppSettings copyWith({
@@ -995,11 +1000,13 @@ class AppSettings {
     CardExpenseBasis? cardExpenseBasis,
     bool? isSampleData,
     bool? groupCardInvoices,
+    List<Object?>? txGridColumns,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     cardExpenseBasis: cardExpenseBasis ?? this.cardExpenseBasis,
     isSampleData: isSampleData ?? this.isSampleData,
     groupCardInvoices: groupCardInvoices ?? this.groupCardInvoices,
+    txGridColumns: txGridColumns ?? this.txGridColumns,
   );
 
   Map<String, Object?> toJson() => {
@@ -1007,6 +1014,7 @@ class AppSettings {
     'cardExpenseBasis': cardExpenseBasis.name,
     'isSampleData': isSampleData,
     'groupCardInvoices': groupCardInvoices,
+    'txGridColumns': txGridColumns,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> j) => AppSettings(
@@ -1018,5 +1026,6 @@ class AppSettings {
     ),
     isSampleData: (j['isSampleData'] as bool?) ?? false,
     groupCardInvoices: (j['groupCardInvoices'] as bool?) ?? true,
+    txGridColumns: j['txGridColumns'] as List<Object?>?,
   );
 }

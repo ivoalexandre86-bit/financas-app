@@ -55,36 +55,172 @@ class GridPalette {
   }
 }
 
-/// Colunas visíveis conforme a largura disponível.
+/// Colunas da grade. Cada uma pode ser ordenada, ocultada, reordenada e
+/// redimensionada pelo usuário (ver [GridColumnsConfig]).
+enum GridColumn {
+  date('Data', 96, 72),
+  category('Categoria', 170, 90),
+  subcategory('Subcategoria', 150, 80),
+  description('Descrição', 300, 120),
+  notes('Observações', 220, 90),
+  amount('Valor', 136, 96, right: true),
+  status('Status', 116, 96);
+
+  final String label;
+  final double defaultWidth;
+  final double minWidth;
+  final bool right;
+  const GridColumn(
+    this.label,
+    this.defaultWidth,
+    this.minWidth, {
+    this.right = false,
+  });
+
+  static const maxWidth = 640.0;
+
+  /// Colunas de texto, que cedem espaço quando a tela é estreita.
+  bool get flexible =>
+      this == category ||
+      this == subcategory ||
+      this == description ||
+      this == notes;
+}
+
+/// Preferência de uma coluna: visível ou não e largura em pixels.
+class GridColumnSetting {
+  final GridColumn column;
+  final bool visible;
+  final double width;
+  GridColumnSetting(this.column, {this.visible = true, double? width})
+    : width = width ?? column.defaultWidth;
+
+  GridColumnSetting copyWith({bool? visible, double? width}) =>
+      GridColumnSetting(
+        column,
+        visible: visible ?? this.visible,
+        width: width ?? this.width,
+      );
+}
+
+/// Ordem, visibilidade e largura das colunas da grade de transações. Fica
+/// salva nas preferências do usuário ([AppSettings.txGridColumns]).
+class GridColumnsConfig {
+  final List<GridColumnSetting> columns;
+  const GridColumnsConfig(this.columns);
+
+  static final standard = GridColumnsConfig([
+    for (final c in GridColumn.values) GridColumnSetting(c),
+  ]);
+
+  List<GridColumnSetting> get visible =>
+      columns.where((c) => c.visible).toList();
+
+  bool isVisible(GridColumn c) =>
+      columns.any((s) => s.column == c && s.visible);
+
+  GridColumnsConfig _map(
+    GridColumn c,
+    GridColumnSetting Function(GridColumnSetting) f,
+  ) => GridColumnsConfig([for (final s in columns) s.column == c ? f(s) : s]);
+
+  GridColumnsConfig withWidth(GridColumn c, double w) => _map(
+    c,
+    (s) => s.copyWith(width: w.clamp(c.minWidth, GridColumn.maxWidth)),
+  );
+
+  /// Ao menos uma coluna continua visível.
+  GridColumnsConfig withVisible(GridColumn c, bool v) {
+    if (!v && visible.length <= 1) return this;
+    return _map(c, (s) => s.copyWith(visible: v));
+  }
+
+  /// Move a coluna da posição [from] para a posição final [to].
+  GridColumnsConfig moved(int from, int to) {
+    final list = [...columns];
+    final item = list.removeAt(from);
+    list.insert(to.clamp(0, list.length), item);
+    return GridColumnsConfig(list);
+  }
+
+  List<Map<String, Object?>> toJson() => [
+    for (final s in columns)
+      {'id': s.column.name, 'visible': s.visible, 'width': s.width},
+  ];
+
+  /// Tolerante: ignora colunas desconhecidas e acrescenta as novas (como
+  /// Observações para quem já tinha salvo a grade) na posição padrão.
+  factory GridColumnsConfig.fromJson(Object? json) {
+    if (json is! List) return standard;
+    final out = <GridColumnSetting>[];
+    for (final j in json) {
+      if (j is! Map) continue;
+      final c = GridColumn.values.where((c) => c.name == j['id']).firstOrNull;
+      if (c == null || out.any((s) => s.column == c)) continue;
+      final w = (j['width'] as num?)?.toDouble();
+      out.add(
+        GridColumnSetting(
+          c,
+          visible: j['visible'] as bool? ?? true,
+          width: w?.clamp(c.minWidth, GridColumn.maxWidth),
+        ),
+      );
+    }
+    for (final c in GridColumn.values) {
+      if (out.any((s) => s.column == c)) continue;
+      out.insert(c.index.clamp(0, out.length), GridColumnSetting(c));
+    }
+    if (!out.any((s) => s.visible)) return standard;
+    return GridColumnsConfig(out);
+  }
+}
+
+/// Geometria da grade para a largura disponível: colunas visíveis com a
+/// largura final. A sobra de espaço vai para Descrição (ou Observações);
+/// se faltar espaço, a grade rola na horizontal.
 class GridLayout {
   /// Celular: linhas de duas linhas, sem cabeçalho de colunas.
   final bool compact;
+  final GridColumnsConfig config;
+  final List<(GridColumn, double)> cells;
+  final double totalWidth;
 
-  /// Coluna própria para a subcategoria (telas largas).
-  final bool showSub;
-  const GridLayout({required this.compact, required this.showSub});
+  const GridLayout._(this.compact, this.config, this.cells, this.totalWidth);
 
-  factory GridLayout.of(double width) =>
-      GridLayout(compact: width < 640, showSub: width >= 980);
+  factory GridLayout.of(double width, GridColumnsConfig config) {
+    final vis = config.visible;
+    var sum = stripeW + actionW;
+    var slack = 0.0; // quanto as colunas de texto podem encolher
+    for (final s in vis) {
+      sum += s.width;
+      if (s.column.flexible) slack += s.width - s.column.minWidth;
+    }
+    final extra = width > sum ? width - sum : 0.0;
+    // Falta espaço: encolhe as colunas de texto proporcionalmente até o
+    // mínimo de cada uma; só depois a grade passa a rolar na horizontal.
+    final deficit = width < sum ? sum - width : 0.0;
+    final shrink = slack <= 0 ? 0.0 : (deficit / slack).clamp(0.0, 1.0);
+    final grow = config.isVisible(GridColumn.description)
+        ? GridColumn.description
+        : config.isVisible(GridColumn.notes)
+        ? GridColumn.notes
+        : vis.last.column;
+    double sized(GridColumnSetting s) {
+      if (s.column == grow && extra > 0) return s.width + extra;
+      if (!s.column.flexible) return s.width;
+      return s.width - (s.width - s.column.minWidth) * shrink;
+    }
 
-  static const dateW = 92.0;
-  static const amountW = 136.0;
-  static const statusW = 116.0;
+    return GridLayout._(width < 640, config, [
+      for (final s in vis) (s.column, sized(s)),
+    ], sum + extra - slack * shrink);
+  }
+
+  bool shows(GridColumn c) => config.isVisible(c);
+
+  static const stripeW = 3.0;
   static const actionW = 40.0;
   static const rowH = 36.0;
-}
-
-/// Colunas ordenáveis.
-enum GridSort {
-  date('Data'),
-  category('Categoria'),
-  subcategory('Subcategoria'),
-  description('Descrição'),
-  amount('Valor'),
-  status('Status');
-
-  final String label;
-  const GridSort(this.label);
 }
 
 /// Painel com borda em degradê e brilho suave que envolve a grade.
@@ -124,59 +260,101 @@ class GridPanel extends StatelessWidget {
   }
 }
 
-/// Cabeçalho escuro da grade, com sublinhado neon e ordenação por clique.
+/// Cabeçalho escuro da grade, com sublinhado neon, ordenação por clique,
+/// alça para ajustar a largura de cada coluna e botão de configuração.
 class GridHeader extends StatelessWidget {
   final GridLayout layout;
-  final GridSort sort;
+  final GridColumn sort;
   final bool ascending;
-  final ValueChanged<GridSort> onSort;
+  final ValueChanged<GridColumn> onSort;
+
+  /// Arrasto da borda direita de uma coluna (delta em pixels).
+  final void Function(GridColumn column, double delta) onResize;
+  final VoidCallback onResizeEnd;
+  final VoidCallback onConfigure;
   const GridHeader({
     super.key,
     required this.layout,
     required this.sort,
     required this.ascending,
     required this.onSort,
+    required this.onResize,
+    required this.onResizeEnd,
+    required this.onConfigure,
   });
 
   @override
   Widget build(BuildContext context) {
     final p = GridPalette.of(context);
-    Widget cell(GridSort s, {bool right = false}) {
+    Widget cell(GridColumn s) {
       final active = s == sort;
       final style = context.text.labelSmall?.copyWith(
         color: active ? p.neon : p.headerText,
         fontWeight: FontWeight.w700,
         letterSpacing: 1.2,
       );
-      return InkWell(
-        key: ValueKey('grid-sort-${s.name}'),
-        onTap: () => onSort(s),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Row(
-            mainAxisAlignment: right
-                ? MainAxisAlignment.end
-                : MainAxisAlignment.start,
-            children: [
-              Flexible(
-                child: Text(
-                  s.label.toUpperCase(),
-                  style: style,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: InkWell(
+              key: ValueKey('grid-sort-${s.name}'),
+              onTap: () => onSort(s),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  mainAxisAlignment: s.right
+                      ? MainAxisAlignment.end
+                      : MainAxisAlignment.start,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        s.label.toUpperCase(),
+                        style: style,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(
+                      active
+                          ? (ascending
+                                ? Icons.arrow_drop_up
+                                : Icons.arrow_drop_down)
+                          : Icons.unfold_more,
+                      size: active ? 18 : 13,
+                      color: active
+                          ? p.neon
+                          : p.headerText.withValues(alpha: 0.45),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 2),
-              Icon(
-                active
-                    ? (ascending ? Icons.arrow_drop_up : Icons.arrow_drop_down)
-                    : Icons.unfold_more,
-                size: active ? 18 : 13,
-                color: active ? p.neon : p.headerText.withValues(alpha: 0.45),
-              ),
-            ],
+            ),
           ),
-        ),
+          // Alça de redimensionamento na borda direita.
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: 9,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.resizeColumn,
+              child: GestureDetector(
+                key: ValueKey('grid-resize-${s.name}'),
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragUpdate: (d) => onResize(s, d.delta.dx),
+                onHorizontalDragEnd: (_) => onResizeEnd(),
+                child: Center(
+                  child: Container(
+                    width: 1,
+                    height: 16,
+                    color: p.headerText.withValues(alpha: 0.25),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       );
     }
 
@@ -188,18 +366,20 @@ class GridHeader extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(width: 3),
-              SizedBox(width: GridLayout.dateW, child: cell(GridSort.date)),
-              Expanded(flex: 3, child: cell(GridSort.category)),
-              if (layout.showSub)
-                Expanded(flex: 3, child: cell(GridSort.subcategory)),
-              Expanded(flex: 5, child: cell(GridSort.description)),
+              const SizedBox(width: GridLayout.stripeW),
+              for (final (c, w) in layout.cells)
+                SizedBox(width: w, child: cell(c)),
               SizedBox(
-                width: GridLayout.amountW,
-                child: cell(GridSort.amount, right: true),
+                width: GridLayout.actionW,
+                child: IconButton(
+                  key: const ValueKey('grid-configure'),
+                  tooltip: 'Configurar colunas',
+                  iconSize: 17,
+                  color: p.headerText,
+                  icon: const Icon(Icons.view_column_outlined),
+                  onPressed: onConfigure,
+                ),
               ),
-              SizedBox(width: GridLayout.statusW, child: cell(GridSort.status)),
-              const SizedBox(width: GridLayout.actionW),
             ],
           ),
           // Linha neon sob o cabeçalho.
@@ -208,21 +388,132 @@ class GridHeader extends StatelessWidget {
             right: 0,
             bottom: 0,
             height: 2,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [p.neon, p.neon2, p.neon.withValues(alpha: 0)],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: p.neon.withValues(alpha: 0.6),
-                    blurRadius: 8,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [p.neon, p.neon2, p.neon.withValues(alpha: 0)],
                   ),
-                ],
+                  boxShadow: [
+                    BoxShadow(
+                      color: p.neon.withValues(alpha: 0.6),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Folha para escolher, ordenar e dimensionar as colunas da grade.
+class GridColumnsSheet extends StatefulWidget {
+  final GridColumnsConfig initial;
+  const GridColumnsSheet({super.key, required this.initial});
+
+  @override
+  State<GridColumnsSheet> createState() => _GridColumnsSheetState();
+}
+
+class _GridColumnsSheetState extends State<GridColumnsSheet> {
+  late GridColumnsConfig cfg = widget.initial;
+
+  @override
+  Widget build(BuildContext context) {
+    final cols = cfg.columns;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Colunas da grade', style: context.text.titleLarge),
+            const SizedBox(height: 4),
+            Text(
+              'Marque as colunas que quer ver, arraste para mudar a ordem e '
+              'ajuste a largura. Na grade, você também pode arrastar a borda '
+              'do cabeçalho.',
+              style: context.text.bodySmall?.copyWith(
+                color: context.fin.subtle,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: ReorderableListView.builder(
+                shrinkWrap: true,
+                buildDefaultDragHandles: false,
+                itemCount: cols.length,
+                onReorderItem: (a, b) => setState(() => cfg = cfg.moved(a, b)),
+                itemBuilder: (context, i) {
+                  final s = cols[i];
+                  final c = s.column;
+                  return Row(
+                    key: ValueKey('col-${c.name}'),
+                    children: [
+                      ReorderableDragStartListener(
+                        index: i,
+                        child: const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Icon(Icons.drag_indicator),
+                        ),
+                      ),
+                      Checkbox(
+                        key: ValueKey('col-visible-${c.name}'),
+                        value: s.visible,
+                        onChanged: (v) => setState(
+                          () => cfg = cfg.withVisible(c, v ?? false),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 110,
+                        child: Text(c.label, overflow: TextOverflow.ellipsis),
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: s.width.clamp(c.minWidth, GridColumn.maxWidth),
+                          min: c.minWidth,
+                          max: GridColumn.maxWidth,
+                          onChanged: s.visible
+                              ? (v) => setState(() => cfg = cfg.withWidth(c, v))
+                              : null,
+                        ),
+                      ),
+                      SizedBox(
+                        width: 44,
+                        child: Text(
+                          '${s.width.round()}',
+                          textAlign: TextAlign.right,
+                          style: context.text.labelSmall,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: () =>
+                      setState(() => cfg = GridColumnsConfig.standard),
+                  child: const Text('Restaurar padrão'),
+                ),
+                const Spacer(),
+                FilledButton(
+                  key: const ValueKey('grid-columns-save'),
+                  onPressed: () => Navigator.pop(context, cfg),
+                  child: const Text('Aplicar'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

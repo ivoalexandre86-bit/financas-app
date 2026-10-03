@@ -88,12 +88,22 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   String? selectedInvoice;
 
   /// Ordenação da grade (clique no cabeçalho da coluna).
-  GridSort sort = GridSort.date;
+  GridColumn sort = GridColumn.date;
   bool ascending = false;
+
+  /// Colunas enquanto o usuário arrasta a borda de uma delas (salvas ao
+  /// soltar).
+  GridColumnsConfig? _draftColumns;
+  GridLayout? _lastLayout;
+
+  GridColumnsConfig _columns(FinanceController fc) =>
+      _draftColumns ??
+      GridColumnsConfig.fromJson(fc.data.settings.txGridColumns);
 
   @override
   void dispose() {
     searchCtrl.dispose();
+    _hScroll.dispose();
     super.dispose();
   }
 
@@ -335,6 +345,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                       push(context, const ExpenseImportScreen());
                       return;
                     }
+                    if (v == 'columns') {
+                      _configureColumns(fc);
+                      return;
+                    }
                     setState(() {
                       if (v == 'all') allPeriods = !allPeriods;
                       if (v == 'forecast') showForecast = !showForecast;
@@ -352,6 +366,14 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                       child: const Text('Mostrar recorrências previstas'),
                     ),
                     const PopupMenuDivider(),
+                    const PopupMenuItem(
+                      value: 'columns',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.view_column_outlined),
+                        title: Text('Configurar colunas'),
+                      ),
+                    ),
                     const PopupMenuItem(
                       value: 'import',
                       child: ListTile(
@@ -410,49 +432,63 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   )
                 : LayoutBuilder(
                     builder: (context, box) {
-                      final layout = GridLayout.of(box.maxWidth);
+                      final pad = box.maxWidth < 640 ? 8.0 : 16.0;
+                      final layout = GridLayout.of(
+                        box.maxWidth - 2 * pad - 2,
+                        _columns(fc),
+                      );
+                      _lastLayout = layout;
                       _sortItems(items, e);
-                      return Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          layout.compact ? 8 : 16,
-                          8,
-                          layout.compact ? 8 : 16,
-                          0,
-                        ),
-                        child: GridPanel(
-                          child: Column(
-                            children: [
-                              if (!layout.compact)
-                                GridHeader(
-                                  layout: layout,
-                                  sort: sort,
-                                  ascending: ascending,
-                                  onSort: _onSort,
-                                ),
-                              Expanded(
-                                child: ListView.builder(
-                                  padding: const EdgeInsets.only(bottom: 88),
-                                  itemCount: items.length,
-                                  itemBuilder: (context, i) =>
-                                      switch (items[i]) {
-                                        final _TxEntry it => _txRow(
-                                          context,
-                                          fc,
-                                          it,
-                                          i,
-                                          layout,
-                                        ),
-                                        final _InvoiceEntry it => _invoiceRow(
-                                          context,
-                                          it,
-                                          i,
-                                          layout,
-                                        ),
-                                      },
-                                ),
-                              ),
-                            ],
+                      final list = ListView.builder(
+                        padding: const EdgeInsets.only(bottom: 88),
+                        itemCount: items.length,
+                        itemBuilder: (context, i) => switch (items[i]) {
+                          final _TxEntry it => _txRow(
+                            context,
+                            fc,
+                            it,
+                            i,
+                            layout,
                           ),
+                          final _InvoiceEntry it => _invoiceRow(
+                            context,
+                            it,
+                            i,
+                            layout,
+                          ),
+                        },
+                      );
+                      return Padding(
+                        padding: EdgeInsets.fromLTRB(pad, 8, pad, 0),
+                        child: GridPanel(
+                          child: layout.compact
+                              ? list
+                              : Scrollbar(
+                                  controller: _hScroll,
+                                  child: SingleChildScrollView(
+                                    controller: _hScroll,
+                                    scrollDirection: Axis.horizontal,
+                                    child: SizedBox(
+                                      width: layout.totalWidth,
+                                      child: Column(
+                                        children: [
+                                          GridHeader(
+                                            layout: layout,
+                                            sort: sort,
+                                            ascending: ascending,
+                                            onSort: _onSort,
+                                            onResize: _onResize,
+                                            onResizeEnd: () =>
+                                                _saveColumns(fc, _columns(fc)),
+                                            onConfigure: () =>
+                                                _configureColumns(fc),
+                                          ),
+                                          Expanded(child: list),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
                         ),
                       );
                     },
@@ -463,28 +499,67 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     );
   }
 
-  void _onSort(GridSort s) => setState(() {
+  final _hScroll = ScrollController();
+
+  /// Arrasto da borda: parte da largura exibida (que pode incluir a sobra
+  /// de espaço) para a coluna acompanhar o mouse.
+  void _onResize(GridColumn c, double delta) {
+    final fc = context.read<FinanceController>();
+    final shown = _lastLayout?.cells
+        .where((x) => x.$1 == c)
+        .map((x) => x.$2)
+        .firstOrNull;
+    final cfg = _columns(fc);
+    final base = shown ?? cfg.columns.firstWhere((s) => s.column == c).width;
+    setState(() => _draftColumns = cfg.withWidth(c, base + delta));
+  }
+
+  Future<void> _saveColumns(FinanceController fc, GridColumnsConfig cfg) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await fc.saveSettings(
+        fc.data.settings.copyWith(txGridColumns: cfg.toJson()),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Não foi possível salvar as colunas: $e')),
+      );
+    }
+    if (mounted) setState(() => _draftColumns = null);
+  }
+
+  Future<void> _configureColumns(FinanceController fc) async {
+    final cfg = await showModalBottomSheet<GridColumnsConfig>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => GridColumnsSheet(initial: _columns(fc)),
+    );
+    if (cfg != null) await _saveColumns(fc, cfg);
+  }
+
+  void _onSort(GridColumn s) => setState(() {
     if (s == sort) {
       ascending = !ascending;
     } else {
       sort = s;
       // Datas e valores começam do maior; textos, de A a Z.
-      ascending = s != GridSort.date && s != GridSort.amount;
+      ascending = s != GridColumn.date && s != GridColumn.amount;
     }
   });
 
   void _sortItems(List<_Entry> items, FinancialEngine e) {
-    if (sort == GridSort.date && !ascending) return; // ordem de _items
+    if (sort == GridColumn.date && !ascending) return; // ordem de _items
+    int text(String Function(_Cols) f, _Entry a, _Entry b) =>
+        f(_cols(e, a)).toLowerCase().compareTo(f(_cols(e, b)).toLowerCase());
     int cmp(_Entry a, _Entry b) => switch (sort) {
-      GridSort.date => a.date.compareTo(b.date),
-      GridSort.category => _cols(e, a).$1.compareTo(_cols(e, b).$1),
-      GridSort.subcategory => _cols(e, a).$2.compareTo(_cols(e, b).$2),
-      GridSort.description => _cols(
-        e,
-        a,
-      ).$3.toLowerCase().compareTo(_cols(e, b).$3.toLowerCase()),
-      GridSort.amount => _amount(a).cents.compareTo(_amount(b).cents),
-      GridSort.status => _statusRank(e, a).compareTo(_statusRank(e, b)),
+      GridColumn.date => a.date.compareTo(b.date),
+      GridColumn.category => text((c) => c.category, a, b),
+      GridColumn.subcategory => text((c) => c.sub, a, b),
+      GridColumn.description => text((c) => c.desc, a, b),
+      GridColumn.notes => text((c) => c.notes, a, b),
+      GridColumn.amount => _amount(a).cents.compareTo(_amount(b).cents),
+      GridColumn.status => _statusRank(e, a).compareTo(_statusRank(e, b)),
     };
     items.sort((a, b) {
       final c = ascending ? cmp(a, b) : cmp(b, a);
@@ -492,21 +567,44 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     });
   }
 
-  /// (categoria, subcategoria, descrição) exibidas na grade.
-  static (String, String, String) _cols(FinancialEngine e, _Entry it) {
+  /// Textos de categoria, subcategoria, descrição e observações da grade.
+  static _Cols _cols(FinancialEngine e, _Entry it) {
     switch (it) {
       case _InvoiceEntry(:final invoice):
-        return ('Cartão', invoice.card.name, invoice.title);
+        return (
+          category: 'Cartão',
+          sub: invoice.card.name,
+          desc: invoice.title,
+          notes: '',
+        );
       case _TxEntry(:final tx):
+        final notes = tx.notes.trim();
         if (tx.isTransfer) {
-          return ('Transferência', e.locationLabel(tx), tx.description);
+          return (
+            category: 'Transferência',
+            sub: e.locationLabel(tx),
+            desc: tx.description,
+            notes: notes,
+          );
         }
         final cat = e.data.categoryById[tx.categoryId];
         final parent = e.data.categoryById[cat?.parentId];
-        if (cat == null) return ('Sem categoria', '', tx.description);
+        if (cat == null) {
+          return (
+            category: 'Sem categoria',
+            sub: '',
+            desc: tx.description,
+            notes: notes,
+          );
+        }
         return parent == null
-            ? (cat.name, '', tx.description)
-            : (parent.name, cat.name, tx.description);
+            ? (category: cat.name, sub: '', desc: tx.description, notes: notes)
+            : (
+                category: parent.name,
+                sub: cat.name,
+                desc: tx.description,
+                notes: notes,
+              );
     }
   }
 
@@ -536,7 +634,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   ) {
     final e = fc.engine;
     final tx = it.tx;
-    final (catName, subName, desc) = _cols(e, it);
+    final (category: catName, sub: subName, :desc, :notes) = _cols(e, it);
+    final showSub = layout.shows(GridColumn.subcategory);
     final cat = e.data.categoryById[tx.categoryId];
     final catColor = tx.isTransfer
         ? context.fin.subtle
@@ -658,7 +757,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                         Flexible(
                           child: Text(
                             [
-                              subName.isEmpty ? catName : '$catName › $subName',
+                              subName.isEmpty || !showSub
+                                  ? catName
+                                  : '$catName › $subName',
                               if (extras.isNotEmpty) extras,
                             ].join(' · '),
                             maxLines: 1,
@@ -669,6 +770,30 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                       ],
                     ),
                     ?invoiceLink,
+                    if (notes.isNotEmpty && layout.shows(GridColumn.notes))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.sticky_note_2_outlined,
+                              size: 12,
+                              color: context.fin.subtle,
+                            ),
+                            const SizedBox(width: 5),
+                            Flexible(
+                              child: Text(
+                                notes,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: subtle?.copyWith(
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -684,6 +809,94 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       );
     }
 
+    Widget cell(GridColumn c) => switch (c) {
+      GridColumn.date => GridCell(
+        child: Text(
+          Dates.format(it.date),
+          style: context.text.bodySmall?.copyWith(
+            fontFeatures: const [FontFeature.tabularFigures()],
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+      GridColumn.category => GridCell(
+        child: Row(
+          children: [
+            _Dot(catColor),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                showSub || subName.isEmpty ? catName : '$catName › $subName',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.text.bodyMedium,
+              ),
+            ),
+          ],
+        ),
+      ),
+      GridColumn.subcategory => GridCell(
+        child: Text(
+          subName.isEmpty ? '—' : subName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: subName.isEmpty ? subtle : context.text.bodyMedium,
+        ),
+      ),
+      GridColumn.description => GridCell(
+        child: Row(
+          children: [
+            Flexible(
+              child: Text(
+                desc,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: descStyle,
+              ),
+            ),
+            if (tx.isRecurring) ...[
+              const SizedBox(width: 4),
+              Icon(Icons.autorenew, size: 13, color: context.fin.subtle),
+            ],
+            if (extras.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  extras,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: subtle,
+                ),
+              ),
+            ],
+            if (invoiceLink != null) ...[
+              const SizedBox(width: 8),
+              Flexible(child: invoiceLink),
+            ],
+          ],
+        ),
+      ),
+      GridColumn.notes => GridCell(
+        child: Tooltip(
+          message: notes,
+          child: Text(
+            notes.isEmpty ? '—' : notes,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: notes.isEmpty
+                ? subtle
+                : context.text.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+          ),
+        ),
+      ),
+      GridColumn.amount => GridCell(
+        right: true,
+        background: GridPalette.of(context).valueBg,
+        child: Opacity(opacity: completed ? 1 : 0.8, child: money),
+      ),
+      GridColumn.status => GridCell(child: status),
+    };
+
     return GridRowShell(
       accent: accent,
       zebra: index.isOdd,
@@ -693,92 +906,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: GridLayout.dateW,
-            child: GridCell(
-              child: Text(
-                Dates.format(it.date),
-                style: context.text.bodySmall?.copyWith(
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 3,
-            child: GridCell(
-              child: Row(
-                children: [
-                  _Dot(catColor),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      layout.showSub || subName.isEmpty
-                          ? catName
-                          : '$catName › $subName',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: context.text.bodyMedium,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (layout.showSub)
-            Expanded(
-              flex: 3,
-              child: GridCell(
-                child: Text(
-                  subName.isEmpty ? '—' : subName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: subName.isEmpty ? subtle : context.text.bodyMedium,
-                ),
-              ),
-            ),
-          Expanded(
-            flex: 5,
-            child: GridCell(
-              child: Row(
-                children: [
-                  Flexible(
-                    child: Text(
-                      desc,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: descStyle,
-                    ),
-                  ),
-                  if (tx.isRecurring) ...[
-                    const SizedBox(width: 4),
-                    Icon(Icons.autorenew, size: 13, color: context.fin.subtle),
-                  ],
-                  if (extras.isNotEmpty) ...[
-                    const SizedBox(width: 6),
-                    Text(extras, style: subtle),
-                  ],
-                  if (invoiceLink != null) ...[
-                    const SizedBox(width: 8),
-                    Flexible(child: invoiceLink),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          SizedBox(
-            width: GridLayout.amountW,
-            child: GridCell(
-              right: true,
-              background: GridPalette.of(context).valueBg,
-              child: Opacity(opacity: completed ? 1 : 0.8, child: money),
-            ),
-          ),
-          SizedBox(
-            width: GridLayout.statusW,
-            child: GridCell(child: status),
-          ),
+          for (final (c, w) in layout.cells) SizedBox(width: w, child: cell(c)),
           const SizedBox(width: GridLayout.actionW),
         ],
       ),
@@ -890,6 +1018,67 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       );
     }
 
+    final showSub = layout.shows(GridColumn.subcategory);
+    Widget cell(GridColumn c) => switch (c) {
+      GridColumn.date => GridCell(
+        child: Text(
+          Dates.format(it.date),
+          style: context.text.bodySmall?.copyWith(
+            fontFeatures: const [FontFeature.tabularFigures()],
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+      GridColumn.category => GridCell(
+        child: Row(
+          children: [
+            Icon(Icons.credit_card, size: 14, color: cardColor),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                showSub ? 'Cartão' : 'Cartão › ${inv.card.name}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: linkStyle,
+              ),
+            ),
+          ],
+        ),
+      ),
+      GridColumn.subcategory => GridCell(
+        child: Text(
+          inv.card.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: context.text.bodyMedium,
+        ),
+      ),
+      GridColumn.description => GridCell(
+        child: Row(
+          children: [
+            Flexible(flex: 3, child: title),
+            const SizedBox(width: 8),
+            Flexible(
+              flex: 2,
+              child: Text(
+                info,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: subtle,
+              ),
+            ),
+          ],
+        ),
+      ),
+      GridColumn.notes => GridCell(child: Text('—', style: subtle)),
+      GridColumn.amount => GridCell(
+        right: true,
+        background: p.valueBg,
+        child: money,
+      ),
+      GridColumn.status => GridCell(child: status),
+    };
+
     return GridRowShell(
       key: ValueKey('invoice-${inv.card.id}-${inv.key}'),
       accent: cardColor,
@@ -901,77 +1090,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: GridLayout.dateW,
-            child: GridCell(
-              child: Text(
-                Dates.format(it.date),
-                style: context.text.bodySmall?.copyWith(
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 3,
-            child: GridCell(
-              child: Row(
-                children: [
-                  Icon(Icons.credit_card, size: 14, color: cardColor),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      layout.showSub ? 'Cartão' : 'Cartão › ${inv.card.name}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: linkStyle,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (layout.showSub)
-            Expanded(
-              flex: 3,
-              child: GridCell(
-                child: Text(
-                  inv.card.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: context.text.bodyMedium,
-                ),
-              ),
-            ),
-          Expanded(
-            flex: 5,
-            child: GridCell(
-              child: Row(
-                children: [
-                  Flexible(flex: 3, child: title),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    flex: 2,
-                    child: Text(
-                      info,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: subtle,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(
-            width: GridLayout.amountW,
-            child: GridCell(right: true, background: p.valueBg, child: money),
-          ),
-          SizedBox(
-            width: GridLayout.statusW,
-            child: GridCell(child: status),
-          ),
+          for (final (c, w) in layout.cells) SizedBox(width: w, child: cell(c)),
           SizedBox(
             width: GridLayout.actionW,
             child: Center(child: openBtn),
@@ -1004,6 +1123,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     }
   }
 }
+
+typedef _Cols = ({String category, String sub, String desc, String notes});
 
 /// Item da lista: lançamento (ou parte de uma compra no cartão) ou fatura.
 sealed class _Entry {

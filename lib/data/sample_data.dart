@@ -398,6 +398,7 @@ List<WriteOp> buildSampleData({DateTime? today}) {
       date: now.subtract(const Duration(days: 2)),
       accountId: nu.id,
       projectId: reform.id,
+      notes: 'Garantia de 5 anos; nota fiscal no e-mail',
     ),
     FinTransaction(
       id: newId('tx_'),

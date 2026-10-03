@@ -3,6 +3,7 @@ import 'package:financas_app/domain/models/entities.dart';
 import 'package:financas_app/state/finance_controller.dart';
 import 'package:financas_app/ui/screens/transactions/transactions_screen.dart';
 import 'package:financas_app/ui/theme.dart';
+import 'package:financas_app/ui/widgets/tx_grid.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -27,6 +28,7 @@ void main() {
         ('t1', 'Aluguel', 210000),
         ('t2', 'Mercado', 50000),
       ]) {
+        final notes = id == 't1' ? 'Reajuste em janeiro' : '';
         await fc.saveTransaction(
           FinTransaction(
             id: id,
@@ -36,6 +38,7 @@ void main() {
             date: today,
             accountId: 'a',
             status: TransactionStatus.pending,
+            notes: notes,
           ),
         );
       }
@@ -91,5 +94,70 @@ void main() {
     expect(find.text('DATA'), findsNothing);
     expect(find.text('Aluguel'), findsOneWidget);
     expect(find.text('Pendente'), findsNWidgets(2));
+  });
+
+  testWidgets('coluna de observações e configuração de colunas', (
+    tester,
+  ) async {
+    final fc = await setup(tester, const Size(1400, 800));
+    expect(find.text('OBSERVAÇÕES'), findsOneWidget);
+    expect(find.text('Reajuste em janeiro'), findsOneWidget);
+
+    // Oculta Subcategoria pela folha de configuração.
+    await tester.tap(find.byKey(const ValueKey('grid-configure')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('col-visible-subcategory')));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('grid-columns-save')));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('SUBCATEGORIA'), findsNothing);
+    final saved = GridColumnsConfig.fromJson(fc.data.settings.txGridColumns);
+    expect(saved.isVisible(GridColumn.subcategory), isFalse);
+
+    // Arrastar a borda do cabeçalho alarga a coluna Data.
+    final before = tester.getSize(find.byKey(const ValueKey('grid-sort-date')));
+    await tester.runAsync(() async {
+      await tester.drag(
+        find.byKey(const ValueKey('grid-resize-date')),
+        const Offset(60, 0),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pumpAndSettle();
+    final after = tester.getSize(find.byKey(const ValueKey('grid-sort-date')));
+    expect(after.width, greaterThan(before.width + 30));
+    final w = GridColumnsConfig.fromJson(fc.data.settings.txGridColumns).columns
+        .firstWhere((c) => c.column == GridColumn.date)
+        .width;
+    expect(w, greaterThan(GridColumn.date.defaultWidth + 30));
+  });
+
+  test('preferência de colunas: JSON tolerante e reordenação', () {
+    final cfg = GridColumnsConfig.fromJson([
+      {'id': 'amount', 'visible': true, 'width': 5000},
+      {'id': 'xyz'},
+      {'id': 'date', 'visible': false, 'width': 100},
+    ]);
+    expect(cfg.columns.first.column, GridColumn.amount);
+    expect(cfg.columns.first.width, GridColumn.maxWidth);
+    expect(cfg.isVisible(GridColumn.date), isFalse);
+    expect(cfg.columns, hasLength(GridColumn.values.length));
+    expect(cfg.isVisible(GridColumn.notes), isTrue);
+
+    final moved = GridColumnsConfig.standard.moved(0, 2);
+    expect(moved.columns[2].column, GridColumn.date);
+
+    var one = GridColumnsConfig.standard;
+    for (final c in GridColumn.values) {
+      one = one.withVisible(c, false);
+    }
+    expect(one.visible, hasLength(1));
+
+    // Tela estreita: colunas de texto encolhem antes de rolar.
+    final l = GridLayout.of(900, GridColumnsConfig.standard);
+    expect(l.totalWidth, closeTo(900, 0.01));
   });
 }
