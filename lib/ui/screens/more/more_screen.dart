@@ -9,6 +9,7 @@ import '../cards/cards_screen.dart';
 import '../cards/invoices_screen.dart';
 import '../categories/categories_screen.dart';
 import '../dashboards/dashboards_screen.dart';
+import '../import/expense_import_screen.dart';
 import '../installments/installments_screen.dart';
 import '../open_finance/open_finance_screen.dart';
 import '../recurring/recurring_screen.dart';
@@ -88,6 +89,12 @@ class MoreScreen extends StatelessWidget {
             const CategoriesScreen(),
           ),
           _Header('Integrações'),
+          item(
+            Icons.upload_file,
+            'Importar despesas',
+            'Em massa, a partir de planilha Excel (.xlsx) ou CSV',
+            const ExpenseImportScreen(),
+          ),
           item(
             Icons.hub_outlined,
             'Open Finance',

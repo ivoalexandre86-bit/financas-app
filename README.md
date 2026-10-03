@@ -148,6 +148,17 @@ e pagamentos de fatura. “Projetado” assume que tudo o que está planejado
 acontece e que as faturas são pagas integralmente no vencimento.
 “Disponível” = saldo atual − despesas e faturas em aberto até o fim do mês.
 
+**Importação de despesas por planilha** (Mais › Importar despesas, ou o
+menu ⋮ em Transações). O app gera um modelo `.xlsx` com listas suspensas dos
+cadastros do usuário (categorias, contas, cartões, projetos, status), aba de
+instruções e exemplos; aceita `.xlsx` ou `.csv`. Antes de gravar há uma
+prévia linha a linha: erros (data/valor inválidos, conta ou cartão
+inexistente) bloqueiam a linha, e lançamentos já existentes com mesma data,
+valor e descrição vêm desmarcados como possíveis duplicadas. Parcelas > 1
+criam uma compra parcelada (o valor informado é o total). Tudo é gravado em
+um único lote. Leitura/validação em `lib/domain/import/expense_import.dart`
+e `lib/data/spreadsheet_io.dart` (leitor `.xlsx` próprio, em Dart puro).
+
 ## Segurança e privacidade
 
 - Senhas com PBKDF2-HMAC-SHA256 + salt aleatório, comparação em tempo

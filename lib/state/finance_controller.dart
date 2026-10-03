@@ -12,6 +12,7 @@ import '../domain/engine/billing_cycle.dart';
 import '../domain/engine/dashboard_engine.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/engine/installments.dart';
+import '../domain/import/expense_import.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
 
@@ -211,6 +212,30 @@ class FinanceController extends ChangeNotifier {
     }
     await _commit(ops);
     externalTransactions = await repo.loadExternalTransactions();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Importação de planilha
+
+  /// Grava, em um único lote, as despesas selecionadas de uma importação
+  /// (categorias novas, compras parceladas e lançamentos).
+  Future<ExpenseImportBatch> importExpenses(ExpenseImportPlan plan) async {
+    final batch = plan.build(today: engine.today);
+    if (batch.rowCount == 0) {
+      throw ArgumentError('Nenhuma despesa selecionada para importar');
+    }
+    for (final t in batch.transactions) {
+      final err = validateTransaction(t);
+      if (err != null) throw ArgumentError(err);
+    }
+    await _commit([
+      for (final c in batch.categories)
+        WriteOp.put(Coll.categories, c.id, c.toJson()),
+      for (final g in batch.groups)
+        WriteOp.put(Coll.installmentGroups, g.id, g.toJson()),
+      ...batch.transactions.map(_putTx),
+    ]);
+    return batch;
   }
 
   // ---------------------------------------------------------------------------

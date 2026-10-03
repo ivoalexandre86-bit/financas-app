@@ -7,6 +7,7 @@ import '../../../domain/models/entities.dart';
 import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
+import '../import/expense_import_screen.dart';
 import '../../widgets/common.dart';
 import '../../widgets/transaction_tile.dart';
 import 'transaction_details_screen.dart';
@@ -242,10 +243,16 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 const Spacer(),
                 PopupMenuButton<String>(
                   tooltip: 'Opções',
-                  onSelected: (v) => setState(() {
-                    if (v == 'all') allPeriods = !allPeriods;
-                    if (v == 'forecast') showForecast = !showForecast;
-                  }),
+                  onSelected: (v) {
+                    if (v == 'import') {
+                      push(context, const ExpenseImportScreen());
+                      return;
+                    }
+                    setState(() {
+                      if (v == 'all') allPeriods = !allPeriods;
+                      if (v == 'forecast') showForecast = !showForecast;
+                    });
+                  },
                   itemBuilder: (_) => [
                     CheckedPopupMenuItem(
                       value: 'all',
@@ -256,6 +263,15 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                       value: 'forecast',
                       checked: showForecast,
                       child: const Text('Mostrar recorrências previstas'),
+                    ),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(
+                      value: 'import',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.upload_file),
+                        title: Text('Importar despesas (Excel)'),
+                      ),
                     ),
                   ],
                 ),
