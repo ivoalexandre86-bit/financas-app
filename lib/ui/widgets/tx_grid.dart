@@ -700,7 +700,6 @@ class _EditableHover extends StatefulWidget {
   final VoidCallback onTap;
   final String tooltip;
   const _EditableHover({
-    
     required this.child,
     required this.onTap,
     required this.tooltip,

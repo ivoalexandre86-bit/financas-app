@@ -9,6 +9,7 @@ import '../../../state/finance_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
+import '../installments/installment_edit_screen.dart';
 
 /// Formulário de nova transação / edição. Otimizado para lançamento rápido:
 /// tipo, valor e descrição primeiro; opções avançadas (recorrência,
@@ -21,6 +22,11 @@ class TransactionFormScreen extends StatefulWidget {
   /// Pré-seleciona um cartão (ex.: "Adicionar compra" na fatura).
   final String? initialCardId;
   final DateTime? initialDate;
+
+  /// Abre com a recorrência / o parcelamento já ligados (ex.: "Adicionar
+  /// recorrência" na fatura ou "Parcelar" em uma compra salva).
+  final bool initialRecurring;
+  final bool initialInstallment;
   const TransactionFormScreen({
     super.key,
     this.tx,
@@ -28,7 +34,17 @@ class TransactionFormScreen extends StatefulWidget {
     this.initialProjectId,
     this.initialCardId,
     this.initialDate,
+    this.initialRecurring = false,
+    this.initialInstallment = false,
   });
+
+  /// Lançamento à vista já salvo: pode virar parcelado ou recorrente.
+  static bool canConvert(FinTransaction? t) =>
+      t != null &&
+      !t.isVirtual &&
+      !t.isInstallment &&
+      !t.isRecurring &&
+      !t.isTransfer;
 
   @override
   State<TransactionFormScreen> createState() => _TransactionFormScreenState();
@@ -75,6 +91,13 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     date = t?.date ?? widget.initialDate ?? fc.today;
     projectId = t?.projectId ?? widget.initialProjectId;
     status = t?.status ?? TransactionStatus.completed;
+    if (t == null || TransactionFormScreen.canConvert(t)) {
+      recurring = widget.initialRecurring;
+      installment =
+          !recurring &&
+          widget.initialInstallment &&
+          type == TransactionType.expense;
+    }
     if (t != null) {
       if (t.isTransfer) {
         fromAccount = t.accountId;
@@ -130,26 +153,31 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     final ok = await runAction(
       context,
       () async {
-        if (installment && !isEdit && type == TransactionType.expense) {
+        if (installment && type == TransactionType.expense) {
           final n = int.parse(installmentsCtrl.text);
-          await fc.createInstallmentPurchase(
-            InstallmentGroup(
-              id: newId('ig_'),
-              description: description.text.trim(),
-              totalAmount: value,
-              count: n,
-              purchaseDate: date,
-              accountId: funding?.accountId,
-              cardId: funding?.cardId,
-              categoryId: categoryId,
-              projectId: projectId,
-              notes: notes.text.trim(),
-            ),
-            firstStatus: status,
+          final group = InstallmentGroup(
+            id: newId('ig_'),
+            description: description.text.trim(),
+            totalAmount: value,
+            count: n,
+            purchaseDate: date,
+            accountId: funding?.accountId,
+            cardId: funding?.cardId,
+            categoryId: categoryId,
+            projectId: projectId,
+            notes: notes.text.trim(),
           );
+          if (isEdit) {
+            await fc.convertToInstallments(
+              widget.tx!.copyWith(status: status),
+              group,
+            );
+          } else {
+            await fc.createInstallmentPurchase(group, firstStatus: status);
+          }
           return;
         }
-        if (recurring && !isEdit && !isTransfer) {
+        if (recurring && !isTransfer) {
           final rule = RecurringRule(
             id: newId('rec_'),
             type: type,
@@ -166,6 +194,24 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             endDate: endDate,
             notes: notes.text.trim(),
           );
+          if (isEdit) {
+            await fc.convertToRecurring(
+              widget.tx!.copyWith(
+                type: type,
+                amount: value,
+                description: rule.description,
+                categoryId: categoryId,
+                date: date,
+                accountId: rule.accountId,
+                cardId: rule.cardId,
+                projectId: projectId,
+                notes: rule.notes,
+                status: status,
+              ),
+              rule,
+            );
+            return;
+          }
           await fc.createRule(rule);
           // A primeira ocorrência já realizada é registrada como concluída.
           if (status == TransactionStatus.completed &&
@@ -215,12 +261,12 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
           ),
         );
       },
-      success: isEdit
-          ? 'Transação atualizada'
-          : installment
-          ? 'Compra parcelada registrada'
+      success: installment
+          ? (isEdit ? 'Compra parcelada' : 'Compra parcelada registrada')
           : recurring
           ? 'Recorrência criada'
+          : isEdit
+          ? 'Transação atualizada'
           : 'Transação registrada',
     );
     if (!mounted) return;
@@ -235,7 +281,8 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     final t = widget.tx;
     final value = Money.tryParse(amount.text);
     final n = int.tryParse(installmentsCtrl.text) ?? 0;
-    final canAdvanced = t == null;
+    final canAdvanced = t == null || TransactionFormScreen.canConvert(t);
+    final converting = isEdit && canAdvanced;
 
     return Scaffold(
       appBar: AppBar(
@@ -246,11 +293,29 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
           children: [
-            if (t?.isInstallment == true)
+            if (t?.isInstallment == true) ...[
               _Notice(
                 'Você está editando apenas a parcela ${t!.installmentLabel}. '
-                'Para alterar ou cancelar parcelas futuras, use os detalhes do parcelamento.',
+                'Para mudar o valor total ou o número de parcelas, edite o parcelamento.',
               ),
+              if (fc.data.groupById[t.installmentGroupId] != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: OutlinedButton.icon(
+                    key: const ValueKey('edit-installment-group'),
+                    icon: const Icon(Icons.view_week_outlined),
+                    label: const Text('Editar parcelamento'),
+                    onPressed: () => Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => InstallmentEditScreen(
+                          groupId: t.installmentGroupId!,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
             if (t?.isRecurring == true)
               const _Notice(
                 'Alterações aqui valem somente para esta ocorrência. '
@@ -387,10 +452,15 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             if (canAdvanced && !isTransfer) ...[
               const SizedBox(height: 8),
               SwitchListTile(
+                key: const ValueKey('switch-recurring'),
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Transação recorrente'),
-                subtitle: const Text(
-                  'Gera ocorrências futuras automaticamente',
+                title: Text(
+                  converting ? 'Tornar recorrente' : 'Transação recorrente',
+                ),
+                subtitle: Text(
+                  funding?.cardId != null
+                      ? 'Repete no cartão (ex.: assinatura): cada cobrança entra na fatura do mês'
+                      : 'Gera ocorrências futuras automaticamente',
                 ),
                 value: recurring,
                 onChanged: (v) => setState(() {
@@ -401,9 +471,16 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
               if (recurring) _recurrenceFields(),
               if (type == TransactionType.expense)
                 SwitchListTile(
+                  key: const ValueKey('switch-installment'),
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Compra parcelada'),
-                  subtitle: const Text('Divide o valor total em parcelas'),
+                  title: Text(
+                    converting ? 'Parcelar esta compra' : 'Compra parcelada',
+                  ),
+                  subtitle: Text(
+                    funding?.cardId != null
+                        ? 'Divide o valor total; cada parcela vai para uma fatura'
+                        : 'Divide o valor total em parcelas',
+                  ),
                   value: installment,
                   onChanged: (v) => setState(() {
                     installment = v;

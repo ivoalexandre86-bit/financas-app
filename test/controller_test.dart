@@ -1,5 +1,6 @@
 import 'package:financas_app/core/dates.dart';
 import 'package:financas_app/core/money.dart';
+import 'package:financas_app/domain/engine/billing_cycle.dart';
 import 'package:financas_app/data/finance_repository.dart';
 import 'package:financas_app/domain/engine/financial_engine.dart';
 import 'package:financas_app/domain/models/dashboard.dart';
@@ -264,5 +265,117 @@ void main() {
       ),
       isNotNull,
     );
+  });
+
+  group('fatura: editar compra salva, parcelar e recorrência', () {
+    late CreditCard card;
+    setUp(() async {
+      card = CreditCard(id: 'c', name: 'Cartão', closingDay: 10, dueDay: 17);
+      await fc.saveCard(card);
+    });
+
+    FinTransaction purchase({int cents = 120000}) => FinTransaction(
+      id: 'p',
+      type: TransactionType.expense,
+      amount: Money(cents),
+      description: 'TV',
+      date: today,
+      cardId: 'c',
+      status: TransactionStatus.pending,
+    );
+
+    test('parcelar compra à vista já salva', () async {
+      await fc.saveTransaction(purchase(cents: 100001));
+      await fc.convertToInstallments(
+        fc.data.transactions.single,
+        InstallmentGroup(
+          id: 'g',
+          description: 'TV',
+          totalAmount: const Money(100001),
+          count: 3,
+          purchaseDate: today,
+          cardId: 'c',
+        ),
+      );
+      final parts = fc.installmentsOf('g');
+      expect(fc.data.transactions.where((t) => t.id == 'p'), isEmpty);
+      expect(parts.length, 3);
+      expect(parts.map((t) => t.amount.cents).reduce((a, b) => a + b), 100001);
+      final first = BillingCycle.invoiceFor(card, today);
+      expect(
+        parts.map((t) => BillingCycle.invoiceForTransaction(card, t)),
+        [first, first.add(1), first.add(2)],
+      );
+      expect(fc.engine.invoice(card, first).total, parts.first.amount);
+    });
+
+    test('alterar número de parcelas e voltar para à vista', () async {
+      await fc.createInstallmentPurchase(
+        InstallmentGroup(
+          id: 'g',
+          description: 'Sofá',
+          totalAmount: const Money(60000),
+          count: 3,
+          purchaseDate: today,
+          cardId: 'c',
+        ),
+        firstStatus: TransactionStatus.pending,
+      );
+      final ids = fc.installmentsOf('g').map((t) => t.id).toList();
+      InstallmentGroup edited(int n, int cents) => InstallmentGroup(
+        id: 'g',
+        description: 'Sofá novo',
+        totalAmount: Money(cents),
+        count: n,
+        purchaseDate: today,
+        cardId: 'c',
+      );
+
+      await fc.updateInstallmentGroup(edited(6, 90000));
+      var parts = fc.installmentsOf('g');
+      expect(parts.length, 6);
+      expect(parts.every((t) => t.amount.cents == 15000), isTrue);
+      expect(parts.every((t) => t.installmentCount == 6), isTrue);
+      expect(parts.every((t) => t.description == 'Sofá novo'), isTrue);
+      expect(parts.take(3).map((t) => t.id), ids); // mantém as existentes
+      expect(fc.data.groupById['g']!.count, 6);
+
+      await fc.updateInstallmentGroup(edited(2, 90000));
+      parts = fc.installmentsOf('g');
+      expect(parts.length, 2);
+      expect(fc.data.transactions.length, 2);
+
+      await fc.updateInstallmentGroup(edited(1, 90000));
+      expect(fc.data.groupById['g'], isNull);
+      final single = fc.data.transactions.single;
+      expect(single.isInstallment, isFalse);
+      expect(single.amount.cents, 90000);
+    });
+
+    test('tornar recorrente não duplica a 1ª cobrança', () async {
+      await fc.saveTransaction(
+        purchase(cents: 3990).copyWith(description: 'Streaming'),
+      );
+      final t = fc.data.transactions.single;
+      await fc.convertToRecurring(
+        t,
+        RecurringRule(
+          id: 'r',
+          type: TransactionType.expense,
+          amount: const Money(3990),
+          description: 'Streaming',
+          cardId: 'c',
+          startDate: today,
+        ),
+      );
+      final first = BillingCycle.invoiceFor(card, today);
+      final inv = fc.engine.invoice(card, first);
+      expect(inv.transactions.length, 1);
+      expect(inv.transactions.single.isVirtual, isFalse);
+      expect(inv.transactions.single.recurringId, 'r');
+      final next = fc.engine.invoice(card, first.add(1));
+      expect(next.transactions.single.isVirtual, isTrue);
+      expect(next.total.cents, 3990);
+    });
   });
 }
