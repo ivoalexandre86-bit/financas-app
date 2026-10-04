@@ -65,8 +65,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 onMonth: (m) => setState(() => month = m),
               ),
               const SizedBox(height: 8),
-              _PendingKpis(engine: e, month: month),
-              const SizedBox(height: 12),
               if (!hasData)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -86,6 +84,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 projected: projected,
                 month: month,
               ),
+              const SizedBox(height: 12),
+              _PendingKpis(engine: e, month: month),
               const SizedBox(height: 12),
               Row(
                 children: [
