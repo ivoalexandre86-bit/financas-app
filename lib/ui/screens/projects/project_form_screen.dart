@@ -124,7 +124,7 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
                 if (start != null && end != null && end!.isBefore(start!)) {
                   return;
                 }
-                final b = Money.tryParse(budget.text)!;
+                final b = Money.tryEval(budget.text)!;
                 final p =
                     (widget.project ??
                             Project(id: newId('prj_'), name: name.text.trim()))

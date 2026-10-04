@@ -341,7 +341,7 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
                       name: name.text.trim(),
                       institution: inst.text.trim(),
                       type: type,
-                      initialBalance: Money.tryParse(initial.text)!,
+                      initialBalance: Money.tryEval(initial.text)!,
                       active: active,
                       color: color,
                     );

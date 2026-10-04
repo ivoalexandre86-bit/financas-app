@@ -624,6 +624,9 @@ class NeonStatus extends StatelessWidget {
   final VoidCallback? onTap;
   final String? tooltip;
   final bool done;
+
+  /// Mostra a seta de lista suspensa (o toque abre a lista de status).
+  final bool dropdown;
   const NeonStatus({
     super.key,
     required this.label,
@@ -631,6 +634,7 @@ class NeonStatus extends StatelessWidget {
     this.onTap,
     this.tooltip,
     this.done = false,
+    this.dropdown = false,
   });
 
   @override
@@ -674,6 +678,10 @@ class NeonStatus extends StatelessWidget {
               ),
             ),
           ),
+          if (dropdown && onTap != null) ...[
+            const SizedBox(width: 2),
+            Icon(Icons.arrow_drop_down, size: 14, color: color),
+          ],
         ],
       ),
     );

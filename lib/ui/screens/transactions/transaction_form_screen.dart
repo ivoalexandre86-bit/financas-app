@@ -139,7 +139,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
 
   Future<void> _save(FinanceController fc) async {
     if (!_form.currentState!.validate()) return;
-    final value = Money.tryParse(amount.text)!;
+    final value = Money.tryEval(amount.text)!;
     // No cartão, o status acompanha a fatura: a compra é paga junto com ela.
     if (funding?.cardId != null &&
         type != TransactionType.transfer &&
@@ -279,7 +279,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     final fc = context.watch<FinanceController>();
     final isTransfer = type == TransactionType.transfer;
     final t = widget.tx;
-    final value = Money.tryParse(amount.text);
+    final value = Money.tryEval(amount.text);
     final n = int.tryParse(installmentsCtrl.text) ?? 0;
     final canAdvanced = t == null || TransactionFormScreen.canConvert(t);
     final converting = isEdit && canAdvanced;

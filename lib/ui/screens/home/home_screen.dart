@@ -13,6 +13,7 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../cards/invoice_details_screen.dart';
+import '../cards/invoices_screen.dart';
 import '../dashboards/dashboard_view.dart';
 import '../dashboards/dashboards_screen.dart';
 import '../installments/installments_screen.dart';
@@ -64,6 +65,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 onMonth: (m) => setState(() => month = m),
               ),
               const SizedBox(height: 8),
+              _PendingKpis(engine: e, month: month),
+              const SizedBox(height: 12),
               if (!hasData)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -335,6 +338,181 @@ class _HeroValue extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// Indicadores (KPIs) das pendências do mês selecionado.
+class _PendingKpis extends StatelessWidget {
+  final FinancialEngine engine;
+  final YearMonth month;
+  const _PendingKpis({required this.engine, required this.month});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = engine.monthPendings(month);
+    const pendingFilter = ProjectionFilter(
+      statuses: {TransactionStatus.planned, TransactionStatus.pending},
+    );
+    final tiles = [
+      _KpiTile(
+        key: const ValueKey('kpi-expenses'),
+        label: 'Despesas a pagar',
+        tally: p.expenses,
+        icon: Icons.north_east,
+        color: context.fin.expense,
+        onTap: () => push(
+          context,
+          DrilldownScreen(
+            month: month,
+            row: DrillRow.expenses,
+            filter: pendingFilter,
+          ),
+        ),
+      ),
+      _KpiTile(
+        key: const ValueKey('kpi-incomes'),
+        label: 'Receitas a receber',
+        tally: p.incomes,
+        icon: Icons.south_west,
+        color: context.fin.income,
+        onTap: () => push(
+          context,
+          DrilldownScreen(
+            month: month,
+            row: DrillRow.income,
+            filter: pendingFilter,
+          ),
+        ),
+      ),
+      _KpiTile(
+        key: const ValueKey('kpi-invoices'),
+        label: 'Faturas a pagar',
+        tally: p.invoices,
+        icon: Icons.credit_card,
+        color: context.colors.primary,
+        onTap: () => push(context, const InvoicesScreen()),
+      ),
+      _KpiTile(
+        key: const ValueKey('kpi-overdue'),
+        label: 'Vencidas',
+        tally: p.overdue,
+        icon: Icons.warning_amber_rounded,
+        color: p.overdue.count > 0 ? context.fin.negative : context.fin.subtle,
+        highlight: p.overdue.count > 0,
+        onTap: () => AppShell.goToTab(context, 1),
+      ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 6),
+          child: Text(
+            'Pendências de ${month.longLabel.toLowerCase()}',
+            style: context.text.titleSmall,
+          ),
+        ),
+        LayoutBuilder(
+          builder: (context, c) {
+            final cols = c.maxWidth >= 640 ? 4 : 2;
+            const gap = 8.0;
+            final w = (c.maxWidth - gap * (cols - 1)) / cols;
+            return Wrap(
+              spacing: gap,
+              runSpacing: gap,
+              children: [for (final t in tiles) SizedBox(width: w, child: t)],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _KpiTile extends StatelessWidget {
+  final String label;
+  final PendingTally tally;
+  final IconData icon;
+  final Color color;
+  final bool highlight;
+  final VoidCallback onTap;
+  const _KpiTile({
+    super.key,
+    required this.label,
+    required this.tally,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+    this.highlight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final n = tally.count;
+    return Card(
+      color: highlight ? color.withValues(alpha: 0.08) : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: highlight
+              ? color.withValues(alpha: 0.5)
+              : context.colors.outlineVariant,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(icon, size: 16, color: color),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.labelMedium?.copyWith(
+                        color: context.fin.subtle,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: MoneyText(
+                  tally.total,
+                  style: context.text.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(
+                n == 0 ? 'Nada pendente' : '$n ${n == 1 ? 'item' : 'itens'}',
+                style: context.text.bodySmall?.copyWith(
+                  color: n == 0 ? context.fin.subtle : color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _StatTile extends StatelessWidget {

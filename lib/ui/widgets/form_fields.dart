@@ -2,13 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/dates.dart';
+import '../../core/ids.dart';
 import '../../core/money.dart';
 import '../../domain/models/entities.dart';
 import '../../state/finance_controller.dart';
+import '../screens/categories/categories_screen.dart';
 import 'category_icons.dart';
 
 /// Campo de valor em reais com validação (aceita "1.234,56").
-class MoneyField extends StatelessWidget {
+///
+/// Funciona como calculadora: digitar "10*100" mostra "= R\$ 1.000,00" e,
+/// ao sair do campo (ou pressionar Enter), o texto vira o resultado. O botão
+/// de calculadora abre um teclado com as operações (útil no celular).
+class MoneyField extends StatefulWidget {
   final TextEditingController controller;
   final String label;
   final bool allowZero;
@@ -26,29 +32,245 @@ class MoneyField extends StatelessWidget {
   });
 
   @override
+  State<MoneyField> createState() => _MoneyFieldState();
+}
+
+class _MoneyFieldState extends State<MoneyField> {
+  final focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    focus.addListener(() {
+      if (!focus.hasFocus) _resolve();
+    });
+    widget.controller.addListener(_rebuild);
+  }
+
+  @override
+  void didUpdateWidget(covariant MoneyField old) {
+    super.didUpdateWidget(old);
+    if (old.controller != widget.controller) {
+      old.controller.removeListener(_rebuild);
+      widget.controller.addListener(_rebuild);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_rebuild);
+    focus.dispose();
+    super.dispose();
+  }
+
+  void _rebuild() {
+    if (mounted) setState(() {});
+  }
+
+  /// Troca a conta pelo resultado ("10*100" → "1.000,00").
+  void _resolve() {
+    final text = widget.controller.text;
+    if (!Money.isExpression(text)) return;
+    final m = Money.tryEval(text);
+    if (m == null) return;
+    final v = m.formatPlain();
+    widget.controller.value = TextEditingValue(
+      text: v,
+      selection: TextSelection.collapsed(offset: v.length),
+    );
+    widget.onChanged?.call(v);
+  }
+
+  Future<void> _openCalculator() async {
+    final r = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => CalculatorPad(initial: widget.controller.text),
+    );
+    if (r == null) return;
+    widget.controller.value = TextEditingValue(
+      text: r,
+      selection: TextSelection.collapsed(offset: r.length),
+    );
+    widget.onChanged?.call(r);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final text = widget.controller.text;
+    final expr = Money.isExpression(text);
+    final result = expr ? Money.tryEval(text) : null;
     return TextFormField(
-      controller: controller,
-      autofocus: autofocus,
-      onChanged: onChanged,
+      controller: widget.controller,
+      focusNode: focus,
+      autofocus: widget.autofocus,
+      onChanged: widget.onChanged,
+      onFieldSubmitted: (_) => _resolve(),
       keyboardType: TextInputType.numberWithOptions(
         decimal: true,
-        signed: allowNegative,
+        signed: widget.allowNegative,
       ),
       inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,\-]')),
+        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,\-+*/xX×÷() ]')),
       ],
-      decoration: InputDecoration(labelText: label, prefixText: 'R\$ '),
+      decoration: InputDecoration(
+        labelText: widget.label,
+        prefixText: 'R\$ ',
+        helperText: !expr
+            ? null
+            : result == null
+            ? 'Conta incompleta'
+            : '= ${result.format()}',
+        suffixIcon: IconButton(
+          tooltip: 'Calculadora',
+          icon: const Icon(Icons.calculate_outlined),
+          onPressed: _openCalculator,
+        ),
+      ),
       validator: (v) {
-        final m = Money.tryParse(v ?? '');
+        final m = Money.tryEval(v ?? '');
         if (m == null) return 'Valor inválido';
-        if (!allowNegative && m.isNegative) {
+        if (!widget.allowNegative && m.isNegative) {
           return 'Valor não pode ser negativo';
         }
-        if (!allowZero && m.isZero) return 'Informe um valor maior que zero';
+        if (!widget.allowZero && m.isZero) {
+          return 'Informe um valor maior que zero';
+        }
         if (m.cents.abs() > 99999999999) return 'Valor muito alto';
         return null;
       },
+    );
+  }
+}
+
+/// Teclado de calculadora: monta a conta e devolve o resultado formatado
+/// ("1.000,00") ao confirmar.
+class CalculatorPad extends StatefulWidget {
+  final String initial;
+  const CalculatorPad({super.key, this.initial = ''});
+  @override
+  State<CalculatorPad> createState() => _CalculatorPadState();
+}
+
+class _CalculatorPadState extends State<CalculatorPad> {
+  late String expr = widget.initial.trim();
+
+  void _key(String k) => setState(() {
+    switch (k) {
+      case 'C':
+        expr = '';
+      case '⌫':
+        if (expr.isNotEmpty) expr = expr.substring(0, expr.length - 1);
+      case '=':
+        final m = Money.tryEval(expr);
+        if (m != null) expr = m.formatPlain();
+      default:
+        expr += k;
+    }
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final result = expr.isEmpty ? null : Money.tryEval(expr);
+    const rows = [
+      ['C', '(', ')', '÷'],
+      ['7', '8', '9', '×'],
+      ['4', '5', '6', '-'],
+      ['1', '2', '3', '+'],
+      [',', '0', '⌫', '='],
+    ];
+    Widget key(String k) {
+      final op = '÷×-+='.contains(k);
+      final fn = k == 'C' || k == '⌫' || k == '(' || k == ')';
+      return Expanded(
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: SizedBox(
+            height: 52,
+            child: op
+                ? FilledButton(
+                    key: ValueKey('calc-$k'),
+                    onPressed: () => _key(k),
+                    child: Text(k, style: const TextStyle(fontSize: 20)),
+                  )
+                : fn
+                ? FilledButton.tonal(
+                    key: ValueKey('calc-$k'),
+                    onPressed: () => _key(k),
+                    child: k == '⌫'
+                        ? const Icon(Icons.backspace_outlined, size: 20)
+                        : Text(k, style: const TextStyle(fontSize: 18)),
+                  )
+                : OutlinedButton(
+                    key: ValueKey('calc-$k'),
+                    onPressed: () => _key(k),
+                    child: Text(k, style: const TextStyle(fontSize: 20)),
+                  ),
+          ),
+        ),
+      );
+    }
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Calculadora', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      expr.isEmpty ? '0' : expr,
+                      key: const ValueKey('calc-expr'),
+                      style: theme.textTheme.titleLarge,
+                      textAlign: TextAlign.right,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      result == null ? ' ' : '= ${result.format()}',
+                      key: const ValueKey('calc-result'),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              for (final r in rows) Row(children: [for (final k in r) key(k)]),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                key: const ValueKey('calc-use'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                onPressed: result == null
+                    ? null
+                    : () => Navigator.pop(context, result.formatPlain()),
+                icon: const Icon(Icons.check),
+                label: Text(
+                  result == null ? 'Usar valor' : 'Usar ${result.format()}',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -266,8 +488,69 @@ class CategoryDropdown extends StatelessWidget {
             onChanged: (v) => onChanged(v ?? root.id),
           ),
         ],
+        Wrap(
+          spacing: 4,
+          children: [
+            if (root != null)
+              TextButton.icon(
+                key: const ValueKey('quick-add-subcategory'),
+                onPressed: () => _addSub(context, root),
+                icon: const Icon(Icons.add, size: 18),
+                label: Text('Nova subcategoria em ${root.name}'),
+              ),
+            TextButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => CategoriesScreen(initialKind: kind),
+                ),
+              ),
+              icon: const Icon(Icons.tune, size: 18),
+              label: const Text('Ajustar categorias'),
+            ),
+          ],
+        ),
       ],
     );
+  }
+
+  /// Cria uma subcategoria sem sair do formulário e já a seleciona.
+  Future<void> _addSub(BuildContext context, FinCategory root) async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Nova subcategoria em ${root.name}'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'Nome'),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text),
+            child: const Text('Adicionar'),
+          ),
+        ],
+      ),
+    );
+    final n = name?.trim() ?? '';
+    if (n.isEmpty) return;
+    final c = FinCategory(
+      id: newId('cat_'),
+      name: n,
+      kind: root.kind,
+      parentId: root.id,
+      icon: root.icon,
+      color: root.color,
+    );
+    await fc.saveCategory(c);
+    onChanged(c.id);
   }
 
   int subCount(FinCategory r) =>

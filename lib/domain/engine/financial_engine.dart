@@ -329,6 +329,31 @@ class UpcomingItem {
   });
 }
 
+/// Quantidade e valor de um grupo de pendências.
+class PendingTally {
+  int count = 0;
+  Money total = Money.zero;
+  void add(Money v) {
+    count++;
+    total += v;
+  }
+}
+
+/// Resumo das pendências de um mês (indicadores da tela inicial).
+class MonthPendings {
+  /// Despesas fora do cartão ainda não pagas (previstas ou pendentes).
+  final PendingTally expenses = PendingTally();
+
+  /// Receitas ainda não recebidas.
+  final PendingTally incomes = PendingTally();
+
+  /// Faturas de cartão com vencimento no mês e saldo em aberto.
+  final PendingTally invoices = PendingTally();
+
+  /// Das pendências acima, as que já venceram (data anterior a hoje).
+  final PendingTally overdue = PendingTally();
+}
+
 /// Motor central de cálculos financeiros.
 ///
 /// Todas as telas obtêm valores daqui, garantindo as mesmas regras:
@@ -919,6 +944,31 @@ class FinancialEngine {
     }
     items.sort((a, b) => a.date.compareTo(b.date));
     return items.take(limit).toList();
+  }
+
+  /// Pendências do mês: despesas a pagar, receitas a receber, faturas a
+  /// pagar e o que já está vencido. Compras no cartão entram pela fatura;
+  /// transferências e canceladas ficam de fora.
+  MonthPendings monthPendings(YearMonth month) {
+    final p = MonthPendings();
+    for (final t in transactionsUntil(month.lastDay)) {
+      if (t.cardId != null || t.isTransfer) continue;
+      if (YearMonth.of(t.date) != month) continue;
+      if (t.status == TransactionStatus.cancelled) continue;
+      final isIncome = t.type == TransactionType.income;
+      if (t.status == TransactionStatus.completed) continue;
+      (isIncome ? p.incomes : p.expenses).add(t.amount);
+      if (t.date.isBefore(today)) p.overdue.add(t.amount);
+    }
+    for (final card in data.cards.where((c) => c.active)) {
+      for (final inv in invoicesForCard(card)) {
+        if (YearMonth.of(inv.dueDate) != month || inv.isCredit) continue;
+        if (!inv.remaining.isPositive) continue;
+        p.invoices.add(inv.remaining);
+        if (inv.dueDate.isBefore(today)) p.overdue.add(inv.remaining);
+      }
+    }
+    return p;
   }
 
   // ---------------------------------------------------------------------------

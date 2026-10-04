@@ -210,6 +210,15 @@ enum ChartType {
 
   bool get isCircular => this == pie || this == donut;
 
+  /// Tipos de colunas que podem ser desenhados com os eixos invertidos
+  /// (barras horizontais).
+  bool get canSwapAxes =>
+      this == bar ||
+      this == stackedBar ||
+      this == comparative ||
+      this == waterfall ||
+      this == pareto;
+
   /// Tipos que só fazem sentido com meses no eixo X.
   bool get requiresMonthAxis =>
       this == monthlyEvolution || this == cumulative || this == trend;
@@ -364,6 +373,14 @@ class ChartConfig {
   final ChartWidth width;
   final ChartHeight height;
 
+  /// Cores escolhidas pelo usuário, por série (`s:<chave>`) ou por
+  /// coluna/fatia (`x:<chave>`), em ARGB. Sobrepõem a paleta.
+  final Map<String, int> colors;
+
+  /// Eixos invertidos: categorias na vertical e valores na horizontal
+  /// (barras horizontais). Vale para os tipos com [ChartType.canSwapAxes].
+  final bool swapAxes;
+
   const ChartConfig({
     required this.id,
     this.title = '',
@@ -385,7 +402,15 @@ class ChartConfig {
     this.palette = ChartPalette.auto,
     this.width = ChartWidth.half,
     this.height = ChartHeight.normal,
+    this.colors = const {},
+    this.swapAxes = false,
   });
+
+  /// Barras horizontais efetivamente desenhadas.
+  bool get horizontal => swapAxes && type.canSwapAxes;
+
+  static String seriesColorKey(String key) => 's:$key';
+  static String xColorKey(String key) => 'x:$key';
 
   /// Título exibido (gera um automático quando vazio).
   String get displayTitle {
@@ -424,6 +449,8 @@ class ChartConfig {
     ChartPalette? palette,
     ChartWidth? width,
     ChartHeight? height,
+    Map<String, int>? colors,
+    bool? swapAxes,
   }) => ChartConfig(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -445,6 +472,8 @@ class ChartConfig {
     palette: palette ?? this.palette,
     width: width ?? this.width,
     height: height ?? this.height,
+    colors: colors ?? this.colors,
+    swapAxes: swapAxes ?? this.swapAxes,
   );
 
   Map<String, Object?> toJson() => {
@@ -468,6 +497,8 @@ class ChartConfig {
     'palette': palette.name,
     'width': width.name,
     'height': height.name,
+    'colors': colors,
+    'swapAxes': swapAxes,
   };
 
   factory ChartConfig.fromJson(Map<String, Object?> j) => ChartConfig(
@@ -521,6 +552,12 @@ class ChartConfig {
       j['height'] as String?,
       ChartHeight.normal,
     ),
+    colors: {
+      if (j['colors'] is Map)
+        for (final e in (j['colors'] as Map).entries)
+          if (e.value is int) '${e.key}': e.value as int,
+    },
+    swapAxes: (j['swapAxes'] as bool?) ?? false,
   );
 }
 

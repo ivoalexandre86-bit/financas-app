@@ -240,7 +240,7 @@ class InstallmentDetailsScreen extends StatelessWidget {
         context,
         () => fc.updateFutureInstallmentAmount(
           future.first.installmentGroupId!,
-          Money.tryParse(ctrl.text)!,
+          Money.tryEval(ctrl.text)!,
         ),
         success: 'Parcelas futuras atualizadas',
       );

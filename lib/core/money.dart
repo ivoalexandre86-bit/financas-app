@@ -65,6 +65,22 @@ class Money implements Comparable<Money> {
     return Money(negative ? -total : total);
   }
 
+  /// Como [tryParse], mas aceita também uma conta, como numa calculadora:
+  /// "10*100" → 1.000,00; "1.234,56 + 10" → 1.244,56; "(50+25)/3" → 25,00.
+  /// Operadores: + - * x × / ÷ e parênteses. O resultado é arredondado
+  /// para centavos. Retorna `null` se a conta for inválida.
+  static Money? tryEval(String input) {
+    final s = input.replaceAll('R\$', '').trim();
+    if (!isExpression(s)) return tryParse(s);
+    final v = _Calc(s).parse();
+    if (v == null || !v.isFinite) return null;
+    return Money((v * 100).round());
+  }
+
+  /// `true` quando o texto é uma conta (tem um operador após um número).
+  static bool isExpression(String input) =>
+      RegExp(r'[\d)]\s*[-+*/x×÷]').hasMatch(input.replaceAll('R\$', '').trim());
+
   static final NumberFormat _currency = NumberFormat.currency(
     locale: 'pt_BR',
     symbol: 'R\$',
@@ -112,4 +128,79 @@ class Money implements Comparable<Money> {
 
 extension MoneySum on Iterable<Money> {
   Money sum() => fold(Money.zero, (a, b) => a + b);
+}
+
+/// Avaliador de contas simples (descendente recursivo), com números no
+/// padrão brasileiro ("1.234,56").
+class _Calc {
+  final String src;
+  int pos = 0;
+  _Calc(String s) : src = s.replaceAll(' ', '');
+
+  double? parse() {
+    final v = _expr();
+    if (v == null || pos != src.length) return null;
+    return v;
+  }
+
+  String? get _peek => pos < src.length ? src[pos] : null;
+
+  double? _expr() {
+    var v = _term();
+    while (v != null && (_peek == '+' || _peek == '-')) {
+      final op = src[pos++];
+      final r = _term();
+      if (r == null) return null;
+      v = op == '+' ? v + r : v - r;
+    }
+    return v;
+  }
+
+  double? _term() {
+    var v = _factor();
+    while (v != null && const ['*', 'x', 'X', '×', '/', '÷'].contains(_peek)) {
+      final op = src[pos++];
+      final r = _factor();
+      if (r == null) return null;
+      if (op == '/' || op == '÷') {
+        if (r == 0) return null;
+        v = v / r;
+      } else {
+        v = v * r;
+      }
+    }
+    return v;
+  }
+
+  double? _factor() {
+    final c = _peek;
+    if (c == null) return null;
+    if (c == '-' || c == '+') {
+      pos++;
+      final v = _factor();
+      return v == null ? null : (c == '-' ? -v : v);
+    }
+    if (c == '(') {
+      pos++;
+      final v = _expr();
+      if (v == null || _peek != ')') return null;
+      pos++;
+      return v;
+    }
+    final m = RegExp(r'[\d.,]+').matchAsPrefix(src, pos);
+    if (m == null) return null;
+    pos = m.end;
+    return _number(m.group(0)!);
+  }
+
+  static double? _number(String s) {
+    var n = s;
+    if (n.contains(',')) {
+      n = n.replaceAll('.', '').replaceAll(',', '.');
+    } else if (RegExp(r'^\d{1,3}(\.\d{3})+$').hasMatch(n)) {
+      n = n.replaceAll('.', '');
+    }
+    if (!RegExp(r'^\d+(\.\d+)?$').hasMatch(n)) return null;
+    return double.tryParse(n);
+  }
 }

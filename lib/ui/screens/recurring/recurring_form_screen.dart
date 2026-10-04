@@ -62,7 +62,7 @@ class _RecurringFormScreenState extends State<RecurringFormScreen> {
         );
     return base.copyWith(
       type: type,
-      amount: Money.tryParse(amount.text)!,
+      amount: Money.tryEval(amount.text)!,
       description: desc.text.trim(),
       categoryId: categoryId,
       accountId: funding?.accountId,
@@ -145,7 +145,7 @@ class _RecurringFormScreenState extends State<RecurringFormScreen> {
     }
     final rule = r;
     final preview = () {
-      final a = Money.tryParse(amount.text);
+      final a = Money.tryEval(amount.text);
       if (a == null || desc.text.trim().isEmpty) return <DateTime>[];
       try {
         return Recurrence.occurrences(

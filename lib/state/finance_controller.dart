@@ -160,6 +160,15 @@ class FinanceController extends ChangeNotifier {
     await saveInline(t.copyWith(status: status));
   }
 
+  /// Muda o status direto na grade (lista suspensa), de forma otimista.
+  Future<void> setStatusInline(
+    FinTransaction t,
+    TransactionStatus status,
+  ) async {
+    if (t.status == status) return;
+    await saveInline(t.copyWith(status: status));
+  }
+
   /// Grava uma edição feita direto na grade (status, valor, descrição…).
   ///
   /// A mudança é aplicada de forma otimista na memória — telas, indicadores

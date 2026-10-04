@@ -4,6 +4,9 @@ import 'package:financas_app/domain/engine/dashboard_engine.dart';
 import 'package:financas_app/domain/engine/financial_engine.dart';
 import 'package:financas_app/domain/models/dashboard.dart';
 import 'package:financas_app/domain/models/entities.dart';
+import 'package:financas_app/ui/theme.dart';
+import 'package:financas_app/ui/widgets/dashboard_chart.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
@@ -241,5 +244,41 @@ void main() {
     final back = Dashboard.fromJson(dash.toJson());
     expect(back.toJson(), dash.toJson());
     expect(back.filter.period.resolve(ref).months.length, 2);
+  });
+
+  testWidgets('cor por coluna e barras horizontais', (tester) async {
+    final d = de.build(
+      const ChartConfig(
+        id: 'g',
+        source: DataSource.expenses,
+        xAxis: Dimension.category,
+        usePanelPeriod: false,
+        period: PeriodSpec.relative(-1, 0),
+        colors: {'x:mor': 0xFFE34948},
+        swapAxes: true,
+      ),
+      panel: const PanelFilter(),
+      reference: ref,
+    );
+    late List<({String key, String label, Color color})> items;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) {
+              items = colorableItems(context, d);
+              return DashboardChartView(data: d, height: 240);
+            },
+          ),
+        ),
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    // Uma série: cada coluna tem a sua cor; a escolhida prevalece.
+    expect(items.every((i) => i.key.startsWith('x:')), isTrue);
+    final mor = items.firstWhere((i) => i.key == 'x:mor');
+    expect(mor.color, const Color(0xFFE34948));
+    expect(d.config.horizontal, isTrue);
   });
 }

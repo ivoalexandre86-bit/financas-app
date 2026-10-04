@@ -69,7 +69,7 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
         InstallmentGroup(
           id: old.id,
           description: description.text.trim(),
-          totalAmount: Money.tryParse(total.text)!,
+          totalAmount: Money.tryEval(total.text)!,
           count: n,
           purchaseDate: date,
           accountId: funding?.accountId,
@@ -101,7 +101,7 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
         ),
       );
     }
-    final value = Money.tryParse(total.text);
+    final value = Money.tryEval(total.text);
     final n = int.tryParse(countCtrl.text) ?? 0;
     final paid = fc
         .installmentsOf(g!.id)

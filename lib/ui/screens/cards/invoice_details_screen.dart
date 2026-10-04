@@ -128,7 +128,7 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen> {
       ),
     );
     if (ok != true || !mounted) return;
-    final amount = partial ? Money.tryParse(amountCtrl.text)! : inv.remaining;
+    final amount = partial ? Money.tryEval(amountCtrl.text)! : inv.remaining;
     await runAction(
       context,
       () => fc.payInvoice(inv, amount, date: date, accountId: account!),
