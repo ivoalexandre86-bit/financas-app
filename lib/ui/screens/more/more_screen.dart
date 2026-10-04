@@ -14,6 +14,7 @@ import '../installments/installments_screen.dart';
 import '../open_finance/open_finance_screen.dart';
 import '../recurring/recurring_screen.dart';
 import '../settings/settings_screen.dart';
+import '../users/users_screen.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -42,7 +43,11 @@ class MoreScreen extends StatelessWidget {
               ),
             ),
             title: Text(user?.name ?? ''),
-            subtitle: Text(user?.email ?? ''),
+            subtitle: Text(
+              (user?.isAdmin ?? false)
+                  ? '${user!.email} · Administrador'
+                  : user?.email ?? '',
+            ),
           ),
           const Divider(),
           _Header('Finanças'),
@@ -102,6 +107,13 @@ class MoreScreen extends StatelessWidget {
             const OpenFinanceScreen(),
           ),
           _Header('Aplicativo'),
+          if (user?.isAdmin ?? false)
+            item(
+              Icons.manage_accounts_outlined,
+              'Usuários',
+              'Criar e gerenciar quem usa o app (cada um com seu orçamento)',
+              const UsersScreen(),
+            ),
           item(
             Icons.settings_outlined,
             'Configurações',

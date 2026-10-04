@@ -6,6 +6,7 @@ import '../../../state/auth_controller.dart';
 import '../../../state/finance_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../users/users_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -94,6 +95,13 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
+          if (!fc.isDemo)
+            ListTile(
+              key: const ValueKey('change-password'),
+              leading: const Icon(Icons.password),
+              title: const Text('Alterar minha senha'),
+              onTap: () => changeOwnPassword(context),
+            ),
           ListTile(
             leading: Icon(
               Icons.delete_forever_outlined,
@@ -115,11 +123,14 @@ class SettingsScreen extends StatelessWidget {
                 destructive: true,
               );
               if (!ok || !context.mounted) return;
-              await fc.repo.destroy();
-              await auth.deleteAccount();
-              if (context.mounted) {
-                Navigator.of(context).popUntil((r) => r.isFirst);
-              }
+              final nav = Navigator.of(context);
+              final repo = fc.repo;
+              // A conta é removida primeiro: se não puder (único
+              // administrador), os dados ficam intactos.
+              final done = await runAction(context, auth.deleteAccount);
+              if (!done) return;
+              await repo.destroy();
+              if (nav.mounted) nav.popUntil((r) => r.isFirst);
             },
           ),
           _h(context, 'Sobre'),

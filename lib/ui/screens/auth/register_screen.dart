@@ -29,6 +29,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: ListView(
           padding: const EdgeInsets.all(24),
           children: [
+            Text(
+              'Esta é a primeira conta deste dispositivo e será a de administrador. '
+              'Depois, novos usuários são criados em Mais › Usuários.',
+              style: context.text.bodyMedium?.copyWith(
+                color: context.fin.subtle,
+              ),
+            ),
+            const SizedBox(height: 16),
             TextFormField(
               controller: name,
               textCapitalization: TextCapitalization.words,
