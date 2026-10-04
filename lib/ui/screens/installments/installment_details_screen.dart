@@ -12,6 +12,7 @@ import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/transaction_tile.dart';
 import '../transactions/transaction_details_screen.dart';
+import 'installment_edit_screen.dart';
 import 'installments_screen.dart';
 
 class InstallmentDetailsScreen extends StatelessWidget {
@@ -46,7 +47,9 @@ class InstallmentDetailsScreen extends StatelessWidget {
         actions: [
           PopupMenuButton<String>(
             onSelected: (v) async {
-              if (v == 'cancel') {
+              if (v == 'edit') {
+                push(context, InstallmentEditScreen(groupId: g.id));
+              } else if (v == 'cancel') {
                 final ok = await confirmDialog(
                   context,
                   title: 'Cancelar parcelas futuras?',
@@ -84,6 +87,10 @@ class InstallmentDetailsScreen extends StatelessWidget {
               }
             },
             itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'edit',
+                child: Text('Editar parcelamento (valor, nº de parcelas…)'),
+              ),
               PopupMenuItem(
                 value: 'amount',
                 enabled: future.isNotEmpty,

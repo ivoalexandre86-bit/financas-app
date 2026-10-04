@@ -12,6 +12,9 @@ import '../../theme.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
+import '../../../domain/engine/recurrence.dart';
+import '../installments/installment_edit_screen.dart';
+import '../recurring/recurring_form_screen.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transaction_form_screen.dart';
 import 'card_details_screen.dart';
@@ -135,7 +138,7 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen> {
     );
   }
 
-  void _addPurchase(Invoice inv, DateTime today) {
+  void _addPurchase(Invoice inv, DateTime today, {bool recurring = false}) {
     // Data sugerida dentro do período de compras desta fatura.
     final start = BillingCycle.cycleStart(inv.card, inv.month);
     final last = BillingCycle.lastPurchaseDay(inv.card, inv.month);
@@ -150,6 +153,7 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen> {
         initialType: TransactionType.expense,
         initialCardId: inv.card.id,
         initialDate: date,
+        initialRecurring: recurring,
       ),
     );
   }
@@ -175,6 +179,11 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen> {
     final visible = categoryFilter == null
         ? inv.transactions
         : (byRoot[categoryFilter] ?? const <FinTransaction>[]);
+    final rules =
+        fc.data.recurringRules
+            .where((r) => r.cardId == card.id && !r.isEndedBy(e.today))
+            .toList()
+          ..sort((a, b) => a.description.compareTo(b.description));
     final canPay =
         inv.remaining.isPositive && inv.status != InvoiceStatus.future;
 
@@ -182,6 +191,11 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen> {
       appBar: AppBar(
         title: Text('Fatura ${card.name}'),
         actions: [
+          IconButton(
+            tooltip: 'Adicionar recorrência (assinatura) no cartão',
+            icon: const Icon(Icons.autorenew),
+            onPressed: () => _addPurchase(inv, e.today, recurring: true),
+          ),
           IconButton(
             tooltip: 'Adicionar compra a esta fatura',
             icon: const Icon(Icons.add_shopping_cart),
@@ -308,13 +322,23 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen> {
                     ),
                   ],
                   const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      icon: const Icon(Icons.add),
-                      label: const Text('Adicionar compra a esta fatura'),
-                      onPressed: () => _addPurchase(inv, e.today),
-                    ),
+                  Wrap(
+                    spacing: 4,
+                    children: [
+                      TextButton.icon(
+                        key: const ValueKey('invoice-add-purchase'),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Adicionar compra'),
+                        onPressed: () => _addPurchase(inv, e.today),
+                      ),
+                      TextButton.icon(
+                        key: const ValueKey('invoice-add-recurring'),
+                        icon: const Icon(Icons.autorenew),
+                        label: const Text('Adicionar recorrência'),
+                        onPressed: () =>
+                            _addPurchase(inv, e.today, recurring: true),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -429,6 +453,51 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen> {
                 const SizedBox.shrink()
           else
             for (final t in visible) _PurchaseTile(tx: t, engine: e),
+          if (rules.isNotEmpty) ...[
+            _title(context, 'Recorrências no cartão (${rules.length})'),
+            for (final r in rules)
+              ListTile(
+                key: ValueKey('card-rule-${r.id}'),
+                onTap: () => push(context, RecurringFormScreen(rule: r)),
+                leading: CircleAvatar(
+                  backgroundColor: context.colors.primary.withValues(
+                    alpha: 0.12,
+                  ),
+                  child: Icon(
+                    r.isPaused ? Icons.pause : Icons.autorenew,
+                    color: context.colors.primary,
+                    size: 20,
+                  ),
+                ),
+                title: Text(
+                  r.description,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  [
+                    r.frequency.label,
+                    e.categoryLabel(r.categoryId),
+                    if (r.isPaused)
+                      'pausada'
+                    else if (Recurrence.nextOccurrence(r, e.today)
+                        case final next?)
+                      'próxima ${Dates.format(next)}',
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodySmall?.copyWith(
+                    color: context.fin.subtle,
+                  ),
+                ),
+                trailing: MoneyText(
+                  -r.amount,
+                  style: context.text.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
         ],
       ),
     );
@@ -455,6 +524,7 @@ class _PurchaseTile extends StatelessWidget {
       Dates.format(tx.date),
       engine.categoryLabel(tx.categoryId),
       if (tx.isInstallment) tx.installmentLabel,
+      if (tx.isRecurring) 'recorrente',
       if (tx.isVirtual) 'prevista',
     ].join(' · ');
     return ListTile(
@@ -470,12 +540,124 @@ class _PurchaseTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: context.text.bodySmall?.copyWith(color: context.fin.subtle),
       ),
-      trailing: MoneyText(
-        credit ? tx.amount : -tx.amount,
-        showPlus: credit,
-        color: credit ? context.fin.positive : null,
-        style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          MoneyText(
+            credit ? tx.amount : -tx.amount,
+            showPlus: credit,
+            color: credit ? context.fin.positive : null,
+            style: context.text.bodyLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          _PurchaseMenu(tx: tx),
+        ],
       ),
     );
   }
+}
+
+/// Ações de uma compra da fatura: editar, parcelar / editar parcelamento,
+/// tornar recorrente / editar recorrência e excluir.
+class _PurchaseMenu extends StatelessWidget {
+  final FinTransaction tx;
+  const _PurchaseMenu({required this.tx});
+
+  @override
+  Widget build(BuildContext context) {
+    final fc = context.read<FinanceController>();
+    final t = tx;
+    final rule = fc.data.ruleById[t.recurringId];
+    final group = fc.data.groupById[t.installmentGroupId];
+    final plain = TransactionFormScreen.canConvert(t);
+    final expense = t.type == TransactionType.expense;
+    return PopupMenuButton<String>(
+      key: ValueKey('purchase-menu-${t.id}'),
+      tooltip: 'Ações da compra',
+      icon: const Icon(Icons.more_vert, size: 20),
+      onSelected: (v) async {
+        switch (v) {
+          case 'edit':
+            push(context, TransactionFormScreen(tx: t));
+          case 'split':
+            push(
+              context,
+              TransactionFormScreen(tx: t, initialInstallment: true),
+            );
+          case 'group':
+            push(context, InstallmentEditScreen(groupId: group!.id));
+          case 'recurring':
+            push(context, TransactionFormScreen(tx: t, initialRecurring: true));
+          case 'rule':
+            push(context, RecurringFormScreen(rule: rule));
+          case 'delete':
+            final ok = await confirmDialog(
+              context,
+              title: t.isVirtual ? 'Pular ocorrência?' : 'Excluir compra?',
+              message: t.isVirtual
+                  ? 'Esta cobrança prevista sai da fatura. A recorrência continua ativa.'
+                  : t.isInstallment
+                  ? 'Somente esta parcela será excluída. Para mudar o parcelamento use “Editar parcelamento”.'
+                  : 'Esta ação não pode ser desfeita.',
+              confirm: t.isVirtual ? 'Pular' : 'Excluir',
+              destructive: true,
+            );
+            if (ok && context.mounted) {
+              await runAction(
+                context,
+                () => fc.deleteTransaction(t),
+                success: t.isVirtual ? 'Ocorrência pulada' : 'Compra excluída',
+              );
+            }
+        }
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'edit',
+          child: _MenuRow(
+            Icons.edit_outlined,
+            t.isVirtual ? 'Editar esta cobrança' : 'Editar compra',
+          ),
+        ),
+        if (group != null)
+          const PopupMenuItem(
+            value: 'group',
+            child: _MenuRow(Icons.view_week_outlined, 'Editar parcelamento'),
+          )
+        else if (plain && expense)
+          const PopupMenuItem(
+            value: 'split',
+            child: _MenuRow(Icons.view_week_outlined, 'Parcelar'),
+          ),
+        if (rule != null)
+          const PopupMenuItem(
+            value: 'rule',
+            child: _MenuRow(Icons.autorenew, 'Editar recorrência'),
+          )
+        else if (plain)
+          const PopupMenuItem(
+            value: 'recurring',
+            child: _MenuRow(Icons.autorenew, 'Tornar recorrente'),
+          ),
+        PopupMenuItem(
+          value: 'delete',
+          child: _MenuRow(
+            Icons.delete_outline,
+            t.isVirtual ? 'Pular esta cobrança' : 'Excluir',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MenuRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _MenuRow(this.icon, this.label);
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [Icon(icon, size: 18), const SizedBox(width: 12), Text(label)],
+  );
 }

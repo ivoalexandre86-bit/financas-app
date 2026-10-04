@@ -11,6 +11,7 @@ import '../../widgets/common.dart';
 import '../../widgets/transaction_tile.dart';
 import '../cards/invoice_details_screen.dart';
 import '../installments/installment_details_screen.dart';
+import '../installments/installment_edit_screen.dart';
 import '../recurring/recurring_form_screen.dart';
 import 'transaction_form_screen.dart';
 
@@ -209,6 +210,56 @@ class TransactionDetailsScreen extends StatelessWidget {
                 context,
                 () => fc.setStatus(t, TransactionStatus.pending),
                 success: 'Status atualizado',
+              ),
+            ),
+          if (!t.isTransfer)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonalIcon(
+                    key: const ValueKey('details-edit'),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: Text(card != null ? 'Ajustar compra' : 'Editar'),
+                    onPressed: () =>
+                        push(context, TransactionFormScreen(tx: t)),
+                  ),
+                  if (TransactionFormScreen.canConvert(t) &&
+                      t.type == TransactionType.expense)
+                    FilledButton.tonalIcon(
+                      key: const ValueKey('details-split'),
+                      icon: const Icon(Icons.view_week_outlined),
+                      label: const Text('Parcelar'),
+                      onPressed: () => push(
+                        context,
+                        TransactionFormScreen(tx: t, initialInstallment: true),
+                      ),
+                    ),
+                  if (t.isInstallment &&
+                      fc.data.groupById[t.installmentGroupId] != null)
+                    FilledButton.tonalIcon(
+                      key: const ValueKey('details-edit-group'),
+                      icon: const Icon(Icons.view_week_outlined),
+                      label: const Text('Editar parcelamento'),
+                      onPressed: () => push(
+                        context,
+                        InstallmentEditScreen(groupId: t.installmentGroupId!),
+                      ),
+                    ),
+                  if (TransactionFormScreen.canConvert(t))
+                    FilledButton.tonalIcon(
+                      key: const ValueKey('details-recurring'),
+                      icon: const Icon(Icons.autorenew),
+                      label: const Text('Tornar recorrente'),
+                      onPressed: () => push(
+                        context,
+                        TransactionFormScreen(tx: t, initialRecurring: true),
+                      ),
+                    ),
+                ],
               ),
             ),
           const SizedBox(height: 8),

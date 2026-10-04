@@ -316,6 +316,145 @@ class FinanceController extends ChangeNotifier {
     return ops.length;
   }
 
+  /// Transforma um lançamento à vista já salvo em compra parcelada: o
+  /// lançamento é substituído pelas parcelas do grupo [g] (no cartão, cada
+  /// parcela cai na fatura correspondente). A 1ª parcela herda o status do
+  /// lançamento original.
+  Future<InstallmentGroup> convertToInstallments(
+    FinTransaction t,
+    InstallmentGroup g,
+  ) async {
+    if (t.isVirtual || t.isInstallment || t.isTransfer) {
+      throw ArgumentError('Este lançamento não pode ser parcelado');
+    }
+    _checkGroup(g);
+    final parts = Installments.build(
+      g,
+      firstStatus: t.status,
+      today: engine.today,
+    );
+    await _commit([
+      WriteOp.delete(Coll.transactions, t.id),
+      WriteOp.put(Coll.installmentGroups, g.id, g.toJson()),
+      ...parts.map(_putTx),
+      ..._relinkExternal(t.id, parts.first.id),
+    ]);
+    externalTransactions = await repo.loadExternalTransactions();
+    if (g.cardId != null) await _syncCardInvoices(g.cardId!, parts);
+    return g;
+  }
+
+  /// Altera uma compra parcelada inteira: valor total, número de parcelas,
+  /// data, descrição, categoria... As parcelas são recalculadas mantendo o
+  /// ID e o status das que já existiam (mesmo número); as que sobram são
+  /// excluídas. Com [InstallmentGroup.count] = 1 a compra volta a ser um
+  /// lançamento à vista.
+  Future<void> updateInstallmentGroup(InstallmentGroup updated) async {
+    final old = data.groupById[updated.id];
+    if (old == null) throw ArgumentError('Parcelamento não encontrado');
+    final current = installmentsOf(old.id);
+    final byNumber = {for (final t in current) t.installmentNumber: t};
+    final ops = <WriteOp>[];
+    final List<FinTransaction> next;
+    if (updated.count == 1) {
+      if ((updated.accountId == null) == (updated.cardId == null)) {
+        throw ArgumentError('Selecione uma conta ou um cartão');
+      }
+      final first = byNumber[1];
+      final single = FinTransaction(
+        id: first?.id ?? newId('tx_'),
+        type: TransactionType.expense,
+        amount: updated.totalAmount,
+        description: updated.description,
+        categoryId: updated.categoryId,
+        date: updated.purchaseDate,
+        accountId: updated.accountId,
+        cardId: updated.cardId,
+        projectId: updated.projectId,
+        notes: updated.notes,
+        status: first?.status ?? TransactionStatus.pending,
+        externalId: first?.externalId,
+        createdAt: first?.createdAt,
+      );
+      next = [single];
+      ops.add(WriteOp.delete(Coll.installmentGroups, old.id));
+    } else {
+      _checkGroup(updated);
+      final built = Installments.build(
+        updated,
+        firstStatus: byNumber[1]?.status ?? TransactionStatus.pending,
+        today: engine.today,
+      );
+      next = [
+        for (final p in built)
+          if (byNumber[p.installmentNumber] case final prev?)
+            p.copyWith(
+              id: prev.id,
+              status: prev.status,
+              externalId: prev.externalId,
+            )
+          else
+            p,
+      ];
+      ops.add(
+        WriteOp.put(Coll.installmentGroups, updated.id, updated.toJson()),
+      );
+    }
+    final keep = {for (final t in next) t.id};
+    for (final t in current) {
+      if (!keep.contains(t.id)) {
+        ops.add(WriteOp.delete(Coll.transactions, t.id));
+      }
+    }
+    ops.addAll(next.map(_putTx));
+    await _commit(ops);
+    for (final cardId in {old.cardId, updated.cardId}) {
+      if (cardId != null) {
+        await _syncCardInvoices(cardId, [...current, ...next]);
+      }
+    }
+  }
+
+  void _checkGroup(InstallmentGroup g) {
+    if (g.count < 2) throw ArgumentError('Informe ao menos 2 parcelas');
+    if (g.totalAmount.cents < g.count) {
+      throw ArgumentError('Valor insuficiente para o número de parcelas');
+    }
+    if (g.description.trim().isEmpty) {
+      throw ArgumentError('Informe uma descrição');
+    }
+    if ((g.accountId == null) == (g.cardId == null)) {
+      throw ArgumentError('Selecione uma conta ou um cartão');
+    }
+  }
+
+  /// Transações externas conciliadas com [fromId] passam a apontar [toId].
+  List<WriteOp> _relinkExternal(String fromId, String toId) => [
+    for (final e in externalTransactions)
+      if (e.matchedTransactionId == fromId)
+        () {
+          final u = e.copyWith(matchedTransactionId: toId);
+          return WriteOp.put(Coll.externalTransactions, u.id, u.toJson());
+        }(),
+  ];
+
+  /// Reaplica o status das faturas tocadas por [txs] (o status das compras
+  /// acompanha a fatura).
+  Future<void> _syncCardInvoices(
+    String cardId,
+    Iterable<FinTransaction> txs,
+  ) async {
+    final card = data.cardById[cardId];
+    if (card == null) return;
+    final months = {
+      for (final t in txs)
+        if (t.cardId == cardId) BillingCycle.invoiceForTransaction(card, t),
+    };
+    for (final m in months) {
+      await _syncInvoiceItems(cardId, m);
+    }
+  }
+
   /// Exclui a compra parcelada inteira (todas as parcelas).
   Future<void> deleteInstallmentGroup(String groupId) => _commit([
     WriteOp.delete(Coll.installmentGroups, groupId),
@@ -328,6 +467,22 @@ class FinanceController extends ChangeNotifier {
 
   Future<void> createRule(RecurringRule r) =>
       _commit([WriteOp.put(Coll.recurringTransactions, r.id, r.toJson())]);
+
+  /// Torna recorrente um lançamento já salvo (ex.: assinatura lançada na
+  /// fatura): cria a regra a partir da data dele e vincula o lançamento como
+  /// a 1ª ocorrência, para que ela não seja gerada em duplicidade.
+  Future<void> convertToRecurring(FinTransaction t, RecurringRule rule) async {
+    if (t.isVirtual || t.isRecurring || t.isInstallment || t.isTransfer) {
+      throw ArgumentError('Este lançamento não pode virar recorrência');
+    }
+    final err = validateTransaction(t);
+    if (err != null) throw ArgumentError(err);
+    final r = rule.copyWith(startDate: t.date);
+    await _commit([
+      WriteOp.put(Coll.recurringTransactions, r.id, r.toJson()),
+      _putTx(t.copyWith(recurringId: r.id, occurrenceDate: t.date)),
+    ]);
+  }
 
   /// Atualiza uma regra respeitando o histórico:
   /// * Se a regra ainda não começou, é alterada diretamente.
