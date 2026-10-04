@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../data/auth_service.dart';
+import '../data/cloud/api_client.dart';
 
 /// Estado de autenticação do app.
 class AuthController extends ChangeNotifier {
@@ -37,6 +38,9 @@ class AuthController extends ChangeNotifier {
     } on AuthException catch (e) {
       error = e.message;
       return false;
+    } on OfflineException catch (e) {
+      error = e.toString();
+      return false;
     } catch (e) {
       error = 'Erro inesperado: $e';
       return false;
@@ -55,6 +59,16 @@ class AuthController extends ChangeNotifier {
   Future<bool> enterDemo() => _run(service.demoUser);
 
   bool get isAdmin => user?.isAdmin ?? false;
+
+  /// O servidor recusou a sessão (expirada ou conta removida).
+  Future<void> sessionExpired() async {
+    if (user == null || user!.isDemo) return;
+    await service.logout();
+    user = null;
+    error = 'Sua sessão expirou. Entre novamente.';
+    canRegister = !await service.hasUsers();
+    notifyListeners();
+  }
 
   Future<void> logout() async {
     await service.logout();

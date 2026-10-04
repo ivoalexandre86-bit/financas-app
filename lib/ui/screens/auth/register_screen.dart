@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/cloud_config.dart';
 import '../../../data/auth_service.dart';
 import '../../../state/auth_controller.dart';
 import '../../theme.dart';
@@ -30,7 +31,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           padding: const EdgeInsets.all(24),
           children: [
             Text(
-              'Esta é a primeira conta deste dispositivo e será a de administrador. '
+              '${CloudConfig.enabled ? 'Esta é a primeira conta do app' : 'Esta é a primeira conta deste dispositivo'} '
+              'e será a de administrador. '
               'Depois, novos usuários são criados em Mais › Usuários.',
               style: context.text.bodyMedium?.copyWith(
                 color: context.fin.subtle,

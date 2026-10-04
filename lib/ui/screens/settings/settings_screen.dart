@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app.dart';
+import '../../../data/cloud/api_client.dart';
 import '../../../state/auth_controller.dart';
 import '../../../state/finance_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../users/users_screen.dart';
+import 'cloud_import.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -76,6 +78,31 @@ class SettingsScreen extends StatelessWidget {
               'Nunca são contados como despesa: a compra no cartão já é a despesa; o pagamento apenas liquida a fatura.',
             ),
           ),
+          if (fc.isCloud) ...[
+            _h(context, 'Nuvem'),
+            ListTile(
+              key: const ValueKey('cloud-refresh'),
+              leading: const Icon(Icons.cloud_sync_outlined),
+              title: const Text('Atualizar agora'),
+              subtitle: const Text(
+                'Seus dados ficam salvos na nuvem: entre com a mesma conta em qualquer aparelho para ver tudo.',
+              ),
+              onTap: () => runAction(context, () async {
+                if (!await fc.refreshFromCloud()) {
+                  throw const OfflineException();
+                }
+              }, success: 'Dados atualizados'),
+            ),
+            ListTile(
+              key: const ValueKey('cloud-import'),
+              leading: const Icon(Icons.upload_outlined),
+              title: const Text('Trazer dados deste aparelho'),
+              subtitle: const Text(
+                'Leva para a nuvem os dados de uma conta antiga criada neste navegador.',
+              ),
+              onTap: () => showImportFromDevice(context),
+            ),
+          ],
           _h(context, 'Privacidade e dados (LGPD)'),
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),
@@ -118,7 +145,9 @@ class SettingsScreen extends StatelessWidget {
               final ok = await confirmDialog(
                 context,
                 title: 'Excluir conta?',
-                message: 'Todos os seus dados (contas, transações, projetos, conexões) serão apagados deste dispositivo. Esta ação não pode ser desfeita.',
+                message: fc.isCloud
+                    ? 'Todos os seus dados (contas, transações, projetos, conexões) serão apagados da nuvem e de todos os aparelhos. Esta ação não pode ser desfeita.'
+                    : 'Todos os seus dados (contas, transações, projetos, conexões) serão apagados deste dispositivo. Esta ação não pode ser desfeita.',
                 confirm: 'Excluir definitivamente',
                 destructive: true,
               );
@@ -163,7 +192,8 @@ const _privacy = '''
 Seus dados financeiros são armazenados de forma isolada por usuário e usados exclusivamente para calcular saldos, faturas e projeções.
 
 • Não vendemos nem compartilhamos dados com terceiros.
-• Senhas são protegidas com hash (PBKDF2-HMAC-SHA256 com salt); nunca são armazenadas em texto.
+• Senhas são protegidas com hash e salt (bcrypt no servidor; PBKDF2-HMAC-SHA256 nas contas locais); nunca são armazenadas em texto.
+• Com a conta na nuvem, os dados trafegam criptografados (HTTPS) e ficam em um banco de dados acessível apenas pela sua conta.
 • O app nunca solicita ou armazena senhas bancárias. Conexões Open Finance usam o consentimento oficial da instituição e podem ser revogadas a qualquer momento.
 • Você pode excluir sua conta e todos os dados a qualquer momento em Configurações.
 • Base legal (LGPD, art. 7º): execução de contrato e consentimento para integrações Open Finance.

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/cloud_config.dart';
 import '../../../data/auth_service.dart';
 import '../../../state/auth_controller.dart';
 import '../../nav.dart';
@@ -157,7 +158,7 @@ class _UserFormScreenState extends State<UserFormScreen> {
       context,
       title: 'Excluir usuário?',
       message:
-          'O usuário ${widget.user!.name} e todo o orçamento dele (contas, transações, cartões, painéis) serão apagados deste dispositivo. Esta ação não pode ser desfeita.',
+          'O usuário ${widget.user!.name} e todo o orçamento dele (contas, transações, cartões, painéis) serão apagados ${CloudConfig.enabled ? 'da nuvem' : 'deste dispositivo'}. Esta ação não pode ser desfeita.',
       confirm: 'Excluir definitivamente',
       destructive: true,
     );
