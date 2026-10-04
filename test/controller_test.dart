@@ -302,10 +302,11 @@ void main() {
       expect(parts.length, 3);
       expect(parts.map((t) => t.amount.cents).reduce((a, b) => a + b), 100001);
       final first = BillingCycle.invoiceFor(card, today);
-      expect(
-        parts.map((t) => BillingCycle.invoiceForTransaction(card, t)),
-        [first, first.add(1), first.add(2)],
-      );
+      expect(parts.map((t) => BillingCycle.invoiceForTransaction(card, t)), [
+        first,
+        first.add(1),
+        first.add(2),
+      ]);
       expect(fc.engine.invoice(card, first).total, parts.first.amount);
     });
 

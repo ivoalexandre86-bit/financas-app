@@ -414,7 +414,7 @@ class _CardFormScreenState extends State<CardFormScreen> {
                           bank: bank.text.trim(),
                           brand: brand,
                           lastFour: last4.text,
-                          limit: Money.tryParse(limit.text)!,
+                          limit: Money.tryEval(limit.text)!,
                           closingDay: int.parse(closing.text),
                           dueDay: int.parse(due.text),
                           active: active,

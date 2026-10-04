@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/dates.dart';
+import '../../../domain/engine/dashboard_engine.dart';
 import '../../../domain/models/dashboard.dart';
 import '../../../domain/models/entities.dart';
 import '../../../state/finance_controller.dart';
@@ -63,7 +64,7 @@ class _ChartEditorScreenState extends State<ChartEditorScreen> {
       ),
     );
 
-    final form = _form(context, fc);
+    final form = _form(context, fc, preview);
 
     return Scaffold(
       appBar: AppBar(
@@ -121,7 +122,11 @@ class _ChartEditorScreenState extends State<ChartEditorScreen> {
     );
   }
 
-  List<Widget> _form(BuildContext context, FinanceController fc) {
+  List<Widget> _form(
+    BuildContext context,
+    FinanceController fc,
+    ChartDataset preview,
+  ) {
     Widget section(String t) => Padding(
       padding: const EdgeInsets.only(top: 20, bottom: 8),
       child: Text(t, style: context.text.titleSmall),
@@ -183,6 +188,20 @@ class _ChartEditorScreenState extends State<ChartEditorScreen> {
       ),
       if (c.type.requiresMonthAxis)
         _note(context, 'Este tipo usa meses no eixo X.'),
+      if (c.type.canSwapAxes)
+        SwitchListTile(
+          key: const ValueKey('swap-axes'),
+          contentPadding: EdgeInsets.zero,
+          secondary: Icon(
+            c.swapAxes ? Icons.align_horizontal_left : Icons.bar_chart,
+          ),
+          title: const Text('Inverter eixos'),
+          subtitle: const Text(
+            'Barras horizontais: categorias na vertical e valores na horizontal',
+          ),
+          value: c.swapAxes,
+          onChanged: (v) => set(c.copyWith(swapAxes: v)),
+        ),
       section('Fonte de dados'),
       chips(
         DataSource.values,
@@ -387,6 +406,7 @@ class _ChartEditorScreenState extends State<ChartEditorScreen> {
             ),
         ],
       ),
+      ..._customColors(context, preview),
       section('Tamanho'),
       chips(
         ChartWidth.values,
@@ -400,6 +420,60 @@ class _ChartEditorScreenState extends State<ChartEditorScreen> {
         c.height,
         (v) => 'Altura: ${v.label.toLowerCase()}',
         (v) => set(c.copyWith(height: v)),
+      ),
+    ];
+  }
+
+  /// Cor de cada coluna (ou série), escolhida pelo usuário.
+  List<Widget> _customColors(BuildContext context, ChartDataset preview) {
+    if (preview.isEmpty) return const [];
+    final items = colorableItems(context, preview);
+    if (items.isEmpty) return const [];
+    final perX = items.first.key.startsWith('x:');
+    return [
+      Padding(
+        padding: const EdgeInsets.only(top: 16, bottom: 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                perX ? 'Cor de cada coluna' : 'Cor de cada série',
+                style: context.text.labelLarge,
+              ),
+            ),
+            if (c.colors.isNotEmpty)
+              TextButton(
+                onPressed: () => set(c.copyWith(colors: {})),
+                child: const Text('Restaurar'),
+              ),
+          ],
+        ),
+      ),
+      _note(context, 'Toque em um item para escolher a cor.'),
+      const SizedBox(height: 6),
+      Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final it in items.take(40))
+            ActionChip(
+              key: ValueKey('color-${it.key}'),
+              avatar: CircleAvatar(backgroundColor: it.color, radius: 8),
+              label: Text(it.label),
+              onPressed: () async {
+                final picked = await pickChartColor(
+                  context,
+                  title: 'Cor de “${it.label}”',
+                  current: it.color,
+                  custom: c.colors.containsKey(it.key),
+                );
+                if (picked == null) return;
+                final m = {...c.colors};
+                picked == -1 ? m.remove(it.key) : m[it.key] = picked;
+                set(c.copyWith(colors: m));
+              },
+            ),
+        ],
       ),
     ];
   }

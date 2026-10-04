@@ -11,7 +11,6 @@ import '../../theme.dart';
 import '../import/expense_import_screen.dart';
 import '../../widgets/common.dart';
 import '../../widgets/invoice_tile.dart';
-import '../../widgets/transaction_tile.dart';
 import '../../widgets/tx_grid.dart';
 import '../cards/invoice_details_screen.dart';
 import 'transaction_details_screen.dart';
@@ -661,16 +660,19 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         : tx.status == TransactionStatus.planned
         ? ('Prevista', context.colors.primary)
         : ('Pendente', context.fin.warning);
-    final canToggle = TransactionTile.canToggle(tx);
-    final status = NeonStatus(
-      key: ValueKey('tx-status-${tx.id}-${tx.date.toIso8601String()}'),
-      label: statusLabel,
-      color: statusColor,
-      done: completed,
-      tooltip: completed
-          ? 'Voltar para pendente'
-          : 'Marcar como ${isIncome ? 'recebida' : 'paga'}',
-      onTap: canToggle ? () => _toggle(context, fc, tx, !completed) : null,
+    // Status direto na grade, em lista suspensa. Compras no cartão seguem
+    // o status da fatura.
+    final canPick = tx.cardId == null;
+    final status = Builder(
+      builder: (cell) => NeonStatus(
+        key: ValueKey('tx-status-${tx.id}-${tx.date.toIso8601String()}'),
+        label: statusLabel,
+        color: statusColor,
+        done: completed,
+        dropdown: true,
+        tooltip: 'Alterar status',
+        onTap: canPick ? () => _pickStatus(cell, fc, tx) : null,
+      ),
     );
     final money = MoneyText(
       isIncome || tx.isTransfer ? it.amount : -it.amount,
@@ -843,7 +845,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                       ),
                       validate: _validateAmount,
                       onSubmit: (v) =>
-                          save(tx.copyWith(amount: Money.tryParse(v))),
+                          save(tx.copyWith(amount: Money.tryEval(v))),
                       display: money,
                     ),
                   ),
@@ -973,7 +975,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         background: GridPalette.of(context).valueBg,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         validate: _validateAmount,
-        onSubmit: (v) => save(tx.copyWith(amount: Money.tryParse(v))),
+        onSubmit: (v) => save(tx.copyWith(amount: Money.tryEval(v))),
         display: Opacity(opacity: completed ? 1 : 0.8, child: money),
       ),
       GridColumn.status => GridCell(child: status),
@@ -1211,7 +1213,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   }
 
   static String? _validateAmount(String v) {
-    final m = Money.tryParse(v);
+    final m = Money.tryEval(v);
     if (m == null) return 'Valor inválido';
     if (m.cents <= 0) return 'O valor deve ser maior que zero';
     return null;
@@ -1311,15 +1313,25 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     push(context, InvoiceDetailsScreen(cardId: inv.card.id, month: inv.month));
   }
 
-  Future<void> _toggle(
-    BuildContext context,
+  /// Lista de status do lançamento, aberta logo abaixo da célula.
+  Future<void> _pickStatus(
+    BuildContext cell,
     FinanceController fc,
-    FinTransaction t,
-    bool done,
+    FinTransaction tx,
   ) async {
-    final messenger = ScaffoldMessenger.of(context);
+    final messenger = ScaffoldMessenger.of(cell);
+    final picked = await showCellMenu(cell, [
+      for (final s in TransactionStatus.values)
+        CellMenuOption(
+          s,
+          statusOptionLabel(s, tx.type),
+          color: statusOptionColor(cell, s),
+          selected: s == tx.status,
+        ),
+    ]);
+    if (picked == null || picked == tx.status || !cell.mounted) return;
     try {
-      await fc.toggleCompleted(t, done);
+      await fc.setStatusInline(tx, picked);
     } catch (e) {
       messenger.showSnackBar(
         SnackBar(content: Text('Não foi possível alterar o status: $e')),
@@ -1327,6 +1339,27 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     }
   }
 }
+
+/// Rótulo do status na lista suspensa ("Paga"/"Recebida" para concluída).
+String statusOptionLabel(TransactionStatus s, TransactionType type) =>
+    switch (s) {
+      TransactionStatus.planned => 'Prevista',
+      TransactionStatus.pending => 'Pendente',
+      TransactionStatus.completed => switch (type) {
+        TransactionType.income => 'Recebida',
+        TransactionType.expense => 'Paga',
+        TransactionType.transfer => 'Concluída',
+      },
+      TransactionStatus.cancelled => 'Cancelada',
+    };
+
+Color statusOptionColor(BuildContext context, TransactionStatus s) =>
+    switch (s) {
+      TransactionStatus.planned => context.colors.primary,
+      TransactionStatus.pending => context.fin.warning,
+      TransactionStatus.completed => context.fin.positive,
+      TransactionStatus.cancelled => context.fin.subtle,
+    };
 
 typedef _Cols = ({String category, String sub, String desc, String notes});
 

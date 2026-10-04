@@ -91,7 +91,7 @@ class _ProjectionScreenState extends State<ProjectionScreen> {
           FilledButton(
             onPressed: () {
               if (key.currentState!.validate()) {
-                Navigator.pop(ctx, Money.tryParse(ctrl.text));
+                Navigator.pop(ctx, Money.tryEval(ctrl.text));
               }
             },
             child: const Text('Aplicar'),

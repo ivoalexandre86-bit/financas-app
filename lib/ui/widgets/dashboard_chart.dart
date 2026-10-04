@@ -92,6 +92,8 @@ List<Color> seriesColors(BuildContext context, ChartDataset d) {
     for (var i = 0; i < d.series.length; i++)
       () {
         final s = d.series[i];
+        final custom = d.config.colors[ChartConfig.seriesColorKey(s.key)];
+        if (custom != null) return Color(custom);
         if (useCat && s.color != null) return Color(s.color!);
         if (!auto) return pal[i % pal.length];
         if (s.key == 'actual') return context.colors.primary;
@@ -114,15 +116,152 @@ List<Color> seriesColors(BuildContext context, ChartDataset d) {
 List<Color> xColors(BuildContext context, ChartDataset d) {
   final pal = paletteColors(context, d.config.palette);
   final useCat = d.config.palette == ChartPalette.categories;
+  final custom = xOverrides(d);
   return [
     for (var i = 0; i < d.xKeys.length; i++)
-      d.xKeys[i] == DashboardEngine.otherKey
-          ? context.fin.subtle
-          : (useCat && d.xColors[i] != null)
-          ? Color(d.xColors[i]!)
-          : pal[i % pal.length],
+      custom[i] ??
+          (d.xKeys[i] == DashboardEngine.otherKey
+              ? context.fin.subtle
+              : (useCat && d.xColors[i] != null)
+              ? Color(d.xColors[i]!)
+              : pal[i % pal.length]),
   ];
 }
+
+/// Cor escolhida pelo usuário para cada coluna/fatia (ou `null`).
+List<Color?> xOverrides(ChartDataset d) => [
+  for (final k in d.xKeys)
+    switch (d.config.colors[ChartConfig.xColorKey(k)]) {
+      final int c => Color(c),
+      null => null,
+    },
+];
+
+/// Itens cuja cor o usuário pode escolher, com a cor atual: as colunas ou
+/// fatias (gráficos de uma série, pizza, rosca, Pareto, cascata) ou as séries.
+List<({String key, String label, Color color})> colorableItems(
+  BuildContext context,
+  ChartDataset d,
+) {
+  final t = d.config.type;
+  final sc = seriesColors(context, d);
+  final singleBar =
+      d.series.length <= 1 &&
+      (t == ChartType.bar ||
+          t == ChartType.comparative ||
+          t == ChartType.stackedBar ||
+          t == ChartType.pareto);
+  if (t.isCircular || t == ChartType.waterfall || singleBar) {
+    final xo = xOverrides(d);
+    final xc = xColors(context, d);
+    final combined = t == ChartType.waterfall
+        ? d.combined(
+            signed: d.series.length > 1 || d.config.source == DataSource.net,
+          )
+        : const <int>[];
+    return [
+      for (var i = 0; i < d.xKeys.length; i++)
+        (
+          key: ChartConfig.xColorKey(d.xKeys[i]),
+          label: d.xLabels[i],
+          color:
+              xo[i] ??
+              (t.isCircular
+                  ? xc[i]
+                  : t == ChartType.waterfall
+                  ? (combined[i] >= 0
+                        ? context.fin.positive
+                        : context.fin.negative)
+                  : (sc.isEmpty ? context.colors.primary : sc.first)),
+        ),
+    ];
+  }
+  return [
+    for (var i = 0; i < d.series.length; i++)
+      (
+        key: ChartConfig.seriesColorKey(d.series[i].key),
+        label: d.series[i].name,
+        color: sc[i],
+      ),
+  ];
+}
+
+/// Cores oferecidas ao personalizar um gráfico.
+const chartSwatches = [
+  0xFF2A78D6,
+  0xFF1C5CAB,
+  0xFF5598E7,
+  0xFF0E7490,
+  0xFF14B8A6,
+  0xFF1BAF7A,
+  0xFF15803D,
+  0xFF65A30D,
+  0xFF84CC16,
+  0xFFEDA100,
+  0xFFCA8A04,
+  0xFFF59E0B,
+  0xFFEB6834,
+  0xFFEA580C,
+  0xFFE34948,
+  0xFFDC2626,
+  0xFFBE185D,
+  0xFFE87BA4,
+  0xFFD55181,
+  0xFF9333EA,
+  0xFF7C3AED,
+  0xFF4A3AA7,
+  0xFF78716C,
+  0xFF64748B,
+  0xFF334155,
+  0xFF111827,
+];
+
+/// Escolha de cor: devolve a cor escolhida, `-1` para voltar à automática
+/// ou `null` se cancelar.
+Future<int?> pickChartColor(
+  BuildContext context, {
+  required String title,
+  required Color current,
+  bool custom = false,
+}) => showDialog<int>(
+  context: context,
+  builder: (ctx) => AlertDialog(
+    title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
+    content: SizedBox(
+      width: 320,
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          for (final c in chartSwatches)
+            InkWell(
+              key: ValueKey('swatch-$c'),
+              customBorder: const CircleBorder(),
+              onTap: () => Navigator.pop(ctx, c),
+              child: CircleAvatar(
+                radius: 17,
+                backgroundColor: Color(c),
+                child: custom && current.toARGB32() == c
+                    ? const Icon(Icons.check, color: Colors.white, size: 18)
+                    : null,
+              ),
+            ),
+        ],
+      ),
+    ),
+    actions: [
+      if (custom)
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, -1),
+          child: const Text('Cor automática'),
+        ),
+      TextButton(
+        onPressed: () => Navigator.pop(ctx),
+        child: const Text('Cancelar'),
+      ),
+    ],
+  ),
+);
 
 // Formatação ------------------------------------------------------------------
 
@@ -248,7 +387,7 @@ class _DashboardChartViewState extends State<DashboardChartView> {
         },
       );
     } else {
-      final model = _CartesianModel.build(d, sColors, xCols, style);
+      final model = _CartesianModel.build(d, sColors, xOverrides(d), style);
       plot = LayoutBuilder(
         builder: (context, c) {
           final size = Size(c.maxWidth, widget.height);
@@ -259,7 +398,9 @@ class _DashboardChartViewState extends State<DashboardChartView> {
 
           return GestureDetector(
             onTapDown: (t) => pick(t.localPosition),
-            onHorizontalDragUpdate: (t) => pick(t.localPosition),
+            onHorizontalDragUpdate: model.horizontal
+                ? null
+                : (t) => pick(t.localPosition),
             child: CustomPaint(
               size: size,
               painter: _CartesianPainter(
@@ -708,6 +849,9 @@ class _CartesianModel {
   /// Rótulos de variação por ponto (evolução mensal).
   final List<String?> pointNotes;
 
+  /// Eixos invertidos: categorias na vertical, valores na horizontal.
+  final bool horizontal;
+
   _CartesianModel({
     required this.xLabels,
     required this.bars,
@@ -718,6 +862,7 @@ class _CartesianModel {
     required this.step,
     required this.money,
     this.pointNotes = const [],
+    this.horizontal = false,
   });
 
   static List<int> _running(List<int> v) {
@@ -728,7 +873,7 @@ class _CartesianModel {
   static _CartesianModel build(
     ChartDataset d,
     List<Color> sc,
-    List<Color> xc,
+    List<Color?> xo,
     _ChartStyle st,
   ) {
     final type = d.config.type;
@@ -739,6 +884,9 @@ class _CartesianModel {
     final labels = [...d.xLabels];
     var notes = <String?>[];
     Color faded(Color c) => c.withValues(alpha: 0.4);
+    // Com uma só série, cada coluna pode ter a sua cor.
+    Color colorAt(int s, int x) =>
+        (d.series.length == 1 ? xo[x] : null) ?? sc[s];
 
     switch (type) {
       case ChartType.bar:
@@ -751,7 +899,14 @@ class _CartesianModel {
             if (withCmp) {
               final c = d.comparison[s].values[x];
               bars.add(
-                _Bar(x, gi, gn, math.min(0, c), math.max(0, c), faded(sc[s])),
+                _Bar(
+                  x,
+                  gi,
+                  gn,
+                  math.min(0, c),
+                  math.max(0, c),
+                  faded(colorAt(s, x)),
+                ),
               );
             }
             final v = d.series[s].values[x];
@@ -762,7 +917,7 @@ class _CartesianModel {
                 gn,
                 math.min(0, v),
                 math.max(0, v),
-                sc[s],
+                colorAt(s, x),
               ),
             );
           }
@@ -784,13 +939,15 @@ class _CartesianModel {
                   1,
                   pos,
                   pos + v,
-                  sc[s],
+                  colorAt(s, x),
                   roundTop: top.isNotEmpty && top.last == s,
                 ),
               );
               pos += v;
             } else {
-              bars.add(_Bar(x, 0, 1, neg + v, neg, sc[s], roundTop: false));
+              bars.add(
+                _Bar(x, 0, 1, neg + v, neg, colorAt(s, x), roundTop: false),
+              );
               neg += v;
             }
           }
@@ -857,7 +1014,7 @@ class _CartesianModel {
               1,
               math.min(a, b),
               math.max(a, b),
-              v >= 0 ? st.fin.positive : st.fin.negative,
+              xo[x] ?? (v >= 0 ? st.fin.positive : st.fin.negative),
               roundTop: true,
               roundBottom: true,
             ),
@@ -873,9 +1030,8 @@ class _CartesianModel {
         final base = sc.isEmpty ? st.primary : sc.first;
         for (var x = 0; x < n; x++) {
           final prevPct = total == 0 ? 0 : (cum[x] - vals[x]) / total;
-          bars.add(
-            _Bar(x, 0, 1, 0, vals[x], prevPct < 0.8 ? base : faded(base)),
-          );
+          final c = xo[x] ?? base;
+          bars.add(_Bar(x, 0, 1, 0, vals[x], prevPct < 0.8 ? c : faded(c)));
         }
         lines.add(_Line(cum, st.fin.subtle, markers: true));
         if (total > 0) refs.add(_Ref((total * 0.8).round(), '80%'));
@@ -907,6 +1063,7 @@ class _CartesianModel {
       step: step,
       money: d.isMoney,
       pointNotes: notes,
+      horizontal: d.config.horizontal,
     );
   }
 
@@ -949,16 +1106,30 @@ class _CartesianModel {
   static const bottomGutter = 20.0;
   static const topGutter = 14.0;
 
-  Rect plotRect(Size size) => Rect.fromLTRB(
-    leftGutter,
-    topGutter,
-    size.width - 4,
-    size.height - bottomGutter,
-  );
+  /// Largura dos rótulos das categorias nas barras horizontais.
+  static const categoryGutter = 96.0;
+
+  Rect plotRect(Size size) => horizontal
+      ? Rect.fromLTRB(
+          categoryGutter,
+          6,
+          size.width - 16,
+          size.height - bottomGutter,
+        )
+      : Rect.fromLTRB(
+          leftGutter,
+          topGutter,
+          size.width - 4,
+          size.height - bottomGutter,
+        );
 
   int? indexAt(Size size, Offset o, _ChartStyle st) {
     final r = plotRect(size);
     if (slots == 0) return null;
+    if (horizontal) {
+      final slot = r.height / slots;
+      return ((o.dy - r.top) / slot).floor().clamp(0, slots - 1);
+    }
     final slot = r.width / slots;
     return ((o.dx - r.left) / slot).floor().clamp(0, slots - 1);
   }
@@ -974,29 +1145,50 @@ class _CartesianPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final r = m.plotRect(size);
-    double y(int v) => r.bottom - r.height * (v - m.minY) / (m.maxY - m.minY);
-    final slot = r.width / math.max(1, m.slots);
-    double cx(int x) => r.left + slot * x + slot / 2;
+    final h = m.horizontal;
+    // Posição de um valor no eixo de valores (Y, ou X se invertido).
+    double vp(int v) {
+      final f = (v - m.minY) / (m.maxY - m.minY);
+      return h ? r.left + r.width * f : r.bottom - r.height * f;
+    }
 
-    // Grade e eixo Y (recessivos).
+    final catStart = h ? r.top : r.left;
+    final catEnd = h ? r.bottom : r.right;
+    final slot = (catEnd - catStart) / math.max(1, m.slots);
+    // Centro de uma categoria no eixo de categorias (X, ou Y se invertido).
+    double cc(int x) => catStart + slot * x + slot / 2;
+    Offset pt(double cat, double val) =>
+        h ? Offset(val, cat) : Offset(cat, val);
+
+    // Grade e eixo de valores (recessivos).
     final grid = Paint()
       ..color = st.fin.gridLine
       ..strokeWidth = 1;
     for (var v = m.minY; v <= m.maxY; v += m.step) {
-      final yy = y(v);
-      canvas.drawLine(Offset(r.left, yy), Offset(r.right, yy), grid);
-      _text(
-        canvas,
-        formatValue(v, m.money, compact: true),
-        Offset(r.left - 6, yy),
-        align: _Align.rightMiddle,
-        maxWidth: _CartesianModel.leftGutter - 8,
-      );
+      final p = vp(v);
+      canvas.drawLine(pt(catStart, p), pt(catEnd, p), grid);
+      if (h) {
+        _text(
+          canvas,
+          formatValue(v, m.money, compact: true),
+          Offset(p, r.bottom + 4),
+          align: _Align.centerTop,
+          maxWidth: 56,
+        );
+      } else {
+        _text(
+          canvas,
+          formatValue(v, m.money, compact: true),
+          Offset(r.left - 6, p),
+          align: _Align.rightMiddle,
+          maxWidth: _CartesianModel.leftGutter - 8,
+        );
+      }
     }
     if (m.minY < 0) {
       canvas.drawLine(
-        Offset(r.left, y(0)),
-        Offset(r.right, y(0)),
+        pt(catStart, vp(0)),
+        pt(catEnd, vp(0)),
         Paint()
           ..color = st.fin.subtle.withValues(alpha: 0.6)
           ..strokeWidth = 1,
@@ -1004,16 +1196,21 @@ class _CartesianPainter extends CustomPainter {
     }
 
     if (selected != null && selected! < m.slots) {
+      final band = h
+          ? Rect.fromLTWH(
+              r.left,
+              r.top + slot * selected! + 2,
+              r.width,
+              slot - 4,
+            )
+          : Rect.fromLTWH(
+              r.left + slot * selected! + 2,
+              r.top,
+              slot - 4,
+              r.height,
+            );
       canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(
-            r.left + slot * selected! + 2,
-            r.top,
-            slot - 4,
-            r.height,
-          ),
-          const Radius.circular(6),
-        ),
+        RRect.fromRectAndRadius(band, const Radius.circular(6)),
         Paint()..color = st.fin.gridLine.withValues(alpha: 0.6),
       );
     }
@@ -1022,35 +1219,44 @@ class _CartesianPainter extends CustomPainter {
     for (final b in m.bars) {
       final inner = slot * (m.slots > 16 ? 0.86 : 0.7);
       final bw = math.min(28.0 * b.gn, inner) / b.gn;
-      final left = cx(b.x) - bw * b.gn / 2 + bw * b.gi;
-      final top = y(b.hi), bottom = y(b.lo);
-      if ((bottom - top).abs() < 0.5) continue;
-      final rect = Rect.fromLTRB(left + 1, top, left + bw - 1, bottom);
-      final rad = Radius.circular(math.min(4, rect.width / 2));
+      final start = cc(b.x) - bw * b.gn / 2 + bw * b.gi;
+      final pHi = vp(b.hi), pLo = vp(b.lo);
+      if ((pHi - pLo).abs() < 0.5) continue;
+      final rect = h
+          ? Rect.fromLTRB(pLo, start + 1, pHi, start + bw - 1)
+          : Rect.fromLTRB(start + 1, pHi, start + bw - 1, pLo);
+      final rad = Radius.circular(
+        math.min(4, (h ? rect.height : rect.width) / 2),
+      );
       final positive = b.hi > 0 && b.lo >= 0;
+      // Ponta do valor alto (topo, ou direita) e do valor baixo.
+      final hiR = (b.roundTop && positive) || b.roundBottom ? rad : Radius.zero;
+      final loR = (!positive && b.roundTop) || b.roundBottom
+          ? rad
+          : Radius.zero;
       canvas.drawRRect(
-        RRect.fromRectAndCorners(
-          rect,
-          topLeft: (b.roundTop && positive) || b.roundBottom
-              ? rad
-              : Radius.zero,
-          topRight: (b.roundTop && positive) || b.roundBottom
-              ? rad
-              : Radius.zero,
-          bottomLeft: (!positive && b.roundTop) || b.roundBottom
-              ? rad
-              : Radius.zero,
-          bottomRight: (!positive && b.roundTop) || b.roundBottom
-              ? rad
-              : Radius.zero,
-        ),
+        h
+            ? RRect.fromRectAndCorners(
+                rect,
+                topRight: hiR,
+                bottomRight: hiR,
+                topLeft: loR,
+                bottomLeft: loR,
+              )
+            : RRect.fromRectAndCorners(
+                rect,
+                topLeft: hiR,
+                topRight: hiR,
+                bottomLeft: loR,
+                bottomRight: loR,
+              ),
         Paint()..color = b.color,
       );
       // Separador de 2px entre segmentos empilhados.
       if (!b.roundTop && b.gn == 1 && positive) {
         canvas.drawLine(
-          Offset(rect.left, top),
-          Offset(rect.right, top),
+          h ? Offset(pHi, rect.top) : Offset(rect.left, pHi),
+          h ? Offset(pHi, rect.bottom) : Offset(rect.right, pHi),
           Paint()
             ..color = st.surface
             ..strokeWidth = 2,
@@ -1058,13 +1264,24 @@ class _CartesianPainter extends CustomPainter {
       }
       if (showValues && (m.bars.length <= 24 || b.x == selected)) {
         final v = positive ? b.hi - b.lo : b.lo - b.hi;
-        _text(
-          canvas,
-          formatValue(v, m.money, compact: true),
-          Offset(rect.center.dx, positive ? top - 2 : bottom + 2),
-          align: positive ? _Align.centerBottom : _Align.centerTop,
-          maxWidth: math.max(bw + 16, 40),
-        );
+        final txt = formatValue(v, m.money, compact: true);
+        if (h) {
+          _text(
+            canvas,
+            txt,
+            Offset(positive ? rect.right + 3 : rect.left - 3, rect.center.dy),
+            align: positive ? _Align.leftMiddle : _Align.rightMiddle,
+            maxWidth: 56,
+          );
+        } else {
+          _text(
+            canvas,
+            txt,
+            Offset(rect.center.dx, positive ? pHi - 2 : pLo + 2),
+            align: positive ? _Align.centerBottom : _Align.centerTop,
+            maxWidth: math.max(bw + 16, 40),
+          );
+        }
       }
     }
 
@@ -1072,14 +1289,14 @@ class _CartesianPainter extends CustomPainter {
     for (final l in m.lines) {
       if (l.values.isEmpty) continue;
       final pts = [
-        for (var i = 0; i < l.values.length; i++) Offset(cx(i), y(l.values[i])),
+        for (var i = 0; i < l.values.length; i++) pt(cc(i), vp(l.values[i])),
       ];
       final path = Path()..moveTo(pts.first.dx, pts.first.dy);
       for (final p in pts.skip(1)) {
         path.lineTo(p.dx, p.dy);
       }
-      if (l.fill) {
-        final base = y(math.max(m.minY, math.min(0, m.maxY)));
+      if (l.fill && !h) {
+        final base = vp(math.max(m.minY, math.min(0, m.maxY)));
         final fill = Path.from(path)
           ..lineTo(pts.last.dx, base)
           ..lineTo(pts.first.dx, base)
@@ -1108,32 +1325,34 @@ class _CartesianPainter extends CustomPainter {
           _text(
             canvas,
             formatValue(l.values[i], m.money, compact: true),
-            pts[i] - const Offset(0, 8),
-            align: _Align.centerBottom,
+            h ? pts[i] + const Offset(8, 0) : pts[i] - const Offset(0, 8),
+            align: h ? _Align.leftMiddle : _Align.centerBottom,
             maxWidth: 60,
           );
         }
       }
     }
 
-    for (var i = 0; i < m.pointNotes.length; i++) {
-      final note = m.pointNotes[i];
-      if (note == null || m.lines.isEmpty) continue;
-      final main = m.lines.firstWhere((l) => !l.dashed);
-      _text(
-        canvas,
-        note,
-        Offset(cx(i), y(main.values[i]) + 10),
-        align: _Align.centerTop,
-        maxWidth: slot,
-      );
+    if (!h) {
+      for (var i = 0; i < m.pointNotes.length; i++) {
+        final note = m.pointNotes[i];
+        if (note == null || m.lines.isEmpty) continue;
+        final main = m.lines.firstWhere((l) => !l.dashed);
+        _text(
+          canvas,
+          note,
+          Offset(cc(i), vp(main.values[i]) + 10),
+          align: _Align.centerTop,
+          maxWidth: slot,
+        );
+      }
     }
 
     for (final ref in m.refs) {
-      final yy = y(ref.value);
+      final p = vp(ref.value);
       _dash(
         canvas,
-        [Offset(r.left, yy), Offset(r.right, yy)],
+        [pt(catStart, p), pt(catEnd, p)],
         Paint()
           ..color = st.fin.negative.withValues(alpha: 0.7)
           ..strokeWidth = 1,
@@ -1141,23 +1360,36 @@ class _CartesianPainter extends CustomPainter {
       _text(
         canvas,
         ref.label,
-        Offset(r.right - 2, yy - 2),
-        align: _Align.rightBottom,
+        h ? Offset(p + 3, r.top + 6) : Offset(r.right - 2, p - 2),
+        align: h ? _Align.leftMiddle : _Align.rightBottom,
       );
     }
 
-    // Rótulos do eixo X (pula alguns quando não cabem).
-    final every = math.max(1, (m.slots * 46 / r.width).ceil());
+    // Rótulos das categorias (pula alguns quando não cabem).
+    final every = h
+        ? math.max(1, (m.slots * 16 / r.height).ceil())
+        : math.max(1, (m.slots * 46 / r.width).ceil());
     for (var i = 0; i < m.slots; i++) {
       if (i % every != 0 && i != selected) continue;
-      _text(
-        canvas,
-        m.xLabels[i],
-        Offset(cx(i), r.bottom + 4),
-        align: _Align.centerTop,
-        maxWidth: slot * every - 2,
-        bold: i == selected,
-      );
+      if (h) {
+        _text(
+          canvas,
+          m.xLabels[i],
+          Offset(r.left - 6, cc(i)),
+          align: _Align.rightMiddle,
+          maxWidth: _CartesianModel.categoryGutter - 8,
+          bold: i == selected,
+        );
+      } else {
+        _text(
+          canvas,
+          m.xLabels[i],
+          Offset(cc(i), r.bottom + 4),
+          align: _Align.centerTop,
+          maxWidth: slot * every - 2,
+          bold: i == selected,
+        );
+      }
     }
   }
 
@@ -1196,6 +1428,7 @@ class _CartesianPainter extends CustomPainter {
     )..layout(maxWidth: math.max(8, maxWidth));
     final o = switch (align) {
       _Align.rightMiddle => Offset(at.dx - tp.width, at.dy - tp.height / 2),
+      _Align.leftMiddle => Offset(at.dx, at.dy - tp.height / 2),
       _Align.centerTop => Offset(at.dx - tp.width / 2, at.dy),
       _Align.centerBottom => Offset(at.dx - tp.width / 2, at.dy - tp.height),
       _Align.rightBottom => Offset(at.dx - tp.width, at.dy - tp.height),
@@ -1208,7 +1441,7 @@ class _CartesianPainter extends CustomPainter {
       old.m != m || old.selected != selected || old.showValues != showValues;
 }
 
-enum _Align { rightMiddle, centerTop, centerBottom, rightBottom }
+enum _Align { rightMiddle, leftMiddle, centerTop, centerBottom, rightBottom }
 
 // Pizza / rosca ---------------------------------------------------------------
 

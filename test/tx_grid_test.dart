@@ -57,7 +57,7 @@ void main() {
     return fc;
   }
 
-  testWidgets('grade larga: cabeçalho, ordenação e status com um toque', (
+  testWidgets('grade larga: cabeçalho, ordenação e status em lista suspensa', (
     tester,
   ) async {
     final fc = await setup(tester, const Size(1200, 800));
@@ -73,12 +73,16 @@ void main() {
     await tester.pump();
     expect(y('Aluguel') < y('Mercado'), isTrue);
 
-    // Status alterna sem abrir os detalhes.
+    // O status abre uma lista com todas as opções, sem abrir os detalhes.
+    await tester.tap(find.text('Pendente').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Prevista'), findsOneWidget);
+    expect(find.text('Cancelada'), findsOneWidget);
     await tester.runAsync(() async {
-      await tester.tap(find.text('Pendente').first);
+      await tester.tap(find.text('Paga').last);
       await Future<void>.delayed(const Duration(milliseconds: 50));
     });
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(
       fc.data.transactions.where(
         (t) => t.status == TransactionStatus.completed,
@@ -86,6 +90,21 @@ void main() {
       hasLength(1),
     );
     expect(find.text('Paga'), findsOneWidget);
+
+    // Escolhe outro status direto na lista: cancelada.
+    await tester.tap(find.text('Paga'));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Cancelada').last);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pumpAndSettle();
+    expect(
+      fc.data.transactions.where(
+        (t) => t.status == TransactionStatus.cancelled,
+      ),
+      hasLength(1),
+    );
   });
 
   testWidgets('celular: linhas compactas sem cabeçalho de colunas', (
