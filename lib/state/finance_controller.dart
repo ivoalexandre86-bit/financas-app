@@ -152,20 +152,25 @@ class FinanceController extends ChangeNotifier {
       saveTransaction(t.copyWith(status: status));
 
   /// Alterna o status direto da lista (Concluída ⇄ Pendente).
-  ///
-  /// A mudança é aplicada de forma otimista na memória — telas, indicadores
-  /// e painéis recalculam no mesmo quadro — e em seguida gravada no banco.
-  /// Se a gravação falhar, os dados são recarregados do banco (desfaz).
   Future<void> toggleCompleted(FinTransaction t, bool completed) async {
     final status = completed
         ? TransactionStatus.completed
         : TransactionStatus.pending;
     if (t.status == status) return;
+    await saveInline(t.copyWith(status: status));
+  }
+
+  /// Grava uma edição feita direto na grade (status, valor, descrição…).
+  ///
+  /// A mudança é aplicada de forma otimista na memória — telas, indicadores
+  /// e painéis recalculam no mesmo quadro — e em seguida gravada no banco.
+  /// Se a gravação falhar, os dados são recarregados do banco (desfaz).
+  /// Ocorrências virtuais de recorrência são materializadas: a edição vale
+  /// só para aquela ocorrência, como no formulário.
+  Future<void> saveInline(FinTransaction t) async {
     final err = validateTransaction(t);
     if (err != null) throw ArgumentError(err);
-    final tx = t.isVirtual
-        ? t.copyWith(id: newId('tx_'), isVirtual: false, status: status)
-        : t.copyWith(status: status);
+    final tx = t.isVirtual ? t.copyWith(id: newId('tx_'), isVirtual: false) : t;
     _set(
       data.copyWith(
         transactions: [
