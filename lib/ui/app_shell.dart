@@ -14,6 +14,7 @@ import 'screens/projection/projection_screen.dart';
 import 'screens/projects/projects_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/transactions/transactions_screen.dart';
+import 'screens/users/users_screen.dart';
 import 'widgets/common.dart';
 
 /// Estrutura principal com o menu lateral recolhível (5 seções).
@@ -317,6 +318,13 @@ class SideMenu extends StatelessWidget {
                         label: 'Painéis',
                         onTap: () => push(context, const DashboardsScreen()),
                       ),
+                      if (user?.isAdmin ?? false)
+                        entry(
+                          key: const ValueKey('side-menu-users'),
+                          icon: Icons.manage_accounts_outlined,
+                          label: 'Usuários',
+                          onTap: () => push(context, const UsersScreen()),
+                        ),
                       entry(
                         icon: Icons.settings_outlined,
                         label: 'Configurações',

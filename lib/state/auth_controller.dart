@@ -8,6 +8,9 @@ class AuthController extends ChangeNotifier {
   AuthController(this.service);
 
   AppUser? user;
+
+  /// Primeiro acesso no dispositivo: o cadastro aberto cria o administrador.
+  bool canRegister = false;
   bool initializing = true;
   bool busy = false;
   String? error;
@@ -15,6 +18,7 @@ class AuthController extends ChangeNotifier {
   Future<void> init() async {
     try {
       user = await service.restoreSession();
+      canRegister = !await service.hasUsers();
     } catch (e) {
       error = 'Não foi possível restaurar a sessão';
     }
@@ -28,6 +32,7 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
     try {
       user = await op();
+      canRegister = false;
       return true;
     } on AuthException catch (e) {
       error = e.message;
@@ -49,17 +54,62 @@ class AuthController extends ChangeNotifier {
 
   Future<bool> enterDemo() => _run(service.demoUser);
 
+  bool get isAdmin => user?.isAdmin ?? false;
+
   Future<void> logout() async {
     await service.logout();
     user = null;
+    error = null;
+    canRegister = !await service.hasUsers();
     notifyListeners();
   }
 
+  /// Lança [AuthException] se a conta não puder ser excluída (por exemplo,
+  /// único administrador com outros usuários cadastrados).
   Future<void> deleteAccount() async {
     final u = user;
     if (u == null) return;
     await service.deleteAccount(u.id);
     user = null;
+    canRegister = !await service.hasUsers();
     notifyListeners();
   }
+
+  Future<void> changePassword(String current, String newPassword) =>
+      service.changePassword(current, newPassword);
+
+  // Gestão de usuários (somente administradores).
+
+  Future<List<AppUser>> listUsers() => service.listUsers();
+
+  Future<AppUser> createUser(
+    String name,
+    String email,
+    String password, {
+    bool isAdmin = false,
+  }) => service.createUser(name, email, password, isAdmin: isAdmin);
+
+  Future<AppUser> updateUser(
+    String id, {
+    required String name,
+    required String email,
+    required bool isAdmin,
+  }) async {
+    final u = await service.updateUser(
+      id,
+      name: name,
+      email: email,
+      isAdmin: isAdmin,
+    );
+    if (u.id == user?.id) {
+      user = u;
+      notifyListeners();
+    }
+    return u;
+  }
+
+  Future<void> resetPassword(String id, String newPassword) =>
+      service.resetPassword(id, newPassword);
+
+  Future<void> deleteUser(String id) => service.deleteUser(id);
 }

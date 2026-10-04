@@ -13,11 +13,15 @@ class AppUser {
   final String name;
   final String email;
   final bool isDemo;
+
+  /// Administradores criam e gerenciam os demais usuários.
+  final bool isAdmin;
   const AppUser({
     required this.id,
     required this.name,
     required this.email,
     this.isDemo = false,
+    this.isAdmin = false,
   });
 }
 
@@ -30,13 +34,39 @@ class AuthException implements Exception {
 
 /// Contrato de autenticação. A versão local abaixo guarda usuários no
 /// dispositivo; na fase 3 será trocada por [RemoteAuthService] (JWT via API).
+///
+/// Cada usuário tem o próprio orçamento (banco isolado). O primeiro usuário
+/// criado é o administrador; depois disso, só administradores criam contas.
 abstract class AuthService {
   Future<AppUser?> restoreSession();
+
+  /// Se ainda não há nenhum usuário real (primeiro acesso no dispositivo).
+  Future<bool> hasUsers();
+
+  /// Cadastro aberto: só permitido no primeiro acesso, e cria um admin.
   Future<AppUser> register(String name, String email, String password);
   Future<AppUser> login(String email, String password);
   Future<AppUser> demoUser();
   Future<void> logout();
   Future<void> deleteAccount(String userId);
+  Future<void> changePassword(String current, String newPassword);
+
+  // Gestão de usuários (somente administradores).
+  Future<List<AppUser>> listUsers();
+  Future<AppUser> createUser(
+    String name,
+    String email,
+    String password, {
+    bool isAdmin = false,
+  });
+  Future<AppUser> updateUser(
+    String id, {
+    required String name,
+    required String email,
+    required bool isAdmin,
+  });
+  Future<void> resetPassword(String id, String newPassword);
+  Future<void> deleteUser(String id);
 }
 
 /// Autenticação local com senha protegida por PBKDF2-HMAC-SHA256 + salt
@@ -45,12 +75,47 @@ class LocalAuthService implements AuthService {
   static const _iterations = 20000;
   static const demoEmail = 'demo@exemplo.com.br';
 
-  Database? _db;
+  /// [open] e [deleteUserData] permitem testes com banco em memória.
+  LocalAuthService({
+    Future<Database> Function()? open,
+    Future<void> Function(String userId)? deleteUserData,
+  }) : _open = open ?? (() => openAppDatabase('financas_auth.db')),
+       _deleteUserData =
+           deleteUserData ??
+           ((id) => deleteAppDatabase('financas_user_$id.db'));
+
+  final Future<Database> Function() _open;
+  final Future<void> Function(String userId) _deleteUserData;
+  Future<Database>? _db;
   final _users = StoreRef<String, Map<String, Object?>>('users');
   final _session = StoreRef<String, Map<String, Object?>>('session');
 
-  Future<Database> get db async =>
-      _db ??= await openAppDatabase('financas_auth.db');
+  Future<Database> get db => _db ??= _open().then((d) async {
+    await _ensureAdmin(d);
+    return d;
+  });
+
+  /// Migração: bases criadas antes dos perfis não têm administrador. O
+  /// usuário mais antigo passa a ser o administrador.
+  static Future<void> _ensureAdmin(Database d) async {
+    final real = await _realUsers(d);
+    if (real.isEmpty || real.any((u) => u.value['isAdmin'] == true)) return;
+    real.sort(
+      (a, b) => ((a.value['createdAt'] as String?) ?? '').compareTo(
+        (b.value['createdAt'] as String?) ?? '',
+      ),
+    );
+    await _usersStore.record(real.first.key).update(d, {'isAdmin': true});
+  }
+
+  static final _usersStore = StoreRef<String, Map<String, Object?>>('users');
+
+  static Future<List<RecordSnapshot<String, Map<String, Object?>>>> _realUsers(
+    Database d,
+  ) async => [
+    for (final r in await _usersStore.find(d))
+      if (r.value['isDemo'] != true) r,
+  ];
 
   static final _emailRe = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
@@ -79,36 +144,79 @@ class LocalAuthService implements AuthService {
   }
 
   @override
+  Future<bool> hasUsers() async => (await _realUsers(await db)).isNotEmpty;
+
+  @override
   Future<AppUser> register(String name, String email, String password) async {
+    if (await hasUsers()) {
+      throw const AuthException(
+        'Novas contas são criadas pelo administrador, em Usuários.',
+      );
+    }
+    final u = await _insert(name, email, password, isAdmin: true);
+    await _startSession(u.id);
+    return u;
+  }
+
+  Future<AppUser> _insert(
+    String name,
+    String email,
+    String password, {
+    required bool isAdmin,
+  }) async {
     final normalized = email.trim().toLowerCase();
     final emailErr = validateEmail(normalized);
     if (emailErr != null) throw AuthException(emailErr);
     final pwErr = validatePassword(password);
     if (pwErr != null) throw AuthException(pwErr);
-    if (name.trim().isEmpty) throw const AuthException('Informe seu nome');
+    if (name.trim().isEmpty) throw const AuthException('Informe o nome');
     final d = await db;
-    final existing = await _users.findFirst(
-      d,
-      finder: Finder(filter: Filter.equals('email', normalized)),
-    );
-    if (existing != null) {
-      throw const AuthException('Já existe uma conta com este e-mail');
-    }
-    final salt = _randomBytes(16);
+    await _checkEmailFree(d, normalized);
     final id = newId('u_');
     final record = {
       'id': id,
       'name': name.trim(),
       'email': normalized,
-      'salt': base64Encode(salt),
-      'iterations': _iterations,
-      'hash': base64Encode(_pbkdf2(password, salt, _iterations)),
+      ..._passwordFields(password),
       'isDemo': false,
+      'isAdmin': isAdmin,
       'createdAt': DateTime.now().toIso8601String(),
     };
     await _users.record(id).put(d, record);
-    await _startSession(id);
     return _toUser(record);
+  }
+
+  Future<void> _checkEmailFree(
+    Database d,
+    String email, {
+    String? except,
+  }) async {
+    final existing = await _users.findFirst(
+      d,
+      finder: Finder(filter: Filter.equals('email', email)),
+    );
+    if (existing != null && existing.key != except) {
+      throw const AuthException('Já existe uma conta com este e-mail');
+    }
+  }
+
+  static Map<String, Object?> _passwordFields(String password) {
+    final salt = _randomBytes(16);
+    return {
+      'salt': base64Encode(salt),
+      'iterations': _iterations,
+      'hash': base64Encode(_pbkdf2(password, salt, _iterations)),
+    };
+  }
+
+  static bool _checkPassword(Map<String, Object?> u, String password) {
+    if (u['hash'] == null) return false;
+    final hash = _pbkdf2(
+      password,
+      base64Decode(u['salt'] as String),
+      u['iterations'] as int,
+    );
+    return _constantTimeEquals(hash, base64Decode(u['hash'] as String));
   }
 
   @override
@@ -123,14 +231,7 @@ class LocalAuthService implements AuthService {
     const invalid = AuthException('E-mail ou senha incorretos');
     if (rec == null || rec.value['isDemo'] == true) throw invalid;
     final u = rec.value;
-    final hash = _pbkdf2(
-      password,
-      base64Decode(u['salt'] as String),
-      u['iterations'] as int,
-    );
-    if (!_constantTimeEquals(hash, base64Decode(u['hash'] as String))) {
-      throw invalid;
-    }
+    if (!_checkPassword(u, password)) throw invalid;
     await _startSession(u['id'] as String);
     return _toUser(u);
   }
@@ -162,8 +263,124 @@ class LocalAuthService implements AuthService {
   @override
   Future<void> deleteAccount(String userId) async {
     final d = await db;
+    await _checkNotLastAdmin(d, userId);
     await _users.record(userId).delete(d);
     await logout();
+  }
+
+  @override
+  Future<void> changePassword(String current, String newPassword) async {
+    final d = await db;
+    final me = await _currentRecord(d);
+    if (me == null || me['isDemo'] == true) {
+      throw const AuthException('Sessão inválida');
+    }
+    if (!_checkPassword(me, current)) {
+      throw const AuthException('Senha atual incorreta');
+    }
+    final pwErr = validatePassword(newPassword);
+    if (pwErr != null) throw AuthException(pwErr);
+    await _users
+        .record(me['id'] as String)
+        .update(d, _passwordFields(newPassword));
+  }
+
+  @override
+  Future<List<AppUser>> listUsers() async {
+    final d = await _requireAdmin();
+    final list = [for (final r in await _realUsers(d)) _toUser(r.value)];
+    list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return list;
+  }
+
+  @override
+  Future<AppUser> createUser(
+    String name,
+    String email,
+    String password, {
+    bool isAdmin = false,
+  }) async {
+    await _requireAdmin();
+    return _insert(name, email, password, isAdmin: isAdmin);
+  }
+
+  @override
+  Future<AppUser> updateUser(
+    String id, {
+    required String name,
+    required String email,
+    required bool isAdmin,
+  }) async {
+    final d = await _requireAdmin();
+    final rec = await _users.record(id).get(d);
+    if (rec == null || rec['isDemo'] == true) {
+      throw const AuthException('Usuário não encontrado');
+    }
+    if (name.trim().isEmpty) throw const AuthException('Informe o nome');
+    final normalized = email.trim().toLowerCase();
+    final emailErr = validateEmail(normalized);
+    if (emailErr != null) throw AuthException(emailErr);
+    await _checkEmailFree(d, normalized, except: id);
+    if (!isAdmin) await _checkNotLastAdmin(d, id);
+    final updated = await _users.record(id).update(d, {
+      'name': name.trim(),
+      'email': normalized,
+      'isAdmin': isAdmin,
+    });
+    return _toUser(updated!);
+  }
+
+  @override
+  Future<void> resetPassword(String id, String newPassword) async {
+    final d = await _requireAdmin();
+    final pwErr = validatePassword(newPassword);
+    if (pwErr != null) throw AuthException(pwErr);
+    final rec = await _users.record(id).get(d);
+    if (rec == null || rec['isDemo'] == true) {
+      throw const AuthException('Usuário não encontrado');
+    }
+    await _users.record(id).update(d, _passwordFields(newPassword));
+  }
+
+  @override
+  Future<void> deleteUser(String id) async {
+    final d = await _requireAdmin();
+    final me = await _currentRecord(d);
+    if (me?['id'] == id) {
+      throw const AuthException(
+        'Para excluir a própria conta, use Configurações.',
+      );
+    }
+    await _checkNotLastAdmin(d, id);
+    await _users.record(id).delete(d);
+    await _deleteUserData(id);
+  }
+
+  /// Impede que o dispositivo fique sem administrador enquanto houver
+  /// outros usuários.
+  Future<void> _checkNotLastAdmin(Database d, String id) async {
+    final real = await _realUsers(d);
+    final admins = real.where((r) => r.value['isAdmin'] == true).toList();
+    if (admins.length == 1 && admins.first.key == id && real.length > 1) {
+      throw const AuthException(
+        'Este é o único administrador. Torne outro usuário administrador antes.',
+      );
+    }
+  }
+
+  Future<Map<String, Object?>?> _currentRecord(Database d) async {
+    final s = await _session.record('current').get(d);
+    if (s == null) return null;
+    return _users.record(s['userId'] as String).get(d);
+  }
+
+  Future<Database> _requireAdmin() async {
+    final d = await db;
+    final me = await _currentRecord(d);
+    if (me == null || me['isAdmin'] != true) {
+      throw const AuthException('Somente administradores gerenciam usuários');
+    }
+    return d;
   }
 
   Future<void> _startSession(String userId) async {
@@ -181,6 +398,7 @@ class LocalAuthService implements AuthService {
     name: u['name'] as String,
     email: u['email'] as String,
     isDemo: (u['isDemo'] as bool?) ?? false,
+    isAdmin: (u['isAdmin'] as bool?) ?? false,
   );
 
   static Uint8List _randomBytes(int n) {

@@ -95,13 +95,22 @@ class _LoginScreenState extends State<LoginScreen> {
                           : const Text('Entrar'),
                     ),
                     const SizedBox(height: 12),
-                    OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(52),
+                    if (auth.canRegister)
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(52),
+                        ),
+                        onPressed: () => push(context, const RegisterScreen()),
+                        child: const Text('Criar conta de administrador'),
+                      )
+                    else
+                      Text(
+                        'Não tem acesso? Peça ao administrador para criar seu usuário.',
+                        textAlign: TextAlign.center,
+                        style: context.text.bodySmall?.copyWith(
+                          color: context.fin.subtle,
+                        ),
                       ),
-                      onPressed: () => push(context, const RegisterScreen()),
-                      child: const Text('Criar conta'),
-                    ),
                     const SizedBox(height: 24),
                     Row(
                       children: [
