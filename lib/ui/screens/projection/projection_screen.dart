@@ -9,6 +9,7 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
+import '../../widgets/tx_grid.dart';
 import 'drilldown_screen.dart';
 import 'projection_filters_screen.dart';
 
@@ -27,9 +28,9 @@ class _ProjectionScreenState extends State<ProjectionScreen> {
   Money? openingOverride;
   final hScroll = ScrollController();
 
-  static const _labelW = 104.0;
-  static const _cellW = 98.0;
-  static const _rowH = 48.0;
+  static const _rowH = 40.0;
+  static const _headerH = 42.0;
+  static const _minCellW = 112.0;
 
   @override
   void dispose() {
@@ -206,6 +207,10 @@ class _ProjectionScreenState extends State<ProjectionScreen> {
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: _ProjectionKpis(result: result),
+          ),
           if (range.from != YearMonth.now())
             Center(
               child: TextButton.icon(
@@ -271,209 +276,473 @@ class _ProjectionScreenState extends State<ProjectionScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SectionCard(
-              title: 'Resumo do período',
-              child: Column(
-                children: [
-                  InfoRow('Receitas', MoneyText(result.totalIncome)),
-                  InfoRow('Despesas', MoneyText(result.totalExpenses)),
-                  InfoRow(
-                    'Resultado',
-                    MoneyText(
-                      result.totalIncome - result.totalExpenses,
-                      colorize: true,
-                    ),
-                  ),
-                  InfoRow(
-                    'Saldo final',
-                    MoneyText(
-                      cols.last.accumulated,
-                      colorize: true,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  InfoRow.text(
-                    'Meses com resultado negativo',
-                    '${cols.where((c) => c.net.isNegative).length} de ${cols.length}',
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 
+  /// Grade no mesmo estilo da de Transações: painel com borda neon,
+  /// cabeçalho escuro com sublinhado luminoso, linhas compactas com zebra e
+  /// listra colorida por indicador. A coluna de indicadores fica fixa e os
+  /// meses se esticam para ocupar a largura (rolando quando não cabem).
   Widget _matrix(
     BuildContext context,
     ProjectionResult result,
     List<ProjectionColumn> cols,
   ) {
-    final rows = <(String, DrillRow?, Money Function(ProjectionColumn))>[
-      ('Receitas', DrillRow.income, (c) => c.income),
-      ('Despesas', DrillRow.expenses, (c) => c.expenses),
-      ('Resultado', DrillRow.net, (c) => c.net),
+    final p = GridPalette.of(context);
+    final fin = context.fin;
+    final rows = <_MatrixRow>[
+      _MatrixRow('Receitas', DrillRow.income, (c) => c.income, fin.income),
+      _MatrixRow('Despesas', DrillRow.expenses, (c) => c.expenses, fin.expense),
+      _MatrixRow(
+        'Resultado',
+        DrillRow.net,
+        (c) => c.net,
+        p.neon,
+        strong: true,
+        signed: true,
+      ),
       if (result.showsTransfers)
-        ('Transferências', null, (c) => c.transfersNet),
-      ('Saldo acumulado', DrillRow.net, (c) => c.accumulated),
+        _MatrixRow(
+          'Transferências',
+          null,
+          (c) => c.transfersNet,
+          fin.subtle,
+          signed: true,
+        ),
+      _MatrixRow(
+        'Saldo acumulado',
+        DrillRow.net,
+        (c) => c.accumulated,
+        p.neon2,
+        strong: true,
+        signed: true,
+        highlight: true,
+      ),
     ];
-    final border = BorderSide(color: context.colors.outlineVariant);
-    final headerStyle = context.text.labelLarge?.copyWith(
-      color: context.fin.subtle,
-      fontWeight: FontWeight.w600,
+    final headerStyle = context.text.labelSmall?.copyWith(
+      color: p.headerText,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 1.2,
     );
 
-    Widget labelCell(String text, {bool header = false, bool strong = false}) =>
-        Container(
-          height: _rowH,
-          width: _labelW,
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: context.fin.stickyColumn,
-            border: Border(bottom: border, right: border),
-          ),
-          child: Text(
-            text,
-            style: header
-                ? headerStyle
-                : context.text.bodyMedium?.copyWith(
-                    fontWeight: strong ? FontWeight.w700 : FontWeight.w500,
-                  ),
-          ),
-        );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: GridPanel(
+        child: LayoutBuilder(
+          builder: (context, box) {
+            final labelW = box.maxWidth < 640 ? 144.0 : 168.0;
+            final cellW = ((box.maxWidth - labelW) / cols.length)
+                .clamp(_minCellW, double.infinity)
+                .toDouble();
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: context.colors.outlineVariant),
-        color: context.colors.surfaceContainerLowest,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Coluna fixa de indicadores.
-          Column(
-            children: [
-              labelCell('Indicador', header: true),
-              for (final r in rows)
-                labelCell(r.$1, strong: r.$1 == 'Saldo acumulado'),
-            ],
-          ),
-          Expanded(
-            child: Scrollbar(
+            Widget rowBg(int i, Widget child) => Container(
+              height: _rowH,
+              decoration: BoxDecoration(
+                color: i.isOdd ? p.zebra : null,
+                border: Border(bottom: BorderSide(color: p.line, width: 0.6)),
+              ),
+              child: child,
+            );
+
+            // Coluna fixa de indicadores, com a listra colorida de cada linha.
+            final labels = Container(
+              width: labelW,
+              decoration: BoxDecoration(
+                border: Border(right: BorderSide(color: p.line)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    height: _headerH,
+                    alignment: Alignment.centerLeft,
+                    padding: const EdgeInsets.only(left: 13),
+                    child: Text('INDICADOR', style: headerStyle),
+                  ),
+                  for (final (i, r) in rows.indexed)
+                    rowBg(
+                      i,
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Container(
+                            width: GridLayout.stripeW,
+                            decoration: BoxDecoration(
+                              color: r.accent.withValues(alpha: 0.85),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: r.accent.withValues(alpha: 0.55),
+                                  blurRadius: 6,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            child: GridCell(
+                              child: Text(
+                                r.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: context.text.bodyMedium?.copyWith(
+                                  fontWeight: r.strong
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            );
+
+            Widget monthHeader(ProjectionColumn c) => Container(
+              width: cellW,
+              height: _headerH,
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              color: c.isCurrent ? p.neon.withValues(alpha: 0.10) : null,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    c.month.shortLabel.toUpperCase(),
+                    style: headerStyle?.copyWith(
+                      color: c.isCurrent ? p.neon : null,
+                    ),
+                  ),
+                  if (c.isCurrent || c.isPast)
+                    Text(
+                      c.isCurrent ? 'atual' : 'realizado',
+                      style: context.text.labelSmall?.copyWith(
+                        color: p.headerText.withValues(alpha: 0.6),
+                        fontSize: 9,
+                      ),
+                    ),
+                ],
+              ),
+            );
+
+            final months = Scrollbar(
               controller: hScroll,
-              thumbVisibility: true,
+              thumbVisibility: cellW * cols.length > box.maxWidth - labelW,
               child: SingleChildScrollView(
                 controller: hScroll,
                 scrollDirection: Axis.horizontal,
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (final c in cols)
-                      Container(
-                        width: _cellW,
-                        color: c.isCurrent
-                            ? context.colors.primary.withValues(alpha: 0.06)
-                            : null,
-                        child: Column(
+                    Row(children: [for (final c in cols) monthHeader(c)]),
+                    for (final (i, r) in rows.indexed)
+                      rowBg(
+                        i,
+                        Row(
                           children: [
-                            Container(
-                              height: _rowH,
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                border: Border(bottom: border),
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    c.month.shortLabel,
-                                    style: headerStyle?.copyWith(
-                                      color: c.isCurrent
-                                          ? context.colors.primary
-                                          : null,
-                                    ),
-                                  ),
-                                  if (c.isCurrent || c.isPast)
-                                    Text(
-                                      c.isCurrent ? 'atual' : 'realizado',
-                                      style: context.text.labelSmall?.copyWith(
-                                        color: context.fin.subtle,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            for (final r in rows)
-                              _cell(
-                                context,
-                                c,
-                                r.$2,
-                                r.$3(c),
-                                strong:
-                                    r.$1 == 'Saldo acumulado' ||
-                                    r.$1 == 'Resultado',
-                                signed:
-                                    r.$1 != 'Receitas' && r.$1 != 'Despesas',
-                                border: border,
-                              ),
+                            for (final c in cols)
+                              _cell(context, p, c, r, r.value(c), cellW),
                           ],
                         ),
                       ),
                   ],
                 ),
               ),
-            ),
-          ),
-        ],
+            );
+
+            return Stack(
+              children: [
+                // Faixa escura do cabeçalho com a linha neon, atrás das duas
+                // partes (fixa e rolável) para formar um cabeçalho contínuo.
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  height: _headerH,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(colors: p.header),
+                      ),
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          height: 2,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                p.neon,
+                                p.neon2,
+                                p.neon.withValues(alpha: 0),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: p.neon.withValues(alpha: 0.6),
+                                blurRadius: 8,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    labels,
+                    Expanded(child: months),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
 
   Widget _cell(
     BuildContext context,
+    GridPalette p,
     ProjectionColumn c,
-    DrillRow? row,
-    Money v, {
-    required bool strong,
-    required bool signed,
-    required BorderSide border,
-  }) {
-    final negative = signed && v.isNegative;
-    return InkWell(
-      onTap: row == null
-          ? null
-          : () => push(
-              context,
-              DrilldownScreen(month: c.month, row: row, filter: filter),
+    _MatrixRow r,
+    Money v,
+    double width,
+  ) {
+    final negative = r.signed && v.isNegative;
+    final color = negative
+        ? context.fin.negative
+        : r.label == 'Receitas'
+        ? context.fin.positive
+        : r.label == 'Transferências'
+        ? context.fin.subtle
+        : null;
+    final bg = c.isCurrent
+        ? p.neon.withValues(alpha: 0.06)
+        : negative
+        ? context.fin.negative.withValues(alpha: 0.08)
+        : r.highlight
+        ? p.valueBg
+        : null;
+    return SizedBox(
+      width: width,
+      child: Material(
+        color: bg ?? Colors.transparent,
+        child: InkWell(
+          hoverColor: p.hover,
+          splashColor: p.neon.withValues(alpha: 0.10),
+          highlightColor: p.neon.withValues(alpha: 0.06),
+          onTap: r.drill == null
+              ? null
+              : () => push(
+                  context,
+                  DrilldownScreen(
+                    month: c.month,
+                    row: r.drill!,
+                    filter: filter,
+                  ),
+                ),
+          child: GridCell(
+            right: true,
+            child: Text(
+              v.formatPlain(),
+              maxLines: 1,
+              style: context.text.bodyMedium?.copyWith(
+                fontWeight: r.strong ? FontWeight.w700 : FontWeight.w500,
+                color: color,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
             ),
-      child: Container(
-        height: _rowH,
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          border: Border(bottom: border),
-          color: negative ? context.fin.negative.withValues(alpha: 0.08) : null,
-        ),
-        child: Text(
-          v.formatPlain(),
-          maxLines: 1,
-          style: context.text.bodyMedium?.copyWith(
-            fontWeight: strong ? FontWeight.w700 : FontWeight.w400,
-            color: negative ? context.fin.negative : null,
-            fontFeatures: const [FontFeature.tabularFigures()],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MatrixRow {
+  final String label;
+  final DrillRow? drill;
+  final Money Function(ProjectionColumn) value;
+  final Color accent;
+  final bool strong;
+  final bool signed;
+  final bool highlight;
+  const _MatrixRow(
+    this.label,
+    this.drill,
+    this.value,
+    this.accent, {
+    this.strong = false,
+    this.signed = false,
+    this.highlight = false,
+  });
+}
+
+/// Indicadores do período projetado, no mesmo formato dos KPIs da tela
+/// inicial.
+class _ProjectionKpis extends StatelessWidget {
+  final ProjectionResult result;
+  const _ProjectionKpis({required this.result});
+
+  @override
+  Widget build(BuildContext context) {
+    final cols = result.columns;
+    final n = cols.length;
+    final net = result.totalIncome - result.totalExpenses;
+    final negMonths = cols.where((c) => c.net.isNegative).length;
+    final finalBalance = cols.last.accumulated;
+    final lowest = cols
+        .map((c) => c.accumulated)
+        .reduce((a, b) => a < b ? a : b);
+    Money avg(Money total) => Money(total.cents ~/ n);
+    final tiles = [
+      _ProjectionKpiTile(
+        key: const ValueKey('proj-kpi-income'),
+        label: 'Receitas do período',
+        value: result.totalIncome,
+        detail: 'média ${avg(result.totalIncome).format()}/mês',
+        icon: Icons.south_west,
+        color: context.fin.income,
+      ),
+      _ProjectionKpiTile(
+        key: const ValueKey('proj-kpi-expenses'),
+        label: 'Despesas do período',
+        value: result.totalExpenses,
+        detail: 'média ${avg(result.totalExpenses).format()}/mês',
+        icon: Icons.north_east,
+        color: context.fin.expense,
+      ),
+      _ProjectionKpiTile(
+        key: const ValueKey('proj-kpi-net'),
+        label: 'Resultado',
+        value: net,
+        colorize: true,
+        detail: negMonths == 0
+            ? 'Nenhum mês negativo'
+            : '$negMonths de $n ${n == 1 ? 'mês' : 'meses'} negativos',
+        detailColor: negMonths == 0 ? null : context.fin.negative,
+        icon: Icons.balance,
+        color: net.isNegative ? context.fin.negative : context.colors.primary,
+        highlight: net.isNegative,
+      ),
+      _ProjectionKpiTile(
+        key: const ValueKey('proj-kpi-balance'),
+        label: 'Saldo final',
+        value: finalBalance,
+        colorize: true,
+        detail: 'menor saldo ${lowest.format()}',
+        detailColor: lowest.isNegative ? context.fin.negative : null,
+        icon: Icons.account_balance_wallet_outlined,
+        color: finalBalance.isNegative
+            ? context.fin.negative
+            : context.fin.positive,
+        highlight: finalBalance.isNegative,
+      ),
+    ];
+    return LayoutBuilder(
+      builder: (context, c) {
+        final perRow = c.maxWidth >= 640 ? 4 : 2;
+        const gap = 8.0;
+        final w = (c.maxWidth - gap * (perRow - 1)) / perRow;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [for (final t in tiles) SizedBox(width: w, child: t)],
+        );
+      },
+    );
+  }
+}
+
+class _ProjectionKpiTile extends StatelessWidget {
+  final String label;
+  final Money value;
+  final String detail;
+  final Color? detailColor;
+  final IconData icon;
+  final Color color;
+  final bool colorize;
+  final bool highlight;
+  const _ProjectionKpiTile({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.detail,
+    required this.icon,
+    required this.color,
+    this.detailColor,
+    this.colorize = false,
+    this.highlight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      color: highlight ? color.withValues(alpha: 0.08) : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: highlight
+              ? color.withValues(alpha: 0.5)
+              : context.colors.outlineVariant,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, size: 16, color: color),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.labelMedium?.copyWith(
+                      color: context.fin.subtle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: MoneyText(
+                value,
+                colorize: colorize,
+                style: context.text.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Text(
+              detail,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.bodySmall?.copyWith(
+                color: detailColor ?? context.fin.subtle,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );
