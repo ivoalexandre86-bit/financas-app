@@ -199,7 +199,9 @@ class _CalculatorPadState extends State<CalculatorPad> {
                 ? FilledButton.tonal(
                     key: ValueKey('calc-$k'),
                     onPressed: () => _key(k),
-                    child: Text(k, style: const TextStyle(fontSize: 18)),
+                    child: k == '⌫'
+                        ? const Icon(Icons.backspace_outlined, size: 20)
+                        : Text(k, style: const TextStyle(fontSize: 18)),
                   )
                 : OutlinedButton(
                     key: ValueKey('calc-$k'),

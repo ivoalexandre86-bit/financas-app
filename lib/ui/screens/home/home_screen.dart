@@ -480,7 +480,7 @@ class _KpiTile extends StatelessWidget {
                   Expanded(
                     child: Text(
                       label,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: context.text.labelMedium?.copyWith(
                         color: context.fin.subtle,
