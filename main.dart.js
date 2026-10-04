@@ -67063,27 +67063,28 @@ g=B.b.gP(i.acV(new A.mY(g,g)).a)
 s=J.lo(k.d.a)
 r=A.lD("fab-home",B.eh,l,B.Yr,new A.b_u(a))
 q=k.gabT(k)
-p=m.d
-o=t.p
-p=A.b([new A.acp(j,p,new A.b_v(m),l),B.aE,new A.aer(i,p,l),B.B],o)
-if(!s)p.push(new A.a8(B.kJ,new A.hl(l,l,new A.fW(B.abC,"Comece cadastrando uma conta","Seus saldos e proje\xe7\xf5es s\xe3o calculados a partir das contas e lan\xe7amentos.","Ir para Contas",new A.b_w(a),l),B.aH,l),l))
+p=t.p
+o=A.b([new A.acp(j,m.d,new A.b_v(m),l),B.aE],p)
+if(!s)o.push(new A.a8(B.kJ,new A.hl(l,l,new A.fW(B.abC,"Comece cadastrando uma conta","Seus saldos e proje\xe7\xf5es s\xe3o calculados a partir das contas e lan\xe7amentos.","Ir para Contas",new A.b_w(a),l),B.aH,l),l))
 n=i.b
-p.push(new A.a9s(i.gSh(),new A.ao(i.gSh().a-i.aS4(new A.b8(A.a1(n),A.a4(n))).a),g.f,m.d,l))
-p.push(B.B)
+o.push(new A.a9s(i.gSh(),new A.ao(i.gSh().a-i.aS4(new A.b8(A.a1(n),A.a4(n))).a),g.f,m.d,l))
+o.push(B.B)
+o.push(new A.aer(i,m.d,l))
+o.push(B.B)
 g=t.u
 n=t.b
-p.push(A.aM(A.b([A.bz(new A.Fd("Receitas",h.a,n.a(A.h(a).c.h(0,A.a6(g))).a,!1,B.xy,new A.b_x(m,a),l),1),B.bQ,A.bz(new A.Fd("Despesas",h.b,n.a(A.h(a).c.h(0,A.a6(g))).b,!1,B.xx,new A.b_y(m,a),l),1)],o),B.p,l,B.h,B.m,0,l))
-p.push(B.aE)
-p.push(new A.Fd("Resultado do m\xeas",new A.ao(h.a.a-h.b.a),l,!0,B.ac5,new A.b_z(m,a),l))
-p.push(B.B)
-p.push(new A.ab6(m.d,l))
-p.push(B.B)
-p.push(new A.ajc(i,l))
-p.push(B.B)
-p.push(new A.a9L(i,l))
-p.push(B.B)
-p.push(new A.aa8(i,m.d,l))
-return A.cZ(l,l,A.iR(!0,new A.KW(A.dT(p,B.fw,l,!1),q,l),!0,B.O,!0,!0),l,r)}}
+o.push(A.aM(A.b([A.bz(new A.Fd("Receitas",h.a,n.a(A.h(a).c.h(0,A.a6(g))).a,!1,B.xy,new A.b_x(m,a),l),1),B.bQ,A.bz(new A.Fd("Despesas",h.b,n.a(A.h(a).c.h(0,A.a6(g))).b,!1,B.xx,new A.b_y(m,a),l),1)],p),B.p,l,B.h,B.m,0,l))
+o.push(B.aE)
+o.push(new A.Fd("Resultado do m\xeas",new A.ao(h.a.a-h.b.a),l,!0,B.ac5,new A.b_z(m,a),l))
+o.push(B.B)
+o.push(new A.ab6(m.d,l))
+o.push(B.B)
+o.push(new A.ajc(i,l))
+o.push(B.B)
+o.push(new A.a9L(i,l))
+o.push(B.B)
+o.push(new A.aa8(i,m.d,l))
+return A.cZ(l,l,A.iR(!0,new A.KW(A.dT(o,B.fw,l,!1),q,l),!0,B.O,!0,!0),l,r)}}
 A.b_u.prototype={
 $0(){return A.bB(this.a,B.uK,t.z)},
 $S:0}
