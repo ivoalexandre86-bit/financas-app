@@ -1,6 +1,9 @@
 const { Pool } = require('pg');
 const { createApp, migrate } = require('./app');
 const { createPluggy } = require('./pluggy');
+const { createMetaClient } = require('./whatsapp/meta');
+const { createExtractor } = require('./whatsapp/extract');
+const { createTranscriber } = require('./whatsapp/transcribe');
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -20,6 +23,38 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS ??
   .map((s) => s.trim())
   .filter(Boolean);
 
+/// Lançamentos pelo WhatsApp: ativo só com todas as variáveis da Meta e a
+/// chave do Claude. A chave da OpenAI é opcional (habilita áudio).
+function whatsAppFromEnv(env) {
+  const config = {
+    verifyToken: env.WHATSAPP_VERIFY_TOKEN,
+    appSecret: env.WHATSAPP_APP_SECRET,
+    botNumber: env.WHATSAPP_BOT_NUMBER,
+  };
+  const ready =
+    env.WHATSAPP_TOKEN &&
+    env.WHATSAPP_PHONE_NUMBER_ID &&
+    config.verifyToken &&
+    config.appSecret &&
+    env.ANTHROPIC_API_KEY;
+  if (!ready) return { config };
+  console.log('WhatsApp ativo' + (env.OPENAI_API_KEY ? ' (com áudio)' : ''));
+  return {
+    config,
+    meta: createMetaClient({
+      token: env.WHATSAPP_TOKEN,
+      phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID,
+    }),
+    extract: createExtractor({
+      apiKey: env.ANTHROPIC_API_KEY,
+      model: env.ANTHROPIC_MODEL || undefined,
+    }),
+    transcribe: env.OPENAI_API_KEY
+      ? createTranscriber({ apiKey: env.OPENAI_API_KEY })
+      : undefined,
+  };
+}
+
 migrate(pool)
   .then(() => {
     const app = createApp({
@@ -34,6 +69,7 @@ migrate(pool)
               clientSecret: process.env.PLUGGY_CLIENT_SECRET,
             })
           : null,
+      whatsapp: whatsAppFromEnv(process.env),
     });
     app.set('trust proxy', 1);
     const port = Number(process.env.PORT ?? 3000);
