@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../core/dates.dart';
 import '../core/ids.dart';
 import '../core/money.dart';
+import '../data/cloud/cloud_finance_repository.dart';
 import '../data/default_categories.dart';
 import '../data/default_dashboards.dart' as seed;
 import '../data/finance_repository.dart';
@@ -96,6 +97,52 @@ class FinanceController extends ChangeNotifier {
     }
     loading = false;
     notifyListeners();
+  }
+
+  /// Dados guardados na nuvem (conta sincronizada entre aparelhos)?
+  bool get isCloud => repo is CloudFinanceRepository;
+
+  /// Conta na nuvem ainda sem dados próprios (só o que o app cria no 1º
+  /// acesso): bom momento para trazer os dados de um aparelho.
+  bool get cloudLooksNew =>
+      repo is CloudFinanceRepository &&
+      (repo as CloudFinanceRepository).remoteWasEmpty &&
+      data.transactions.isEmpty;
+
+  /// Leva para a nuvem todos os dados de uma conta deste aparelho,
+  /// substituindo os da conta na nuvem. Retorna quantos registros subiram.
+  Future<int> importFromDevice(String localUserId) async {
+    final cloud = repo;
+    if (cloud is! CloudFinanceRepository) {
+      throw StateError('Disponível apenas com a conta na nuvem');
+    }
+    final source = LocalFinanceRepository(localUserId);
+    try {
+      final docs = await source.dumpDocs();
+      if (docs.isEmpty) {
+        throw ArgumentError('Não há dados desta conta neste aparelho');
+      }
+      final n = await cloud.importAll(docs);
+      await load();
+      return n;
+    } finally {
+      await source.close();
+    }
+  }
+
+  /// Baixa de novo os dados da nuvem (ex.: lançados em outro aparelho).
+  /// Baixa de novo os dados da nuvem. Retorna se conseguiu falar com ela.
+  Future<bool> refreshFromCloud() async {
+    final cloud = repo;
+    if (cloud is! CloudFinanceRepository) return false;
+    await cloud.refresh();
+    _set(await repo.load());
+    dashboards = await repo.loadDashboards();
+    _sortDashboards();
+    connections = await repo.loadConnections();
+    externalTransactions = await repo.loadExternalTransactions();
+    notifyListeners();
+    return cloud.online;
   }
 
   void _set(FinanceData d) {

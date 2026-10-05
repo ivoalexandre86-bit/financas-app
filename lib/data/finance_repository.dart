@@ -21,6 +21,9 @@ enum Coll {
   dashboards,
 }
 
+/// Nome da "coleção" das configurações do app na nuvem (registro `app`).
+const settingsColl = 'settings';
+
 /// Uma operação de escrita (upsert ou delete) para gravação em lote.
 class WriteOp {
   final Coll coll;
@@ -49,7 +52,10 @@ abstract class FinanceRepository {
 class LocalFinanceRepository implements FinanceRepository {
   final String userId;
   Database? _db;
-  LocalFinanceRepository(this.userId);
+
+  /// [opener] permite testes com banco em memória.
+  LocalFinanceRepository(this.userId, {this.opener});
+  final Future<Database> Function()? opener;
 
   String get _dbName => 'financas_user_$userId.db';
   final _settings = StoreRef<String, Map<String, Object?>>('settings');
@@ -57,7 +63,8 @@ class LocalFinanceRepository implements FinanceRepository {
   StoreRef<String, Map<String, Object?>> _store(Coll c) =>
       StoreRef<String, Map<String, Object?>>(c.name);
 
-  Future<Database> get db async => _db ??= await openAppDatabase(_dbName);
+  Future<Database> get db async =>
+      _db ??= await (opener?.call() ?? openAppDatabase(_dbName));
 
   Future<List<T>> _all<T>(Coll c, T Function(Map<String, Object?>) f) async {
     final recs = await _store(c).find(await db);
@@ -115,6 +122,47 @@ class LocalFinanceRepository implements FinanceRepository {
         } else {
           await rec.put(txn, op.json!);
         }
+      }
+    });
+  }
+
+  /// Todos os registros, por coleção (inclui as configurações em
+  /// [settingsColl]). Usado para enviar os dados à nuvem.
+  Future<Map<String, Map<String, Map<String, Object?>>>> dumpDocs() async {
+    final d = await db;
+    final out = <String, Map<String, Map<String, Object?>>>{};
+    for (final c in Coll.values) {
+      final recs = await _store(c).find(d);
+      if (recs.isEmpty) continue;
+      out[c.name] = {
+        for (final r in recs) r.key: Map<String, Object?>.from(r.value),
+      };
+    }
+    final s = await _settings.record('app').get(d);
+    if (s != null) {
+      out[settingsColl] = {'app': Map<String, Object?>.from(s)};
+    }
+    return out;
+  }
+
+  /// Substitui todo o conteúdo pelos documentos dados (cópia local da nuvem).
+  Future<void> replaceAll(
+    Map<String, Map<String, Map<String, Object?>>> docs,
+  ) async {
+    await (await db).transaction((txn) async {
+      for (final c in Coll.values) {
+        await _store(c).delete(txn);
+        final recs = docs[c.name];
+        if (recs == null) continue;
+        for (final e in recs.entries) {
+          await _store(c).record(e.key).put(txn, e.value);
+        }
+      }
+      final s = docs[settingsColl]?['app'];
+      if (s == null) {
+        await _settings.record('app').delete(txn);
+      } else {
+        await _settings.record('app').put(txn, s);
       }
     });
   }

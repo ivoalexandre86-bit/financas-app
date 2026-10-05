@@ -1,0 +1,27 @@
+# Blueprint do Render: cria o banco PostgreSQL e a API do app Finanças.
+# No Render: New > Blueprint > escolha este repositório.
+databases:
+  - name: financas-db
+    databaseName: financas
+    plan: basic-256mb
+    region: virginia
+
+services:
+  - type: web
+    name: financas-api
+    runtime: node
+    region: virginia
+    plan: starter
+    rootDir: backend/api
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: financas-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: https://ivoalexandre86-bit.github.io

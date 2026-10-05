@@ -2,12 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
+import 'core/cloud_config.dart';
 import 'data/auth_service.dart';
+import 'data/cloud/api_client.dart';
+import 'data/cloud/cloud_auth_service.dart';
+import 'data/cloud/cloud_finance_repository.dart';
 import 'data/finance_repository.dart';
 import 'state/auth_controller.dart';
 import 'state/finance_controller.dart';
 import 'ui/app_shell.dart';
 import 'ui/screens/auth/login_screen.dart';
+import 'ui/screens/settings/cloud_import.dart';
 import 'ui/theme.dart';
 
 /// Preferência de tema compartilhada acima do [MaterialApp].
@@ -25,7 +30,15 @@ class FinancasApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => AuthController(LocalAuthService())..init(),
+      create: (_) {
+        if (!CloudConfig.enabled) {
+          return AuthController(LocalAuthService())..init();
+        }
+        final api = ApiClient(CloudConfig.apiUrl);
+        final auth = AuthController(CloudAuthService(api));
+        api.onUnauthorized = auth.sessionExpired;
+        return auth..init();
+      },
       child: ValueListenableBuilder<ThemeMode>(
         valueListenable: themeMode,
         builder: (context, mode, _) {
@@ -50,10 +63,15 @@ class FinancasApp extends StatelessWidget {
           // rotas o enxerguem; um repositório isolado por usuário.
           return ChangeNotifierProvider(
             key: ValueKey(user.id),
-            create: (_) => FinanceController(
-              LocalFinanceRepository(user.id),
-              isDemo: user.isDemo,
-            )..load(),
+            create: (context) {
+              final service = context.read<AuthController>().service;
+              return FinanceController(
+                service is CloudAuthService && !user.isDemo
+                    ? CloudFinanceRepository(user.id, ApiDocStore(service.api))
+                    : LocalFinanceRepository(user.id),
+                isDemo: user.isDemo,
+              )..load();
+            },
             child: app,
           );
         },
@@ -73,6 +91,6 @@ class AuthGate extends StatelessWidget {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (auth.user == null) return const LoginScreen();
-    return const AppShell();
+    return const CloudImportPrompt(child: AppShell());
   }
 }

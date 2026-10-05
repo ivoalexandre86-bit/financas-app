@@ -236,6 +236,23 @@ class LocalAuthService implements AuthService {
     return _toUser(u);
   }
 
+  /// Confere e-mail e senha de uma conta deste aparelho sem entrar nela.
+  /// Usado para levar os dados do aparelho para a nuvem.
+  Future<AppUser> verify(String email, String password) async {
+    final rec = await _users.findFirst(
+      await db,
+      finder: Finder(
+        filter: Filter.equals('email', email.trim().toLowerCase()),
+      ),
+    );
+    if (rec == null ||
+        rec.value['isDemo'] == true ||
+        !_checkPassword(rec.value, password)) {
+      throw const AuthException('E-mail ou senha incorretos');
+    }
+    return _toUser(rec.value);
+  }
+
   /// Usuário de demonstração, separado dos usuários reais (dados de exemplo
   /// ficam em um banco próprio).
   @override
