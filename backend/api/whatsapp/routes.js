@@ -91,7 +91,12 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
   });
 
   app.post('/whatsapp/webhook', (req, res) => {
-    if (!enabled || !validSignature(req.rawBody, req.get('x-hub-signature-256'), cfg.appSecret)) {
+    if (!enabled) {
+      console.warn('WhatsApp: webhook recebido, mas o bot está desligado');
+      return res.sendStatus(401);
+    }
+    if (!validSignature(req.rawBody, req.get('x-hub-signature-256'), cfg.appSecret)) {
+      console.warn('WhatsApp: assinatura inválida no webhook (confira WHATSAPP_APP_SECRET)');
       return res.sendStatus(401);
     }
     // A Meta reenvia se não receber 200 rápido: responde já e processa depois.
@@ -102,6 +107,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
         for (const m of change.value?.messages ?? []) messages.push(m);
       }
     }
+    if (messages.length) console.log(`WhatsApp: ${messages.length} mensagem(ns) recebida(s)`);
     const done = Promise.all(messages.map((m) => handle(m).catch((e) => fail(m, e))));
     whatsapp.onProcessed?.(done);
   });
