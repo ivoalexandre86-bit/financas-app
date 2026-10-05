@@ -34,12 +34,15 @@ function createMetaClient({ token, phoneNumberId, apiVersion = 'v23.0' }) {
     return res.json();
   }
 
-  const send = (to, payload) =>
-    graph(`${phoneNumberId}/messages`, {
+  async function send(to, payload) {
+    const res = await graph(`${phoneNumberId}/messages`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ messaging_product: 'whatsapp', to, ...payload }),
     });
+    if (to) console.log(`WhatsApp: enviado para ${to} (${res?.messages?.[0]?.id ?? 'sem id'})`);
+    return res;
+  }
 
   return {
     sendText: (to, text) =>
