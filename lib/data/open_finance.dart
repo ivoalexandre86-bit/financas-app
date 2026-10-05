@@ -66,6 +66,10 @@ abstract class OpenFinanceProvider {
   /// O servidor tem as credenciais do provedor?
   Future<bool> isConfigured() async => true;
 
+  /// Token para abrir a janela de conexão do provedor (Pluggy Connect).
+  Future<String> connectToken() =>
+      throw UnsupportedError('Provedor sem janela de conexão');
+
   /// Registra a conexão [itemId] para o usuário e devolve as contas dela.
   Future<OFLinkedItem> linkItem(String itemId) =>
       throw UnsupportedError('Provedor não conecta por ID');

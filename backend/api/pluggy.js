@@ -62,6 +62,14 @@ function createPluggy({ clientId, clientSecret, baseUrl = DEFAULT_BASE, fetch: f
   }
 
   return {
+    /** Token de 30 min para abrir a janela Pluggy Connect no app. */
+    async createConnectToken(clientUserId) {
+      const r = await request('POST', '/connect_token', {
+        body: { options: { clientUserId } },
+      });
+      if (!r.accessToken) throw new PluggyError(502, 'Pluggy não devolveu o token de conexão');
+      return r.accessToken;
+    },
     getItem: (id) => request('GET', `/items/${encodeURIComponent(id)}`),
     getAccount: (id) => request('GET', `/accounts/${encodeURIComponent(id)}`),
     async listAccounts(itemId) {

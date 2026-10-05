@@ -397,6 +397,15 @@ function createApp({ pool, jwtSecret, allowedOrigins = [], pluggy = null, whatsa
   app.get('/openfinance/status', authed, (req, res) =>
     res.json({ provider: 'pluggy', configured: !!pluggy }));
 
+  /// Token para a janela Pluggy Connect: o usuário escolhe o banco (ou o
+  /// Meu Pluggy) ali mesmo, sem copiar IDs. A conexão criada fica marcada
+  /// com o id do usuário.
+  app.post('/openfinance/connect-token', authed, wrap(async (req, res) => {
+    const p = needPluggy();
+    const token = await fromPluggy(() => p.createConnectToken(req.user.id));
+    res.json({ connectToken: token });
+  }));
+
   /// Registra uma conexão (item) da Pluggy para o usuário e devolve as
   /// contas dela.
   app.post('/openfinance/items', authed, wrap(async (req, res) => {
@@ -406,6 +415,10 @@ function createApp({ pool, jwtSecret, allowedOrigins = [], pluggy = null, whatsa
       throw new HttpError(400, 'ID da conexão inválido (formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).');
     }
     const item = await fromPluggy(() => p.getItem(itemId));
+    // Conexão criada pela janela do app para outro usuário: não é sua.
+    if (item.clientUserId && item.clientUserId !== req.user.id) {
+      throw new HttpError(409, 'Esta conexão já está vinculada a outro usuário.');
+    }
     const { rows } = await pool.query(
       `insert into of_items (item_id, user_id) values ($1, $2)
        on conflict (item_id) do update set item_id = excluded.item_id

@@ -25,6 +25,10 @@ class PluggyOpenFinanceProvider extends OpenFinanceProvider {
       (await api.get('openfinance/status'))['configured'] == true;
 
   @override
+  Future<String> connectToken() async =>
+      (await api.post('openfinance/connect-token'))['connectToken'] as String;
+
+  @override
   Future<OFLinkedItem> linkItem(String itemId) async {
     final r = await api.post('openfinance/items', {'itemId': itemId.trim()});
     final item = (r['item'] as Map).cast<String, Object?>();

@@ -16,8 +16,11 @@ test('API', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
   const ITEM = '11111111-2222-3333-4444-555555555555';
   const OTHER_ITEM = '99999999-2222-3333-4444-555555555555';
   // Pluggy falsa: um item com conta corrente e cartão.
+  const WIDGET_ITEM = '77777777-2222-3333-4444-555555555555';
   const pluggy = {
+    createConnectToken: async (clientUserId) => `tok-${clientUserId}`,
     getItem: async (id) => {
+      if (id === WIDGET_ITEM) return { id, connector: { name: 'Nubank' }, clientUserId: 'outro-usuario' };
       if (id !== ITEM && id !== OTHER_ITEM) throw new PluggyError(404, 'not found');
       return { id, connector: { name: 'MeuPluggy' }, status: 'UPDATED' };
     },
@@ -194,6 +197,11 @@ test('API', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
 
   await t.test('Open Finance: registra conexão e lê só as próprias contas', async () => {
     assert.equal((await call('GET', '/openfinance/status', { token: adminToken })).body.configured, true);
+    const tok = await call('POST', '/openfinance/connect-token', { token: adminToken });
+    assert.match(tok.body.connectToken, /^tok-/);
+    assert.equal((await call('POST', '/openfinance/items', {
+      token: adminToken, body: { itemId: WIDGET_ITEM },
+    })).status, 409);
     assert.equal((await call('POST', '/openfinance/items', {
       token: adminToken, body: { itemId: 'abc' },
     })).status, 400);
