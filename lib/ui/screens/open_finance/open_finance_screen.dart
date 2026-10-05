@@ -14,6 +14,7 @@ class OpenFinanceScreen extends StatelessWidget {
   const OpenFinanceScreen({super.key});
 
   Future<void> _connect(BuildContext context, FinanceController fc) async {
+    if (fc.openFinance.connectsByItemId) return _connectByItem(context, fc);
     final insts = await fc.openFinance.institutions();
     if (!context.mounted) return;
     final inst = await showModalBottomSheet<OFInstitution>(
@@ -50,6 +51,113 @@ class OpenFinanceScreen extends StatelessWidget {
     }
   }
 
+  /// Provedor real: o usuário autoriza os bancos no Meu Pluggy e cola aqui
+  /// o ID da conexão.
+  Future<void> _connectByItem(
+    BuildContext context,
+    FinanceController fc,
+  ) async {
+    var configured = false;
+    final ok = await runAction(
+      context,
+      () async => configured = await fc.openFinance.isConfigured(),
+    );
+    if (!ok || !context.mounted) return;
+    if (!configured) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Open Finance não configurado'),
+          content: const Text(
+            'O servidor ainda não tem as credenciais da Pluggy. No painel do Render, '
+            'em financas-api › Environment, preencha PLUGGY_CLIENT_ID e '
+            'PLUGGY_CLIENT_SECRET (do dashboard.pluggy.ai) e tente de novo.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    final ctrl = TextEditingController();
+    final itemId = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Conectar banco'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '1. Em meu.pluggy.ai, conecte seus bancos (a autorização é feita no app do banco).\n'
+              '2. Em dashboard.pluggy.ai, conecte o Meu Pluggy à sua aplicação e copie o ID da conexão (Item ID).\n'
+              '3. Cole o ID abaixo. Cada conta e cartão da conexão aparece aqui para vincular.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'ID da conexão (Item ID)',
+                hintText: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+              ),
+              onSubmitted: (v) => Navigator.pop(ctx, v),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text),
+            child: const Text('Conectar'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (itemId == null || itemId.trim().isEmpty || !context.mounted) return;
+    var added = 0;
+    await runAction(context, () async => added = await fc.connectItem(itemId));
+    if (context.mounted) {
+      showMessage(
+        context,
+        added == 0
+            ? 'Nenhuma conta nova nesta conexão'
+            : '$added ${added == 1 ? 'conta conectada' : 'contas conectadas'}. Vincule cada uma e sincronize.',
+      );
+    }
+  }
+
+  Future<void> _syncAll(BuildContext context, FinanceController fc) async {
+    var added = 0, matched = 0, failed = 0;
+    for (final c in fc.connections.where(
+      (c) => c.consentStatus == ConsentStatus.active,
+    )) {
+      try {
+        final r = await fc.syncConnection(c);
+        added += r.added;
+        matched += r.matched;
+      } catch (_) {
+        failed++;
+      }
+    }
+    if (context.mounted) {
+      showMessage(
+        context,
+        '$added novas transações · $matched conciliadas automaticamente'
+        '${failed > 0 ? ' · $failed com erro' : ''}',
+        error: failed > 0 && added == 0,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final fc = context.watch<FinanceController>();
@@ -59,7 +167,17 @@ class OpenFinanceScreen extends StatelessWidget {
             .toList()
           ..sort((a, b) => b.date.compareTo(a.date));
     return Scaffold(
-      appBar: AppBar(title: const Text('Open Finance')),
+      appBar: AppBar(
+        title: const Text('Open Finance'),
+        actions: [
+          if (fc.connections.length > 1)
+            IconButton(
+              tooltip: 'Sincronizar tudo',
+              icon: const Icon(Icons.sync),
+              onPressed: () => _syncAll(context, fc),
+            ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab-of',
         onPressed: () => _connect(context, fc),
@@ -78,7 +196,7 @@ class OpenFinanceScreen extends StatelessWidget {
               ),
               child: Text(
                 'Provedor em modo sandbox: conexões e transações são simuladas. '
-                'A integração real será feita via um provedor autorizado pelo Banco Central, pelo backend.',
+                'Entre com a conta na nuvem para usar o Open Finance real (Pluggy).',
                 style: context.text.bodySmall,
               ),
             ),

@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const { createApp, migrate } = require('./app');
+const { createPluggy } = require('./pluggy');
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -25,6 +26,14 @@ migrate(pool)
       pool,
       jwtSecret: process.env.JWT_SECRET,
       allowedOrigins,
+      // Open Finance: ativo quando as credenciais da Pluggy estão definidas.
+      pluggy:
+        process.env.PLUGGY_CLIENT_ID && process.env.PLUGGY_CLIENT_SECRET
+          ? createPluggy({
+              clientId: process.env.PLUGGY_CLIENT_ID,
+              clientSecret: process.env.PLUGGY_CLIENT_SECRET,
+            })
+          : null,
     });
     app.set('trust proxy', 1);
     const port = Number(process.env.PORT ?? 3000);

@@ -23,3 +23,12 @@ create table if not exists app_docs (
   updated_at timestamptz not null default now(),
   primary key (user_id, coll, id)
 );
+
+-- Open Finance (Pluggy): conexões (items) que cada usuário registrou. O
+-- servidor só devolve dados de items do próprio usuário.
+create table if not exists of_items (
+  item_id    text primary key,
+  user_id    uuid not null references users (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists of_items_user_idx on of_items (user_id);
