@@ -28,9 +28,35 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int index = 0;
   String? _appliedTheme;
+  DateTime _lastRefresh = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Ao voltar para o app, baixa da nuvem o que foi lançado em outro lugar
+  /// (outro aparelho ou WhatsApp).
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    final fc = context.read<FinanceController>();
+    if (!fc.isCloud || fc.loading) return;
+    final now = DateTime.now();
+    if (now.difference(_lastRefresh) < const Duration(seconds: 30)) return;
+    _lastRefresh = now;
+    fc.refreshFromCloud().ignore();
+  }
 
   /// Menu lateral expandido (`null` = padrão pela largura da tela).
   bool? expanded;

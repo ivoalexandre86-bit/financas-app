@@ -25,3 +25,18 @@ services:
         generateValue: true
       - key: ALLOWED_ORIGINS
         value: https://ivoalexandre86-bit.github.io
+      # Lançamentos pelo WhatsApp (opcional; preencha no painel do Render).
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        generateValue: true
+      - key: WHATSAPP_BOT_NUMBER
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false

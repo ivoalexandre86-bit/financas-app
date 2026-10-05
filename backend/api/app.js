@@ -8,6 +8,7 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { mountWhatsApp } = require('./whatsapp/routes');
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const TOKEN_DAYS = 30;
@@ -65,9 +66,10 @@ function loginLimiter({ max = 10, windowMs = 15 * 60 * 1000 } = {}) {
 }
 
 /**
- * @param {{pool: import('pg').Pool, jwtSecret: string, allowedOrigins?: string[]}} opts
+ * @param {{pool: import('pg').Pool, jwtSecret: string, allowedOrigins?: string[],
+ *   whatsapp?: object}} opts  `whatsapp`: ver whatsapp/routes.js (opcional)
  */
-function createApp({ pool, jwtSecret, allowedOrigins = [] }) {
+function createApp({ pool, jwtSecret, allowedOrigins = [], whatsapp }) {
   if (!jwtSecret || jwtSecret.length < 32) {
     throw new Error('JWT_SECRET ausente ou curto demais (mínimo 32 caracteres)');
   }
@@ -82,7 +84,15 @@ function createApp({ pool, jwtSecret, allowedOrigins = [] }) {
       maxAge: 86400,
     }),
   );
-  app.use(express.json({ limit: '10mb' }));
+  app.use(
+    express.json({
+      limit: '10mb',
+      // Corpo original para conferir a assinatura dos webhooks da Meta.
+      verify: (req, res, buf) => {
+        if (req.url.startsWith('/whatsapp/webhook')) req.rawBody = buf;
+      },
+    }),
+  );
 
   const limit = loginLimiter();
   const wrap = (fn) => (req, res, next) =>
@@ -346,6 +356,8 @@ function createApp({ pool, jwtSecret, allowedOrigins = [] }) {
     }
     res.json({ saved: docs.length });
   }));
+
+  mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp });
 
   // Erros -------------------------------------------------------------------
 

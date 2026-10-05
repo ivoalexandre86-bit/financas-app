@@ -10,7 +10,7 @@ const url = process.env.TEST_DATABASE_URL;
 
 test('API', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
   const pool = new Pool({ connectionString: url });
-  await pool.query('drop table if exists app_docs, users cascade');
+  await pool.query('drop table if exists whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, app_docs, users cascade');
   await migrate(pool);
   const app = createApp({
     pool,
