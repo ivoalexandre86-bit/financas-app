@@ -105,6 +105,15 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
     for (const entry of req.body?.entry ?? []) {
       for (const change of entry.changes ?? []) {
         for (const m of change.value?.messages ?? []) messages.push(m);
+        // Entregas que a Meta não conseguiu fazer (ex.: número fora da lista
+        // de teste, janela de 24 h): só aparecem aqui, não na hora do envio.
+        for (const st of change.value?.statuses ?? []) {
+          if (st.status === 'failed') {
+            console.warn(
+              `WhatsApp: entrega falhou para ${st.recipient_id}: ${JSON.stringify(st.errors ?? [])}`,
+            );
+          }
+        }
       }
     }
     if (messages.length) console.log(`WhatsApp: ${messages.length} mensagem(ns) recebida(s)`);
