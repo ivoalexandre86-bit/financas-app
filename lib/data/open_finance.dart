@@ -19,6 +19,32 @@ class ConsentResult {
   const ConsentResult(this.status, this.expiresAt);
 }
 
+/// Conta encontrada numa conexão (item) do provedor.
+class OFRemoteAccount {
+  final String id;
+  final bool isCreditCard;
+  final String label;
+  const OFRemoteAccount({
+    required this.id,
+    required this.isCreditCard,
+    required this.label,
+  });
+}
+
+/// Conexão (item) registrada no provedor, com suas contas.
+class OFLinkedItem {
+  final String id;
+  final String institution;
+  final DateTime? consentExpiresAt;
+  final List<OFRemoteAccount> accounts;
+  const OFLinkedItem({
+    required this.id,
+    required this.institution,
+    this.consentExpiresAt,
+    required this.accounts,
+  });
+}
+
 /// Contrato de um provedor Open Finance autorizado (ex.: agregadores
 /// regulados pelo Banco Central). O núcleo financeiro depende apenas desta
 /// interface, então trocar de provedor não exige mudanças no restante do app.
@@ -27,9 +53,23 @@ class ConsentResult {
 /// feita no ambiente da instituição (redirecionamento OAuth/FAPI) e o
 /// provedor devolve apenas o status do consentimento.
 abstract class OpenFinanceProvider {
+  const OpenFinanceProvider();
+
   String get id;
   String get displayName;
   bool get isSandbox;
+
+  /// Provedores reais (ex.: Pluggy) conectam colando o ID da conexão criada
+  /// no portal do provedor, em vez de escolher a instituição na lista.
+  bool get connectsByItemId => false;
+
+  /// O servidor tem as credenciais do provedor?
+  Future<bool> isConfigured() async => true;
+
+  /// Registra a conexão [itemId] para o usuário e devolve as contas dela.
+  Future<OFLinkedItem> linkItem(String itemId) =>
+      throw UnsupportedError('Provedor não conecta por ID');
+
   Future<List<OFInstitution>> institutions();
   Future<ConsentResult> requestConsent(OFInstitution institution);
   Future<List<ExternalTransaction>> fetchTransactions(
@@ -42,7 +82,7 @@ abstract class OpenFinanceProvider {
 /// Provedor de **sandbox** para demonstração: simula consentimento e devolve
 /// transações fictícias. Substitua por uma implementação real (via backend)
 /// antes de produção.
-class SandboxOpenFinanceProvider implements OpenFinanceProvider {
+class SandboxOpenFinanceProvider extends OpenFinanceProvider {
   @override
   String get id => 'sandbox';
   @override

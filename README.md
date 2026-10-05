@@ -11,7 +11,7 @@ Moeda BRL, locale pt-BR, datas DD/MM/AAAA.
 | 1 — MVP funcional | ✅ Navegação, dashboard, lançamentos, contas, categorias, persistência local, matriz de projeção, filtros, projetos |
 | 2 — Motor financeiro | ✅ Recorrências, parcelas, ciclo de faturamento, faturas e pagamentos, saldos projetados, drill-down |
 | 3 — Backend e segurança | 🟡 Esquema PostgreSQL com migrations, RLS e isolamento por usuário (`backend/db`). Autenticação local com PBKDF2. **Falta:** API REST e sincronização |
-| 4 — Open Finance | 🟡 Interface de provedor, provedor *sandbox*, consentimento, importação, deduplicação e conciliação. **Falta:** provedor real via backend |
+| 4 — Open Finance | ✅ Provedor real **Pluggy** pelo servidor (`backend/api/pluggy.js`, gratuito para uso pessoal via Meu Pluggy), sandbox no modo local, importação, deduplicação e conciliação |
 | 5 — Produção | ⏳ 31 testes automatizados do motor e das regras; falta monitoramento de erros, build de release assinado e ficha da Play Store |
 
 ## Plataformas: web, Android e iOS
@@ -178,7 +178,10 @@ e `lib/data/spreadsheet_io.dart` (leitor `.xlsx` próprio, em Dart puro).
    requisição; trocar `LocalFinanceRepository`/`LocalAuthService` por versões
    remotas (as interfaces já existem).
 2. Guardar tokens em `flutter_secure_storage` no Android/iOS.
-3. Provedor Open Finance real (Pluggy, Belvo ou similar) chamado pelo
-   backend, implementando `OpenFinanceProvider`.
+3. Open Finance: para ativar, crie conta em meu.pluggy.ai (conecte os
+   bancos) e em dashboard.pluggy.ai (crie uma aplicação, ative o conector
+   MeuPluggy) e defina `PLUGGY_CLIENT_ID`/`PLUGGY_CLIENT_SECRET` no serviço
+   `financas-api` do Render. No app: Mais › Open Finance › Conectar banco,
+   colando o ID da conexão (Item ID).
 4. Crashlytics/Sentry, ícone e splash, assinatura de release e ficha da
    Play Store; revisão jurídica da política de privacidade.

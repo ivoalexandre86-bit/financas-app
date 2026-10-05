@@ -823,6 +823,10 @@ class OpenFinanceConnection {
   final String? lastError;
   final String? linkedAccountId;
   final String? linkedCardId;
+
+  /// Conexão (item) e conta no provedor real; nulos no sandbox.
+  final String? providerItemId;
+  final String? providerAccountId;
   final DateTime createdAt;
 
   OpenFinanceConnection({
@@ -835,6 +839,8 @@ class OpenFinanceConnection {
     this.lastError,
     this.linkedAccountId,
     this.linkedCardId,
+    this.providerItemId,
+    this.providerAccountId,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -865,6 +871,8 @@ class OpenFinanceConnection {
     linkedCardId: identical(linkedCardId, _unset)
         ? this.linkedCardId
         : linkedCardId as String?,
+    providerItemId: providerItemId,
+    providerAccountId: providerAccountId,
     createdAt: createdAt,
   );
 
@@ -878,6 +886,8 @@ class OpenFinanceConnection {
     'lastError': lastError,
     'linkedAccountId': linkedAccountId,
     'linkedCardId': linkedCardId,
+    'providerItemId': providerItemId,
+    'providerAccountId': providerAccountId,
     'createdAt': createdAt.toIso8601String(),
   };
 
@@ -900,6 +910,8 @@ class OpenFinanceConnection {
         lastError: j['lastError'] as String?,
         linkedAccountId: j['linkedAccountId'] as String?,
         linkedCardId: j['linkedCardId'] as String?,
+        providerItemId: j['providerItemId'] as String?,
+        providerAccountId: j['providerAccountId'] as String?,
         createdAt: _ts(j['createdAt']),
       );
 }

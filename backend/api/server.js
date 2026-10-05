@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const { createApp, migrate } = require('./app');
+const { createPluggy } = require('./pluggy');
 const { createMetaClient } = require('./whatsapp/meta');
 const { createExtractor } = require('./whatsapp/extract');
 const { createTranscriber } = require('./whatsapp/transcribe');
@@ -60,6 +61,14 @@ migrate(pool)
       pool,
       jwtSecret: process.env.JWT_SECRET,
       allowedOrigins,
+      // Open Finance: ativo quando as credenciais da Pluggy estão definidas.
+      pluggy:
+        process.env.PLUGGY_CLIENT_ID && process.env.PLUGGY_CLIENT_SECRET
+          ? createPluggy({
+              clientId: process.env.PLUGGY_CLIENT_ID,
+              clientSecret: process.env.PLUGGY_CLIENT_SECRET,
+            })
+          : null,
       whatsapp: whatsAppFromEnv(process.env),
     });
     app.set('trust proxy', 1);

@@ -8,11 +8,15 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { toAppTransaction, toAppAccount, PluggyError } = require('./pluggy');
 const { mountWhatsApp } = require('./whatsapp/routes');
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const TOKEN_DAYS = 30;
 const MAX_BATCH = 1000;
+const ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DEFAULT_SYNC_DAYS = 90;
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -67,9 +71,10 @@ function loginLimiter({ max = 10, windowMs = 15 * 60 * 1000 } = {}) {
 
 /**
  * @param {{pool: import('pg').Pool, jwtSecret: string, allowedOrigins?: string[],
+ *   pluggy?: ReturnType<typeof import('./pluggy').createPluggy> | null,
  *   whatsapp?: object}} opts  `whatsapp`: ver whatsapp/routes.js (opcional)
  */
-function createApp({ pool, jwtSecret, allowedOrigins = [], whatsapp }) {
+function createApp({ pool, jwtSecret, allowedOrigins = [], pluggy = null, whatsapp }) {
   if (!jwtSecret || jwtSecret.length < 32) {
     throw new Error('JWT_SECRET ausente ou curto demais (mínimo 32 caracteres)');
   }
@@ -355,6 +360,95 @@ function createApp({ pool, jwtSecret, allowedOrigins = [], whatsapp }) {
       );
     }
     res.json({ saved: docs.length });
+  }));
+
+  // Open Finance (Pluggy) ---------------------------------------------------
+
+  const needPluggy = () => {
+    if (!pluggy) {
+      throw new HttpError(
+        503,
+        'Open Finance ainda não configurado no servidor (faltam as credenciais da Pluggy).',
+      );
+    }
+    return pluggy;
+  };
+  /// Erros da Pluggy viram mensagens claras para o app.
+  const fromPluggy = async (fn) => {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!(e instanceof PluggyError)) throw e;
+      if (e.status === 404) throw new HttpError(404, 'Conexão não encontrada na Pluggy. Confira o ID.');
+      if (e.status === 401 || e.status === 403) {
+        throw new HttpError(502, 'A Pluggy recusou as credenciais do servidor.');
+      }
+      throw new HttpError(502, `Falha na Pluggy: ${e.message}`);
+    }
+  };
+  const ownsItem = async (userId, itemId) => {
+    const { rows } = await pool.query(
+      'select 1 from of_items where item_id = $1 and user_id = $2',
+      [itemId, userId],
+    );
+    return rows.length > 0;
+  };
+
+  app.get('/openfinance/status', authed, (req, res) =>
+    res.json({ provider: 'pluggy', configured: !!pluggy }));
+
+  /// Registra uma conexão (item) da Pluggy para o usuário e devolve as
+  /// contas dela.
+  app.post('/openfinance/items', authed, wrap(async (req, res) => {
+    const p = needPluggy();
+    const itemId = String(req.body?.itemId ?? '').trim();
+    if (!ITEM_ID_RE.test(itemId)) {
+      throw new HttpError(400, 'ID da conexão inválido (formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).');
+    }
+    const item = await fromPluggy(() => p.getItem(itemId));
+    const { rows } = await pool.query(
+      `insert into of_items (item_id, user_id) values ($1, $2)
+       on conflict (item_id) do update set item_id = excluded.item_id
+       returning user_id`,
+      [itemId, req.user.id],
+    );
+    if (rows[0].user_id !== req.user.id) {
+      throw new HttpError(409, 'Esta conexão já está vinculada a outro usuário.');
+    }
+    const accounts = await fromPluggy(() => p.listAccounts(itemId));
+    res.status(201).json({
+      item: {
+        id: item.id,
+        institution: item.connector?.name ?? 'Instituição',
+        status: item.status ?? null,
+        lastUpdatedAt: item.lastUpdatedAt ?? null,
+        consentExpiresAt: item.consentExpiresAt ?? null,
+      },
+      accounts: accounts.map((a) => toAppAccount(a, item)),
+    });
+  }));
+
+  app.delete('/openfinance/items/:itemId', authed, wrap(async (req, res) => {
+    await pool.query('delete from of_items where item_id = $1 and user_id = $2', [
+      req.params.itemId,
+      req.user.id,
+    ]);
+    res.status(204).end();
+  }));
+
+  /// Transações de uma conta, desde `from` (AAAA-MM-DD; padrão: 90 dias).
+  app.get('/openfinance/accounts/:accountId/transactions', authed, wrap(async (req, res) => {
+    const p = needPluggy();
+    const from = String(req.query.from ?? '');
+    if (from && !DATE_RE.test(from)) throw new HttpError(400, 'Data inválida');
+    const account = await fromPluggy(() => p.getAccount(req.params.accountId));
+    if (!account.itemId || !(await ownsItem(req.user.id, account.itemId))) {
+      throw new HttpError(404, 'Conta não encontrada');
+    }
+    const since = from ||
+      new Date(Date.now() - DEFAULT_SYNC_DAYS * 864e5).toISOString().slice(0, 10);
+    const txs = await fromPluggy(() => p.listTransactions(account.id, since));
+    res.json({ transactions: txs.map(toAppTransaction) });
   }));
 
   mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp });

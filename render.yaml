@@ -25,6 +25,11 @@ services:
         generateValue: true
       - key: ALLOWED_ORIGINS
         value: https://ivoalexandre86-bit.github.io
+      # Open Finance (Pluggy): preencha no painel do Render, em Environment.
+      - key: PLUGGY_CLIENT_ID
+        sync: false
+      - key: PLUGGY_CLIENT_SECRET
+        sync: false
       # Lançamentos pelo WhatsApp (opcional; preencha no painel do Render).
       - key: WHATSAPP_TOKEN
         sync: false
