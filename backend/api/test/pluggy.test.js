@@ -28,3 +28,16 @@ test('Pluggy: autentica uma vez e percorre as páginas de transações', async (
   ]);
   await assert.rejects(p.getItem('zz'), (e) => e.status === 404 && e.message === 'nope');
 });
+
+test('Pluggy: token da janela Connect leva o id do usuário', async () => {
+  let sent;
+  const fake = async (url, init) => {
+    const json = (body) => ({ ok: true, status: 200, text: async () => JSON.stringify(body) });
+    if (url.pathname === '/auth') return json({ apiKey: 'KEY' });
+    sent = JSON.parse(init.body);
+    return json({ accessToken: 'CT' });
+  };
+  const p = createPluggy({ clientId: 'id', clientSecret: 'sec', baseUrl: 'https://p.test', fetch: fake });
+  assert.equal(await p.createConnectToken('u1'), 'CT');
+  assert.deepEqual(sent, { options: { clientUserId: 'u1' } });
+});

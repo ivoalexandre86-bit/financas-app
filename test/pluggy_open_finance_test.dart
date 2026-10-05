@@ -5,6 +5,9 @@ import 'package:financas_app/data/cloud/pluggy_open_finance.dart';
 import 'package:financas_app/domain/models/entities.dart';
 import 'package:financas_app/domain/models/enums.dart';
 import 'package:financas_app/state/finance_controller.dart';
+import 'package:financas_app/ui/screens/open_finance/open_finance_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -118,5 +121,21 @@ void main() {
       fc.connections.every((c) => c.consentStatus == ConsentStatus.revoked),
       isTrue,
     );
+  });
+
+  testWidgets('sem conexões, a tela explica os passos e abre o guia', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: fc,
+        child: const MaterialApp(home: OpenFinanceScreen()),
+      ),
+    );
+    expect(find.text('Autorize seus bancos no Meu Pluggy'), findsOneWidget);
+    await tester.tap(find.text('Começar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Conectar seus bancos'), findsOneWidget);
+    expect(find.text('Abrir Meu Pluggy'), findsOneWidget);
   });
 }
