@@ -60,6 +60,7 @@ class GridPalette {
 /// redimensionada pelo usuário (ver [GridColumnsConfig]).
 enum GridColumn {
   date('Data', 96, 72),
+  dueDate('Vencimento', 104, 80),
   category('Categoria', 170, 90),
   subcategory('Subcategoria', 150, 80),
   description('Descrição', 300, 120),

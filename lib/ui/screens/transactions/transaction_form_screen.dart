@@ -60,6 +60,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   final intervalCtrl = TextEditingController(text: '1');
   String? categoryId;
   late DateTime date;
+  DateTime? dueDate;
   Funding? funding;
   String? fromAccount;
   String? toAccount;
@@ -76,6 +77,11 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
 
   bool get isEdit => widget.tx != null && !widget.tx!.isVirtual;
 
+  /// Vencimento próprio só para lançamentos avulsos em conta: no cartão,
+  /// vale o vencimento da fatura.
+  bool get _showsDueDate =>
+      !recurring && !installment && funding?.cardId == null;
+
   @override
   void initState() {
     super.initState();
@@ -89,6 +95,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     notes = TextEditingController(text: t?.notes ?? '');
     categoryId = t?.categoryId;
     date = t?.date ?? widget.initialDate ?? fc.today;
+    dueDate = t?.dueDate;
     projectId = t?.projectId ?? widget.initialProjectId;
     status = t?.status ?? TransactionStatus.completed;
     if (t == null || TransactionFormScreen.canConvert(t)) {
@@ -258,6 +265,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             projectId: projectId,
             notes: notes.text.trim(),
             status: status,
+            dueDate: _showsDueDate ? dueDate : null,
           ),
         );
       },
@@ -381,6 +389,16 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
               onChanged: (d) => d == null ? null : _onDate(d, fc.today),
             ),
             const SizedBox(height: 12),
+            if (_showsDueDate) ...[
+              DateField(
+                key: const ValueKey('tx-form-due-date'),
+                value: dueDate,
+                label: 'Data de vencimento (opcional)',
+                clearable: true,
+                onChanged: (d) => setState(() => dueDate = d),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (isTransfer) ...[
               AccountDropdown(
                 fc: fc,
