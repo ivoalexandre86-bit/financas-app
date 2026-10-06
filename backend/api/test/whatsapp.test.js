@@ -237,9 +237,9 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
     assert.equal(sent.length, 0);
   });
 
-  await t.test('número sem vínculo recebe instruções', async () => {
+  await t.test('número sem vínculo é ignorado (WhatsApp Business do dono)', async () => {
     assert.equal(await deliver('5511999990000', text('mercado 10')), 200);
-    assert.match(sent[0].text, /Vincular/);
+    assert.equal(sent.length, 0);
     assert.equal(extracted.length, 0);
   });
 
@@ -339,7 +339,9 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
 
   await t.test('desvincular', async () => {
     assert.equal((await call('DELETE', '/whatsapp/link', { token })).status, 204);
+    const before = extracted.length;
     await deliver('5511999990000', text('mercado 10'));
-    assert.match(sent[0].text, /não está ligado/);
+    assert.equal(sent.length, 0);
+    assert.equal(extracted.length, before);
   });
 });
