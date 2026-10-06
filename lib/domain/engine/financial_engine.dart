@@ -917,7 +917,7 @@ class FinancialEngine {
           isIncome: t.type == TransactionType.income,
           where: locationLabel(t),
           statusLabel: t.status.label,
-          overdue: t.date.isBefore(today),
+          overdue: t.effectiveDueDate.isBefore(today),
           tx: t,
         ),
       );
@@ -958,7 +958,7 @@ class FinancialEngine {
       final isIncome = t.type == TransactionType.income;
       if (t.status == TransactionStatus.completed) continue;
       (isIncome ? p.incomes : p.expenses).add(t.amount);
-      if (t.date.isBefore(today)) p.overdue.add(t.amount);
+      if (t.effectiveDueDate.isBefore(today)) p.overdue.add(t.amount);
     }
     for (final card in data.cards.where((c) => c.active)) {
       for (final inv in invoicesForCard(card)) {
