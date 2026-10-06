@@ -81,4 +81,31 @@ function createMetaClient({ token, phoneNumberId, apiVersion = 'v23.0' }) {
   };
 }
 
-module.exports = { createMetaClient, validSignature };
+/**
+ * Conclui o Cadastro incorporado: troca o código do login da Meta por um
+ * token comercial (não expira), inscreve a conta do WhatsApp Business no app
+ * para receber o webhook e lê o número de telefone.
+ * @param {{appId: string, appSecret: string, apiVersion?: string}} opts
+ */
+function createSignup({ appId, appSecret, apiVersion = 'v23.0' }) {
+  async function call(path, init = {}) {
+    const res = await fetch(`${GRAPH}/${apiVersion}/${path}`, init);
+    const body = await res.text();
+    if (!res.ok) throw new Error(`Graph ${res.status}: ${body.slice(0, 500)}`);
+    return JSON.parse(body);
+  }
+  return async ({ code, phoneNumberId, wabaId }) => {
+    const q = new URLSearchParams({ client_id: appId, client_secret: appSecret, code });
+    const { access_token: token } = await call(`oauth/access_token?${q}`);
+    const auth = { authorization: `Bearer ${token}` };
+    await call(`${wabaId}/subscribed_apps`, { method: 'POST', headers: auth });
+    // Na coexistência a Meta pode mandar só a conta; o número vem da lista.
+    const phone = phoneNumberId
+      ? await call(`${phoneNumberId}?fields=id,display_phone_number`, { headers: auth })
+      : (await call(`${wabaId}/phone_numbers?fields=id,display_phone_number`, { headers: auth })).data?.[0];
+    if (!phone?.id) throw new Error('Nenhum número na conta do WhatsApp Business');
+    return { token, phoneNumberId: phone.id, botNumber: phone.display_phone_number };
+  };
+}
+
+module.exports = { createMetaClient, createSignup, validSignature };

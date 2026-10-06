@@ -27,18 +27,38 @@ const HELP =
  */
 function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
   const cfg = whatsapp?.config ?? {};
-  const enabled = !!whatsapp?.meta && !!whatsapp?.extract;
-  const botNumber = String(cfg.botNumber ?? '').replace(/\D/g, '') || null;
+  const { extract, transcribe } = whatsapp ?? {};
+  const digits = (n) => String(n ?? '').replace(/\D/g, '') || null;
+
+  // Número do bot: o conectado pelo Cadastro incorporado (gravado no banco)
+  // vale mais que o das variáveis de ambiente.
+  let meta = whatsapp?.meta;
+  let botNumber = digits(cfg.botNumber);
+  const isEnabled = () => !!meta && !!extract;
+
+  function useStored(row) {
+    if (!row?.access_token || !row?.phone_number_id || !whatsapp?.createMeta) return;
+    meta = whatsapp.createMeta({ token: row.access_token, phoneNumberId: row.phone_number_id });
+    botNumber = digits(row.bot_number) ?? botNumber;
+  }
+  const loaded = pool
+    .query('select * from whatsapp_config where id = 1')
+    .then(({ rows }) => {
+      useStored(rows[0]);
+      if (rows[0] && isEnabled()) console.log(`WhatsApp ativo no número ${botNumber}`);
+    })
+    .catch((e) => console.error('WhatsApp: falha ao ler a configuração salva', e));
 
   // App ----------------------------------------------------------------------
 
   app.get('/whatsapp/status', authed, wrap(async (req, res) => {
+    await loaded;
     const { rows } = await pool.query(
       'select wa_id from whatsapp_links where user_id = $1',
       [req.user.id],
     );
     res.json({
-      enabled,
+      enabled: isEnabled(),
       botNumber,
       audio: !!whatsapp?.transcribe,
       linkedNumber: rows[0]?.wa_id ?? null,
@@ -46,7 +66,8 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
   }));
 
   app.post('/whatsapp/link-code', authed, wrap(async (req, res) => {
-    if (!enabled) throw new HttpError(409, 'WhatsApp ainda não está configurado no servidor');
+    await loaded;
+    if (!isEnabled()) throw new HttpError(409, 'WhatsApp ainda não está configurado no servidor');
     const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
     const { rows } = await pool.query(
       `insert into whatsapp_link_codes (user_id, code, expires_at)
@@ -73,6 +94,46 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
     res.status(204).end();
   }));
 
+  // Cadastro incorporado (Embedded Signup) da Meta: conecta um número que já
+  // usa o app WhatsApp Business (coexistência). A página de cadastro manda o
+  // código do login da Meta e os ids do número; o servidor troca o código por
+  // um token comercial que não expira e passa a usar esse número.
+  app.post('/whatsapp/embedded-signup', authed, wrap(async (req, res) => {
+    if (!req.user.is_admin) throw new HttpError(403, 'Somente administradores conectam o número do bot');
+    if (!whatsapp?.signup) throw new HttpError(409, 'Cadastro pela Meta não está configurado no servidor');
+    const code = String(req.body?.code ?? '');
+    const phoneNumberId = digits(req.body?.phoneNumberId);
+    const wabaId = digits(req.body?.wabaId);
+    if (!code || !wabaId) {
+      throw new HttpError(400, 'Faltam o código da Meta ou a conta do WhatsApp Business');
+    }
+    let out;
+    try {
+      out = await whatsapp.signup({ code, phoneNumberId, wabaId });
+    } catch (e) {
+      console.error('WhatsApp: cadastro incorporado falhou', e);
+      throw new HttpError(502, 'A Meta recusou o cadastro. Tente de novo.');
+    }
+    const row = {
+      access_token: out.token,
+      phone_number_id: digits(out.phoneNumberId) ?? phoneNumberId,
+      waba_id: wabaId,
+      bot_number: digits(out.botNumber),
+    };
+    await pool.query(
+      `insert into whatsapp_config (id, access_token, phone_number_id, waba_id, bot_number)
+       values (1, $1, $2, $3, $4)
+       on conflict (id) do update set access_token = excluded.access_token,
+         phone_number_id = excluded.phone_number_id, waba_id = excluded.waba_id,
+         bot_number = excluded.bot_number, updated_at = now()`,
+      [row.access_token, row.phone_number_id, row.waba_id, row.bot_number],
+    );
+    await loaded;
+    useStored(row);
+    console.log(`WhatsApp: número ${botNumber} conectado pelo cadastro incorporado`);
+    res.json({ botNumber, phoneNumberId: row.phone_number_id, wabaId, enabled: isEnabled() });
+  }));
+
   // Webhook da Meta ------------------------------------------------------------
 
   app.get('/whatsapp/webhook', (req, res) => {
@@ -86,8 +147,9 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
     res.sendStatus(403);
   });
 
-  app.post('/whatsapp/webhook', (req, res) => {
-    if (!enabled) {
+  app.post('/whatsapp/webhook', wrap(async (req, res) => {
+    await loaded;
+    if (!isEnabled()) {
       console.warn('WhatsApp: webhook recebido, mas o bot está desligado');
       return res.sendStatus(401);
     }
@@ -115,11 +177,9 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
     if (messages.length) console.log(`WhatsApp: ${messages.length} mensagem(ns) recebida(s)`);
     const done = Promise.all(messages.map((m) => handle(m).catch((e) => fail(m, e))));
     whatsapp.onProcessed?.(done);
-  });
+  }));
 
   // Processamento ----------------------------------------------------------------
-
-  const { meta, extract, transcribe } = whatsapp ?? {};
 
   async function fail(m, err) {
     console.error('WhatsApp: erro ao processar mensagem', err);
