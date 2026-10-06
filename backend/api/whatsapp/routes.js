@@ -21,10 +21,6 @@ const HELP =
   'Mande um gasto ou recebimento e eu lanço no app. Pode ser texto, foto do cupom/comprovante ou áudio.\n\n' +
   'Exemplos:\n• gastei 45,90 no mercado\n• uber 23 ontem no cartão Nubank\n• tênis 600 em 3x no cartão\n• recebi 3500 de salário';
 
-const NOT_LINKED =
-  'Este número ainda não está ligado a nenhuma conta do app Finanças. ' +
-  'No app, abra Configurações › WhatsApp e toque em "Vincular".';
-
 /**
  * @param {import('express').Express} app
  * @param {object} deps
@@ -140,11 +136,13 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
     );
     if (!fresh.rowCount) return; // reentrega da Meta
     const from = String(m.from);
-    meta.markRead(m.id);
 
     const text = m.type === 'text' ? String(m.text?.body ?? '').trim() : '';
     const link = /^vincular\s+(\d{6})$/i.exec(text);
-    if (link) return linkNumber(from, link[1]);
+    if (link) {
+      meta.markRead(m.id);
+      return linkNumber(from, link[1]);
+    }
 
     const { rows } = await pool.query(
       `select u.id, u.name from whatsapp_links l join users u on u.id = l.user_id
@@ -152,7 +150,11 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
       [from],
     );
     const user = rows[0];
-    if (!user) return meta.sendText(from, NOT_LINKED);
+    // O número do bot pode ser o mesmo do WhatsApp Business do dono
+    // (coexistência): conversas de quem não vinculou ficam intocadas, sem
+    // resposta e sem marcar como lidas.
+    if (!user) return;
+    meta.markRead(m.id);
 
     if (m.type === 'interactive' && m.interactive?.type === 'button_reply') {
       return onButton(from, user, String(m.interactive.button_reply?.id ?? ''));
