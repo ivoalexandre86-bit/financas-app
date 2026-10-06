@@ -489,12 +489,18 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
           );
   }
 
+  /// Vencimento: o da fatura para compras no cartão; o do lançamento nos
+  /// demais casos (vazio quando não informado).
+  static DateTime? _due(FinancialEngine e, FinTransaction tx) =>
+      tx.cardId != null ? e.invoiceOf(tx)?.dueDate : tx.dueDate;
+
   static int _statusRank(FinancialEngine e, FinTransaction tx) =>
       switch (tx.status) {
         TransactionStatus.completed => 3,
         TransactionStatus.cancelled => 4,
         TransactionStatus.planned => 2,
-        TransactionStatus.pending => tx.date.isBefore(e.today) ? 0 : 1,
+        TransactionStatus.pending =>
+          tx.effectiveDueDate.isBefore(e.today) ? 0 : 1,
       };
 
   void _sortItems(List<RecognizedEvent> items, FinancialEngine e) {
@@ -516,6 +522,9 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
       if (sort == GridColumn.notes) return text((x) => x.tx.notes, a, b);
       if (sort == GridColumn.amount) {
         return _value(a).cents.abs().compareTo(_value(b).cents.abs());
+      }
+      if (sort == GridColumn.dueDate) {
+        return (_due(e, a.tx) ?? a.date).compareTo(_due(e, b.tx) ?? b.date);
       }
       if (sort == GridColumn.status) {
         return _statusRank(e, a.tx).compareTo(_statusRank(e, b.tx));
@@ -546,7 +555,9 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
     final accent = isIncome ? context.fin.positive : context.fin.expense;
     final cancelled = tx.status == TransactionStatus.cancelled;
     final completed = tx.status == TransactionStatus.completed;
-    final overdue = !completed && !cancelled && tx.date.isBefore(e.today);
+    final overdue =
+        !completed && !cancelled && tx.effectiveDueDate.isBefore(e.today);
+    final due = _due(e, tx);
     final (statusLabel, statusColor) = cancelled
         ? ('Cancelada', context.fin.subtle)
         : completed
@@ -581,6 +592,9 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
     final extras = [
       if (tx.isInstallment) tx.installmentLabel,
       if (tx.cardId != null) 'compra ${Dates.formatShort(tx.date)}',
+      if (tx.dueDate != null &&
+          (layout.compact || !layout.shows(GridColumn.dueDate)))
+        'vence ${Dates.formatShort(tx.dueDate!)}',
       if (widget.locationKey == null) e.locationLabel(tx),
     ].where((s) => s.isNotEmpty).join(' · ');
     final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
@@ -668,6 +682,19 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
               fontFeatures: const [FontFeature.tabularFigures()],
               fontWeight: FontWeight.w600,
             ),
+          ),
+        );
+      }
+      if (c == GridColumn.dueDate) {
+        return GridCell(
+          child: Text(
+            due == null ? '—' : Dates.format(due),
+            style: due == null
+                ? subtle
+                : context.text.bodySmall?.copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    color: overdue ? context.fin.negative : null,
+                  ),
           ),
         );
       }
