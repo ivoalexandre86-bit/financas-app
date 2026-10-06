@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 const { createApp, migrate } = require('./app');
 const { createPluggy } = require('./pluggy');
-const { createMetaClient } = require('./whatsapp/meta');
+const { createMetaClient, createSignup } = require('./whatsapp/meta');
 const { createExtractor } = require('./whatsapp/extract');
 const { createTranscriber } = require('./whatsapp/transcribe');
 
@@ -23,28 +23,34 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS ??
   .map((s) => s.trim())
   .filter(Boolean);
 
-/// Lançamentos pelo WhatsApp: ativo só com todas as variáveis da Meta e a
-/// chave do Claude. A chave da OpenAI é opcional (habilita áudio).
+/// Lançamentos pelo WhatsApp: precisa do segredo do app da Meta, do token de
+/// verificação do webhook e da chave do Claude. O número do bot vem do
+/// Cadastro incorporado (salvo no banco) ou de WHATSAPP_TOKEN +
+/// WHATSAPP_PHONE_NUMBER_ID. A chave da OpenAI é opcional (habilita áudio).
 function whatsAppFromEnv(env) {
   const config = {
     verifyToken: env.WHATSAPP_VERIFY_TOKEN,
     appSecret: env.WHATSAPP_APP_SECRET,
     botNumber: env.WHATSAPP_BOT_NUMBER,
   };
-  const ready =
-    env.WHATSAPP_TOKEN &&
-    env.WHATSAPP_PHONE_NUMBER_ID &&
-    config.verifyToken &&
-    config.appSecret &&
-    env.ANTHROPIC_API_KEY;
-  if (!ready) return { config };
-  console.log('WhatsApp ativo' + (env.OPENAI_API_KEY ? ' (com áudio)' : ''));
+  if (!config.verifyToken || !config.appSecret || !env.ANTHROPIC_API_KEY) {
+    return { config };
+  }
+  const fromEnv = env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID;
+  if (fromEnv) console.log('WhatsApp ativo' + (env.OPENAI_API_KEY ? ' (com áudio)' : ''));
   return {
     config,
-    meta: createMetaClient({
-      token: env.WHATSAPP_TOKEN,
-      phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID,
+    createMeta: createMetaClient,
+    signup: createSignup({
+      appId: env.WHATSAPP_APP_ID || '1624966215848250',
+      appSecret: config.appSecret,
     }),
+    meta: fromEnv
+      ? createMetaClient({
+          token: env.WHATSAPP_TOKEN,
+          phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID,
+        })
+      : undefined,
     extract: createExtractor({
       apiKey: env.ANTHROPIC_API_KEY,
       model: env.ANTHROPIC_MODEL || undefined,

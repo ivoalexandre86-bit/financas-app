@@ -147,7 +147,7 @@ const url = process.env.TEST_DATABASE_URL;
 test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
   const pool = new Pool({ connectionString: url });
   await pool.query(
-    'drop table if exists whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, app_docs, users cascade',
+    'drop table if exists whatsapp_config, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, app_docs, users cascade',
   );
   await migrate(pool);
 
@@ -155,13 +155,21 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
   const extracted = [];
   let nextRaw = raw();
   let processed = Promise.resolve();
+  const fakeMeta = (via) => ({
+    sendText: async (to, text) => sent.push({ to, text, via }),
+    sendButtons: async (to, text, buttons) => sent.push({ to, text, buttons, via }),
+    markRead: () => {},
+    downloadMedia: async () => ({ data: Buffer.from('img'), mimeType: 'image/jpeg' }),
+  });
+  const signups = [];
   const whatsapp = {
     config: { verifyToken: 'vt', appSecret: 'app-secret', botNumber: '+1 555 000 1234' },
-    meta: {
-      sendText: async (to, text) => sent.push({ to, text }),
-      sendButtons: async (to, text, buttons) => sent.push({ to, text, buttons }),
-      markRead: () => {},
-      downloadMedia: async () => ({ data: Buffer.from('img'), mimeType: 'image/jpeg' }),
+    meta: fakeMeta('env'),
+    createMeta: ({ token, phoneNumberId }) => fakeMeta(`${token}@${phoneNumberId}`),
+    signup: async (input) => {
+      signups.push(input);
+      if (input.code === 'ruim') throw new Error('Graph 400');
+      return { token: 'tok-business', phoneNumberId: input.phoneNumberId ?? '777', botNumber: '+55 47 3241-8582' };
     },
     extract: async (input) => {
       extracted.push(input);
@@ -343,5 +351,48 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
     await deliver('5511999990000', text('mercado 10'));
     assert.equal(sent.length, 0);
     assert.equal(extracted.length, before);
+  });
+
+  await t.test('cadastro incorporado troca o número do bot', async () => {
+    const other = await call('POST', '/users', {
+      token,
+      body: { name: 'Ana', email: 'ana@x.com', password: 'Senha1234' },
+    });
+    assert.equal(other.status, 201);
+    const login = await call('POST', '/auth/login', { body: { email: 'ana@x.com', password: 'Senha1234' } });
+    const body = { code: 'abc', phoneNumberId: '777', wabaId: '888' };
+    assert.equal((await call('POST', '/whatsapp/embedded-signup', { token: login.body.token, body })).status, 403);
+    assert.equal((await call('POST', '/whatsapp/embedded-signup', { token, body: { phoneNumberId: '777', wabaId: '888' } })).status, 400);
+    assert.equal(
+      (await call('POST', '/whatsapp/embedded-signup', { token, body: { ...body, code: 'ruim' } })).status,
+      502,
+    );
+
+    const ok = await call('POST', '/whatsapp/embedded-signup', { token, body });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(ok.body, { botNumber: '554732418582', phoneNumberId: '777', wabaId: '888', enabled: true });
+    assert.deepEqual(signups.at(-1), body);
+    const st = await call('GET', '/whatsapp/status', { token });
+    assert.equal(st.body.botNumber, '554732418582');
+
+    // Respostas saem pelo número novo, com o token comercial.
+    const code = await call('POST', '/whatsapp/link-code', { token });
+    assert.equal(code.body.url, `https://wa.me/554732418582?text=VINCULAR%20${code.body.code}`);
+    await deliver('5511999990000', text(`VINCULAR ${code.body.code}`));
+    assert.equal(sent[0].via, 'tok-business@777');
+
+    // Ao reiniciar, o servidor usa o número salvo mesmo sem as variáveis.
+    const fresh = createApp({ pool, jwtSecret: 'x'.repeat(40), whatsapp: { ...whatsapp, meta: undefined } });
+    const s2 = fresh.listen(0);
+    try {
+      const r = await fetch(`http://127.0.0.1:${s2.address().port}/whatsapp/status`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const j = await r.json();
+      assert.equal(j.enabled, true);
+      assert.equal(j.botNumber, '554732418582');
+    } finally {
+      s2.close();
+    }
   });
 });

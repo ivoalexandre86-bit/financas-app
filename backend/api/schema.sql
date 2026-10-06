@@ -67,3 +67,14 @@ create table if not exists whatsapp_seen (
   message_id text primary key,
   seen_at    timestamptz not null default now()
 );
+
+-- Número do bot conectado pelo Cadastro incorporado da Meta (linha única).
+-- Vale mais que WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID do ambiente.
+create table if not exists whatsapp_config (
+  id              int primary key default 1 check (id = 1),
+  access_token    text not null,
+  phone_number_id text not null,
+  waba_id         text not null,
+  bot_number      text,
+  updated_at      timestamptz not null default now()
+);
