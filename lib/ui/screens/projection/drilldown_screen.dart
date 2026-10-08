@@ -492,7 +492,7 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
   /// Vencimento: o da fatura para compras no cartão; o do lançamento nos
   /// demais casos (vazio quando não informado).
   static DateTime? _due(FinancialEngine e, FinTransaction tx) =>
-      tx.cardId != null ? e.invoiceOf(tx)?.dueDate : tx.dueDate;
+      tx.cardId != null ? e.invoiceOf(tx)?.dueDate : tx.shownDueDate;
 
   static int _statusRank(FinancialEngine e, FinTransaction tx) =>
       switch (tx.status) {
@@ -593,6 +593,7 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
       if (tx.isInstallment) tx.installmentLabel,
       if (tx.cardId != null) 'compra ${Dates.formatShort(tx.date)}',
       if (tx.dueDate != null &&
+          Dates.dateOnly(tx.dueDate!) != Dates.dateOnly(tx.date) &&
           (layout.compact || !layout.shows(GridColumn.dueDate)))
         'vence ${Dates.formatShort(tx.dueDate!)}',
       if (widget.locationKey == null) e.locationLabel(tx),

@@ -132,8 +132,8 @@ class TransactionDetailsScreen extends StatelessWidget {
                   card != null ? 'Data da compra' : 'Data',
                   Dates.format(t.date),
                 ),
-                if (t.dueDate != null && card == null)
-                  InfoRow.text('Vencimento', Dates.format(t.dueDate!)),
+                if (t.shownDueDate != null && card == null)
+                  InfoRow.text('Vencimento', Dates.format(t.shownDueDate!)),
                 if (!t.isTransfer)
                   InfoRow.text('Categoria', e.categoryLabel(t.categoryId)),
                 InfoRow.text(
