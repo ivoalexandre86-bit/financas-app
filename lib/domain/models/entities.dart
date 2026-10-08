@@ -425,6 +425,15 @@ class FinTransaction {
   /// se informado; senão, a própria data.
   DateTime get effectiveDueDate => dueDate ?? date;
 
+  /// Despesa em conta: sempre tem vencimento (o informado ou a própria data).
+  /// No cartão vale o vencimento da fatura.
+  bool get hasOwnDueDate =>
+      type == TransactionType.expense && cardId == null;
+
+  /// Vencimento exibido: sempre presente nas despesas em conta; nas
+  /// receitas, só quando informado.
+  DateTime? get shownDueDate => hasOwnDueDate ? effectiveDueDate : dueDate;
+
   bool get isInstallment => installmentGroupId != null;
   bool get isRecurring => recurringId != null;
   bool get isCardTransaction => cardId != null;
@@ -595,6 +604,10 @@ class RecurringRule {
 
   /// Regra anterior quando esta foi criada por uma edição "somente futuras".
   final String? previousRuleId;
+
+  /// Dias entre a data de cada ocorrência e o seu vencimento (despesas em
+  /// conta). Ex.: ocorrência dia 5 com vencimento dia 10 = 5.
+  final int dueOffsetDays;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -616,6 +629,7 @@ class RecurringRule {
     this.pauses = const [],
     this.notes = '',
     this.previousRuleId,
+    this.dueOffsetDays = 0,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : createdAt = createdAt ?? DateTime.now(),
@@ -642,6 +656,7 @@ class RecurringRule {
     List<PausePeriod>? pauses,
     String? notes,
     Object? previousRuleId = _unset,
+    int? dueOffsetDays,
   }) => RecurringRule(
     id: id ?? this.id,
     type: type ?? this.type,
@@ -670,6 +685,7 @@ class RecurringRule {
     previousRuleId: identical(previousRuleId, _unset)
         ? this.previousRuleId
         : previousRuleId as String?,
+    dueOffsetDays: dueOffsetDays ?? this.dueOffsetDays,
     createdAt: id == null ? createdAt : DateTime.now(),
     updatedAt: DateTime.now(),
   );
@@ -692,6 +708,7 @@ class RecurringRule {
     'pauses': pauses.map((p) => p.toJson()).toList(),
     'notes': notes,
     'previousRuleId': previousRuleId,
+    'dueOffsetDays': dueOffsetDays,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -728,6 +745,7 @@ class RecurringRule {
         .toList(),
     notes: (j['notes'] as String?) ?? '',
     previousRuleId: j['previousRuleId'] as String?,
+    dueOffsetDays: (j['dueOffsetDays'] as int?) ?? 0,
     createdAt: _ts(j['createdAt']),
     updatedAt: _ts(j['updatedAt']),
   );
@@ -746,6 +764,9 @@ class InstallmentGroup {
   final String? categoryId;
   final String? projectId;
   final String notes;
+
+  /// Dias entre a data de cada parcela em conta e o seu vencimento.
+  final int dueOffsetDays;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -760,6 +781,7 @@ class InstallmentGroup {
     this.categoryId,
     this.projectId,
     this.notes = '',
+    this.dueOffsetDays = 0,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : createdAt = createdAt ?? DateTime.now(),
@@ -776,6 +798,7 @@ class InstallmentGroup {
     'categoryId': categoryId,
     'projectId': projectId,
     'notes': notes,
+    'dueOffsetDays': dueOffsetDays,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -791,6 +814,7 @@ class InstallmentGroup {
     categoryId: j['categoryId'] as String?,
     projectId: j['projectId'] as String?,
     notes: (j['notes'] as String?) ?? '',
+    dueOffsetDays: (j['dueOffsetDays'] as int?) ?? 0,
     createdAt: _ts(j['createdAt']),
     updatedAt: _ts(j['updatedAt']),
   );

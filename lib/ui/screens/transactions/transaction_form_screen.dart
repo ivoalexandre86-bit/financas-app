@@ -61,6 +61,9 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   String? categoryId;
   late DateTime date;
   DateTime? dueDate;
+
+  /// O usuário escolheu um vencimento diferente: mudar a data não o altera.
+  bool dueTouched = false;
   Funding? funding;
   String? fromAccount;
   String? toAccount;
@@ -77,10 +80,26 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
 
   bool get isEdit => widget.tx != null && !widget.tx!.isVirtual;
 
-  /// Vencimento próprio só para lançamentos avulsos em conta: no cartão,
-  /// vale o vencimento da fatura.
+  /// Despesa em conta sempre tem vencimento (padrão: a própria data). No
+  /// cartão vale o vencimento da fatura.
+  bool get _dueRequired =>
+      type == TransactionType.expense && funding?.cardId == null;
+
+  /// Receita avulsa em conta pode ter vencimento opcional.
   bool get _showsDueDate =>
-      !recurring && !installment && funding?.cardId == null;
+      _dueRequired ||
+      (type == TransactionType.income &&
+          !recurring &&
+          !installment &&
+          funding?.cardId == null);
+
+  /// Vencimento a gravar: o escolhido; para despesas, a data quando vazio.
+  DateTime? get _due => _dueRequired ? (dueDate ?? date) : dueDate;
+
+  /// Distância em dias entre a data e o vencimento, replicada nas próximas
+  /// ocorrências e parcelas.
+  int get _dueOffset =>
+      _dueRequired ? Dates.daysBetween(date, dueDate ?? date) : 0;
 
   @override
   void initState() {
@@ -96,6 +115,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     categoryId = t?.categoryId;
     date = t?.date ?? widget.initialDate ?? fc.today;
     dueDate = t?.dueDate;
+    dueTouched = t?.dueDate != null && Dates.dateOnly(t!.dueDate!) != date;
     projectId = t?.projectId ?? widget.initialProjectId;
     status = t?.status ?? TransactionStatus.completed;
     if (t == null || TransactionFormScreen.canConvert(t)) {
@@ -136,6 +156,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   void _onDate(DateTime d, DateTime today) {
     setState(() {
       date = d;
+      if (!dueTouched) dueDate = null;
       if (!isEdit) {
         status = d.isAfter(today)
             ? TransactionStatus.planned
@@ -173,6 +194,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             categoryId: categoryId,
             projectId: projectId,
             notes: notes.text.trim(),
+            dueOffsetDays: _dueOffset,
           );
           if (isEdit) {
             await fc.convertToInstallments(
@@ -200,6 +222,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             startDate: date,
             endDate: endDate,
             notes: notes.text.trim(),
+            dueOffsetDays: _dueOffset,
           );
           if (isEdit) {
             await fc.convertToRecurring(
@@ -214,6 +237,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 projectId: projectId,
                 notes: rule.notes,
                 status: status,
+                dueDate: _due,
               ),
               rule,
             );
@@ -238,6 +262,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 status: status,
                 recurringId: rule.id,
                 occurrenceDate: date,
+                dueDate: _due,
               ),
             );
           }
@@ -265,7 +290,10 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             projectId: projectId,
             notes: notes.text.trim(),
             status: status,
-            dueDate: _showsDueDate ? dueDate : null,
+            // Igual à data: não grava, assim o vencimento acompanha a data.
+            dueDate: !_showsDueDate || _dueOffset == 0 && _dueRequired
+                ? null
+                : _due,
           ),
         );
       },
@@ -392,11 +420,30 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             if (_showsDueDate) ...[
               DateField(
                 key: const ValueKey('tx-form-due-date'),
-                value: dueDate,
-                label: 'Data de vencimento (opcional)',
-                clearable: true,
-                onChanged: (d) => setState(() => dueDate = d),
+                value: _due,
+                label: !_dueRequired
+                    ? 'Data de vencimento (opcional)'
+                    : recurring
+                    ? 'Vencimento da 1ª ocorrência'
+                    : installment
+                    ? 'Vencimento da 1ª parcela'
+                    : 'Data de vencimento',
+                clearable: !_dueRequired,
+                onChanged: (d) => setState(() {
+                  dueDate = d == null ? null : Dates.dateOnly(d);
+                  dueTouched = d != null && Dates.dateOnly(d) != date;
+                }),
               ),
+              if (_dueRequired && (recurring || installment))
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, left: 12),
+                  child: Text(
+                    _dueOffset == 0
+                        ? 'Cada ${recurring ? 'ocorrência' : 'parcela'} vence na própria data.'
+                        : 'Cada ${recurring ? 'ocorrência' : 'parcela'} vence ${_dueOffset.abs()} dia(s) ${_dueOffset > 0 ? 'depois' : 'antes'} da data.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
               const SizedBox(height: 12),
             ],
             if (isTransfer) ...[

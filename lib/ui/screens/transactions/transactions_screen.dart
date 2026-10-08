@@ -615,7 +615,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   static DateTime? _due(FinancialEngine e, _Entry it) => switch (it) {
     _InvoiceEntry(:final invoice) => invoice.dueDate,
     _TxEntry(:final tx) =>
-      tx.cardId != null ? e.invoiceOf(tx)?.dueDate : tx.dueDate,
+      tx.cardId != null ? e.invoiceOf(tx)?.dueDate : tx.shownDueDate,
   };
 
   /// Valor com sinal: receitas positivas, despesas negativas.
@@ -721,6 +721,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       if (invoice != null) 'compra ${Dates.formatShort(tx.date)}',
       if (tx.dueDate != null &&
           invoice == null &&
+          Dates.dateOnly(tx.dueDate!) != Dates.dateOnly(tx.date) &&
           (layout.compact || !layout.shows(GridColumn.dueDate)))
         'vence ${Dates.formatShort(tx.dueDate!)}',
     ].join(' · ');
@@ -931,8 +932,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 tooltip: 'Alterar vencimento',
                 onPick: (cell) => _pickDueDate(cell, fc, tx),
                 display: Text(
-                  tx.dueDate == null ? '—' : Dates.format(tx.dueDate!),
-                  style: tx.dueDate == null
+                  tx.shownDueDate == null
+                      ? '—'
+                      : Dates.format(tx.shownDueDate!),
+                  style: tx.shownDueDate == null
                       ? subtle
                       : context.text.bodySmall?.copyWith(
                           fontFeatures: const [FontFeature.tabularFigures()],
@@ -1291,13 +1294,14 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   }
 
   /// Vencimento do lançamento. Sem vencimento, abre direto o calendário;
-  /// com vencimento, oferece alterar ou remover.
+  /// com vencimento, oferece alterar ou remover (despesas em conta sempre
+  /// têm vencimento: só alterar).
   Future<void> _pickDueDate(
     BuildContext cell,
     FinanceController fc,
     FinTransaction tx,
   ) async {
-    if (tx.dueDate != null) {
+    if (tx.dueDate != null && !tx.hasOwnDueDate) {
       final action = await showCellMenu(cell, const [
         CellMenuOption('change', 'Alterar vencimento'),
         CellMenuOption('clear', 'Remover vencimento'),
@@ -1310,7 +1314,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     }
     final d = await showDatePicker(
       context: cell,
-      initialDate: tx.dueDate ?? tx.date,
+      initialDate: tx.shownDueDate ?? tx.date,
       firstDate: DateTime(2000),
       lastDate: DateTime(fc.today.year + 30),
       helpText: 'Data de vencimento',
@@ -1318,8 +1322,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     );
     if (d == null || !cell.mounted) return;
     final due = Dates.dateOnly(d);
-    if (tx.dueDate != null && due == Dates.dateOnly(tx.dueDate!)) return;
-    await _saveInline(cell, fc, tx.copyWith(dueDate: due));
+    final current = tx.shownDueDate;
+    if (current != null && due == Dates.dateOnly(current)) return;
+    // Despesa com vencimento na própria data não grava: acompanha a data.
+    final keep = !tx.hasOwnDueDate || due != Dates.dateOnly(tx.date);
+    await _saveInline(cell, fc, tx.copyWith(dueDate: keep ? due : null));
   }
 
   /// Categorias do tipo do lançamento. Com a coluna Subcategoria visível,

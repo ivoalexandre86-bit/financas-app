@@ -26,6 +26,17 @@ class Dates {
     return clampedDate(base.year, base.month, anchorDay ?? d.day);
   }
 
+  /// Soma dias pelo calendário (sem efeito do horário de verão).
+  static DateTime addDays(DateTime d, int days) =>
+      DateTime(d.year, d.month, d.day + days);
+
+  /// Dias de calendário de [from] até [to] (negativo se [to] vier antes).
+  static int daysBetween(DateTime from, DateTime to) => DateTime.utc(
+    to.year,
+    to.month,
+    to.day,
+  ).difference(DateTime.utc(from.year, from.month, from.day)).inDays;
+
   static final DateFormat _br = DateFormat('dd/MM/yyyy', 'pt_BR');
   static final DateFormat _short = DateFormat('dd/MM', 'pt_BR');
 

@@ -60,6 +60,9 @@ class Installments {
             installmentGroupId: group.id,
             installmentNumber: number,
             installmentCount: group.count,
+            dueDate: isCard || group.dueOffsetDays == 0
+                ? null
+                : Dates.addDays(date, group.dueOffsetDays),
           );
         }(),
     ];

@@ -416,6 +416,12 @@ class FinancialEngine {
         status: TransactionStatus.planned,
         recurringId: rule.id,
         occurrenceDate: d,
+        dueDate:
+            rule.dueOffsetDays != 0 &&
+                rule.type == TransactionType.expense &&
+                rule.cardId == null
+            ? Dates.addDays(d, rule.dueOffsetDays)
+            : null,
         isVirtual: true,
         createdAt: rule.createdAt,
         updatedAt: rule.updatedAt,

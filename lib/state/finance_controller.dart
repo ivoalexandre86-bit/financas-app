@@ -444,6 +444,9 @@ class FinanceController extends ChangeNotifier {
         notes: updated.notes,
         status: first?.status ?? TransactionStatus.pending,
         externalId: first?.externalId,
+        dueDate: updated.cardId == null && updated.dueOffsetDays != 0
+            ? Dates.addDays(updated.purchaseDate, updated.dueOffsetDays)
+            : null,
         createdAt: first?.createdAt,
       );
       next = [single];

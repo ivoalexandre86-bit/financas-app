@@ -77,6 +77,7 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
           categoryId: categoryId,
           projectId: projectId,
           notes: notes.text.trim(),
+          dueOffsetDays: old.dueOffsetDays,
           createdAt: old.createdAt,
         ),
       ),
