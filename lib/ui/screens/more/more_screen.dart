@@ -14,6 +14,7 @@ import '../installments/installments_screen.dart';
 import '../open_finance/open_finance_screen.dart';
 import '../recurring/recurring_screen.dart';
 import '../settings/settings_screen.dart';
+import '../simulations/simulations_screen.dart';
 import '../users/users_screen.dart';
 
 class MoreScreen extends StatelessWidget {
@@ -56,6 +57,12 @@ class MoreScreen extends StatelessWidget {
             'Painéis personalizados',
             'Gráficos, comparações, Pareto, realizado × previsto',
             const DashboardsScreen(),
+          ),
+          item(
+            Icons.science_outlined,
+            'Simulações de orçamento',
+            'Cenários "e se": carro novo, aumento de salário, férias…',
+            const SimulationsScreen(),
           ),
           item(
             Icons.account_balance_outlined,
