@@ -48,6 +48,9 @@ void main() {
       }
     });
 
+    // Desktop: a grade inteira cabe sem rolagem horizontal.
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       ChangeNotifierProvider.value(
         value: fc,

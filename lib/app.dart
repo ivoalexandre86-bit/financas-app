@@ -7,6 +7,7 @@ import 'data/auth_service.dart';
 import 'data/cloud/api_client.dart';
 import 'data/cloud/cloud_auth_service.dart';
 import 'data/cloud/cloud_finance_repository.dart';
+import 'data/cloud/pluggy_open_finance.dart';
 import 'data/finance_repository.dart';
 import 'state/auth_controller.dart';
 import 'state/finance_controller.dart';
@@ -65,11 +66,17 @@ class FinancasApp extends StatelessWidget {
             key: ValueKey(user.id),
             create: (context) {
               final service = context.read<AuthController>().service;
+              final cloud = service is CloudAuthService && !user.isDemo;
               return FinanceController(
-                service is CloudAuthService && !user.isDemo
+                cloud
                     ? CloudFinanceRepository(user.id, ApiDocStore(service.api))
                     : LocalFinanceRepository(user.id),
                 isDemo: user.isDemo,
+                // Open Finance real só com a conta na nuvem (o servidor
+                // guarda as credenciais da Pluggy); senão, sandbox.
+                openFinance: cloud
+                    ? PluggyOpenFinanceProvider(service.api)
+                    : null,
               )..load();
             },
             child: app,

@@ -385,6 +385,10 @@ class FinTransaction {
   final int? installmentCount;
   final String? externalId;
 
+  /// Data de vencimento informada pelo usuário (opcional). Quando presente,
+  /// é ela que define se o lançamento pendente está atrasado.
+  final DateTime? dueDate;
+
   /// `true` para ocorrências geradas pelo motor a partir de uma regra
   /// recorrente e ainda não persistidas.
   final bool isVirtual;
@@ -410,11 +414,16 @@ class FinTransaction {
     this.installmentNumber,
     this.installmentCount,
     this.externalId,
+    this.dueDate,
     this.isVirtual = false,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : createdAt = createdAt ?? DateTime.now(),
        updatedAt = updatedAt ?? DateTime.now();
+
+  /// Data usada para saber se o lançamento está atrasado: o vencimento,
+  /// se informado; senão, a própria data.
+  DateTime get effectiveDueDate => dueDate ?? date;
 
   bool get isInstallment => installmentGroupId != null;
   bool get isRecurring => recurringId != null;
@@ -443,6 +452,7 @@ class FinTransaction {
     Object? installmentNumber = _unset,
     Object? installmentCount = _unset,
     Object? externalId = _unset,
+    Object? dueDate = _unset,
     bool? isVirtual,
   }) => FinTransaction(
     id: id ?? this.id,
@@ -483,6 +493,7 @@ class FinTransaction {
     externalId: identical(externalId, _unset)
         ? this.externalId
         : externalId as String?,
+    dueDate: identical(dueDate, _unset) ? this.dueDate : dueDate as DateTime?,
     isVirtual: isVirtual ?? this.isVirtual,
     createdAt: createdAt,
     updatedAt: DateTime.now(),
@@ -507,6 +518,7 @@ class FinTransaction {
     'installmentNumber': installmentNumber,
     'installmentCount': installmentCount,
     'externalId': externalId,
+    'dueDate': _d(dueDate),
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -538,6 +550,7 @@ class FinTransaction {
     installmentNumber: j['installmentNumber'] as int?,
     installmentCount: j['installmentCount'] as int?,
     externalId: j['externalId'] as String?,
+    dueDate: _pd(j['dueDate']),
     createdAt: _ts(j['createdAt']),
     updatedAt: _ts(j['updatedAt']),
   );
@@ -841,6 +854,10 @@ class OpenFinanceConnection {
   final String? lastError;
   final String? linkedAccountId;
   final String? linkedCardId;
+
+  /// Conexão (item) e conta no provedor real; nulos no sandbox.
+  final String? providerItemId;
+  final String? providerAccountId;
   final DateTime createdAt;
 
   OpenFinanceConnection({
@@ -853,6 +870,8 @@ class OpenFinanceConnection {
     this.lastError,
     this.linkedAccountId,
     this.linkedCardId,
+    this.providerItemId,
+    this.providerAccountId,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -883,6 +902,8 @@ class OpenFinanceConnection {
     linkedCardId: identical(linkedCardId, _unset)
         ? this.linkedCardId
         : linkedCardId as String?,
+    providerItemId: providerItemId,
+    providerAccountId: providerAccountId,
     createdAt: createdAt,
   );
 
@@ -896,6 +917,8 @@ class OpenFinanceConnection {
     'lastError': lastError,
     'linkedAccountId': linkedAccountId,
     'linkedCardId': linkedCardId,
+    'providerItemId': providerItemId,
+    'providerAccountId': providerAccountId,
     'createdAt': createdAt.toIso8601String(),
   };
 
@@ -918,6 +941,8 @@ class OpenFinanceConnection {
         lastError: j['lastError'] as String?,
         linkedAccountId: j['linkedAccountId'] as String?,
         linkedCardId: j['linkedCardId'] as String?,
+        providerItemId: j['providerItemId'] as String?,
+        providerAccountId: j['providerAccountId'] as String?,
         createdAt: _ts(j['createdAt']),
       );
 }

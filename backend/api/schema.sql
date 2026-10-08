@@ -23,3 +23,58 @@ create table if not exists app_docs (
   updated_at timestamptz not null default now(),
   primary key (user_id, coll, id)
 );
+
+-- Open Finance (Pluggy): conexões (items) que cada usuário registrou. O
+-- servidor só devolve dados de items do próprio usuário.
+create table if not exists of_items (
+  item_id    text primary key,
+  user_id    uuid not null references users (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists of_items_user_idx on of_items (user_id);
+
+-- WhatsApp ------------------------------------------------------------------
+
+-- Número do WhatsApp (wa_id, só dígitos) ligado a uma conta do app.
+create table if not exists whatsapp_links (
+  wa_id      text primary key,
+  user_id    uuid not null unique references users (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+-- Código de vínculo gerado no app e enviado pelo WhatsApp ("VINCULAR 123456").
+create table if not exists whatsapp_link_codes (
+  user_id    uuid primary key references users (id) on delete cascade,
+  code       text not null unique,
+  expires_at timestamptz not null
+);
+
+-- Lançamentos lidos pela IA aguardando Confirmar / Corrigir / Cancelar.
+create table if not exists whatsapp_drafts (
+  id         text primary key,
+  user_id    uuid not null references users (id) on delete cascade,
+  wa_id      text not null,
+  draft      jsonb not null,
+  state      text not null default 'pending',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists whatsapp_drafts_user_state
+  on whatsapp_drafts (user_id, state, updated_at desc);
+
+-- Mensagens já processadas (a Meta pode reenviar o mesmo webhook).
+create table if not exists whatsapp_seen (
+  message_id text primary key,
+  seen_at    timestamptz not null default now()
+);
+
+-- Número do bot conectado pelo Cadastro incorporado da Meta (linha única).
+-- Vale mais que WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID do ambiente.
+create table if not exists whatsapp_config (
+  id              int primary key default 1 check (id = 1),
+  access_token    text not null,
+  phone_number_id text not null,
+  waba_id         text not null,
+  bot_number      text,
+  updated_at      timestamptz not null default now()
+);

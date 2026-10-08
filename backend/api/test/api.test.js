@@ -5,17 +5,46 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { Pool } = require('pg');
 const { createApp, migrate } = require('../app');
+const { PluggyError } = require('../pluggy');
 
 const url = process.env.TEST_DATABASE_URL;
 
 test('API', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
   const pool = new Pool({ connectionString: url });
-  await pool.query('drop table if exists app_docs, users cascade');
+  await pool.query('drop table if exists of_items, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, app_docs, users cascade');
   await migrate(pool);
+  const ITEM = '11111111-2222-3333-4444-555555555555';
+  const OTHER_ITEM = '99999999-2222-3333-4444-555555555555';
+  // Pluggy falsa: um item com conta corrente e cartão.
+  const WIDGET_ITEM = '77777777-2222-3333-4444-555555555555';
+  const pluggy = {
+    createConnectToken: async (clientUserId) => `tok-${clientUserId}`,
+    getItem: async (id) => {
+      if (id === WIDGET_ITEM) return { id, connector: { name: 'Nubank' }, clientUserId: 'outro-usuario' };
+      if (id !== ITEM && id !== OTHER_ITEM) throw new PluggyError(404, 'not found');
+      return { id, connector: { name: 'MeuPluggy' }, status: 'UPDATED' };
+    },
+    listAccounts: async (itemId) => [
+      { id: 'acc1', itemId, type: 'BANK', name: 'Conta', number: '0001-123456', balance: 10.5 },
+      { id: 'card1', itemId, type: 'CREDIT', name: 'Cartão', number: '5555', balance: 0 },
+    ],
+    getAccount: async (id) => {
+      if (id === 'acc1') return { id, itemId: ITEM };
+      if (id === 'acc2') return { id, itemId: OTHER_ITEM };
+      throw new PluggyError(404, 'not found');
+    },
+    listTransactions: async (accountId, from) => [
+      { id: 't1', date: '2026-10-01T00:00:00.000Z', description: 'MERCADO', type: 'DEBIT', amount: -12.34, from },
+      { id: 't2', date: '2026-10-02T00:00:00.000Z', description: 'PIX', type: 'CREDIT', amount: 100 },
+      { id: 't3', date: '2026-10-03T00:00:00.000Z', description: 'LOJA', type: 'DEBIT', amount: 50,
+        creditCardMetadata: { installmentNumber: 2, totalInstallments: 5 } },
+    ],
+  };
   const app = createApp({
     pool,
     jwtSecret: 'x'.repeat(40),
     allowedOrigins: ['https://ok.example'],
+    pluggy,
   });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -164,6 +193,59 @@ test('API', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
       token: adminToken,
       body: { name: 'X', email: 'x@x.com', isAdmin: true },
     })).status, 404);
+  });
+
+  await t.test('Open Finance: registra conexão e lê só as próprias contas', async () => {
+    assert.equal((await call('GET', '/openfinance/status', { token: adminToken })).body.configured, true);
+    const tok = await call('POST', '/openfinance/connect-token', { token: adminToken });
+    assert.match(tok.body.connectToken, /^tok-/);
+    assert.equal((await call('POST', '/openfinance/items', {
+      token: adminToken, body: { itemId: WIDGET_ITEM },
+    })).status, 409);
+    assert.equal((await call('POST', '/openfinance/items', {
+      token: adminToken, body: { itemId: 'abc' },
+    })).status, 400);
+    assert.equal((await call('POST', '/openfinance/items', {
+      token: adminToken, body: { itemId: '00000000-2222-3333-4444-555555555555' },
+    })).status, 404);
+    const r = await call('POST', '/openfinance/items', { token: adminToken, body: { itemId: ITEM } });
+    assert.equal(r.status, 201);
+    assert.equal(r.body.item.institution, 'MeuPluggy');
+    assert.deepEqual(r.body.accounts.map((a) => [a.id, a.kind, a.label]), [
+      ['acc1', 'bank', 'MeuPluggy · Conta ••3456'],
+      ['card1', 'credit_card', 'MeuPluggy · Cartão ••5555'],
+    ]);
+    // Registrar de novo é idempotente; outro usuário não pode pegar o item.
+    assert.equal((await call('POST', '/openfinance/items', { token: adminToken, body: { itemId: ITEM } })).status, 201);
+    assert.equal((await call('POST', '/openfinance/items', { token: bobToken, body: { itemId: ITEM } })).status, 409);
+
+    const tx = await call('GET', '/openfinance/accounts/acc1/transactions?from=2026-09-01', { token: adminToken });
+    assert.equal(tx.status, 200);
+    assert.deepEqual(tx.body.transactions.map((x) => [x.id, x.date, x.amountCents, x.description]), [
+      ['t1', '2026-10-01', -1234, 'MERCADO'],
+      ['t2', '2026-10-02', 10000, 'PIX'],
+      ['t3', '2026-10-03', -5000, 'LOJA (2/5)'],
+    ]);
+    assert.equal((await call('GET', '/openfinance/accounts/acc1/transactions', { token: bobToken })).status, 404);
+    assert.equal((await call('GET', '/openfinance/accounts/acc2/transactions', { token: adminToken })).status, 404);
+    assert.equal((await call('GET', '/openfinance/accounts/acc1/transactions?from=ontem', { token: adminToken })).status, 400);
+
+    assert.equal((await call('DELETE', `/openfinance/items/${ITEM}`, { token: adminToken })).status, 204);
+    assert.equal((await call('GET', '/openfinance/accounts/acc1/transactions', { token: adminToken })).status, 404);
+  });
+
+  await t.test('Open Finance sem credenciais: avisa que falta configurar', async () => {
+    const bare = createApp({ pool, jwtSecret: 'x'.repeat(40) }).listen(0);
+    try {
+      const res = await fetch(`http://127.0.0.1:${bare.address().port}/openfinance/items`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ itemId: ITEM }),
+      });
+      assert.equal(res.status, 503);
+    } finally {
+      bare.close();
+    }
   });
 
   await t.test('excluir usuário apaga os dados e invalida o token', async () => {

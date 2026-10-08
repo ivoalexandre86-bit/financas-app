@@ -922,6 +922,38 @@ class FinanceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Conecta pelo ID da conexão no provedor (ex.: Meu Pluggy): cada conta
+  /// encontrada vira uma conexão do app. Devolve quantas contas são novas.
+  Future<int> connectItem(String itemId) async {
+    final item = await openFinance.linkItem(itemId);
+    final known = connections
+        .map((c) => c.providerAccountId)
+        .whereType<String>()
+        .toSet();
+    final ops = <WriteOp>[
+      for (final a in item.accounts)
+        if (!known.contains(a.id))
+          () {
+            final c = OpenFinanceConnection(
+              id: newId('ofc_'),
+              providerId: openFinance.id,
+              institutionName: a.label,
+              consentStatus: ConsentStatus.active,
+              consentExpiresAt: item.consentExpiresAt,
+              providerItemId: item.id,
+              providerAccountId: a.id,
+            );
+            return WriteOp.put(Coll.openFinanceConnections, c.id, c.toJson());
+          }(),
+    ];
+    if (ops.isNotEmpty) {
+      await repo.write(ops);
+      connections = await repo.loadConnections();
+      notifyListeners();
+    }
+    return ops.length;
+  }
+
   Future<void> linkConnection(
     OpenFinanceConnection c, {
     String? accountId,
@@ -945,7 +977,12 @@ class FinanceController extends ChangeNotifier {
       throw StateError('Consentimento não está ativo');
     }
     try {
-      final fetched = await openFinance.fetchTransactions(c);
+      // Revisita alguns dias antes da última sincronização (lançamentos
+      // que o banco confirma com atraso); repetidos são ignorados abaixo.
+      final fetched = await openFinance.fetchTransactions(
+        c,
+        since: c.lastSyncAt?.subtract(const Duration(days: 10)),
+      );
       final known = externalTransactions
           .where((e) => e.connectionId == c.id)
           .map((e) => e.externalId)
@@ -1068,17 +1105,33 @@ class FinanceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Contas da mesma conexão (item) no provedor compartilham o
+  /// consentimento: revogar uma revoga todas.
+  Iterable<OpenFinanceConnection> _sameItem(OpenFinanceConnection c) =>
+      c.providerItemId == null
+      ? [c]
+      : connections.where((x) => x.providerItemId == c.providerItemId);
+
   Future<void> revokeConnection(OpenFinanceConnection c) async {
     await openFinance.revokeConsent(c);
-    final u = c.copyWith(consentStatus: ConsentStatus.revoked);
     await repo.write([
-      WriteOp.put(Coll.openFinanceConnections, u.id, u.toJson()),
+      for (final x in _sameItem(c))
+        () {
+          final u = x.copyWith(consentStatus: ConsentStatus.revoked);
+          return WriteOp.put(Coll.openFinanceConnections, u.id, u.toJson());
+        }(),
     ]);
     connections = await repo.loadConnections();
     notifyListeners();
   }
 
   Future<void> deleteConnection(OpenFinanceConnection c) async {
+    // Última conta de um item: o servidor também esquece a conexão.
+    if (c.providerItemId != null &&
+        c.consentStatus == ConsentStatus.active &&
+        _sameItem(c).length == 1) {
+      await openFinance.revokeConsent(c);
+    }
     await repo.write([
       WriteOp.delete(Coll.openFinanceConnections, c.id),
       for (final e in externalTransactions.where((e) => e.connectionId == c.id))

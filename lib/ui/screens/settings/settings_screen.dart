@@ -9,6 +9,7 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../users/users_screen.dart';
 import 'cloud_import.dart';
+import 'whatsapp_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -101,6 +102,18 @@ class SettingsScreen extends StatelessWidget {
                 'Leva para a nuvem os dados de uma conta antiga criada neste navegador.',
               ),
               onTap: () => showImportFromDevice(context),
+            ),
+            ListTile(
+              key: const ValueKey('whatsapp'),
+              leading: const Icon(Icons.chat_outlined),
+              title: const Text('WhatsApp'),
+              subtitle: const Text(
+                'Lance despesas e receitas por mensagem, foto ou áudio.',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const WhatsAppScreen())),
             ),
           ],
           _h(context, 'Privacidade e dados (LGPD)'),
@@ -195,6 +208,7 @@ Seus dados financeiros são armazenados de forma isolada por usuário e usados e
 • Senhas são protegidas com hash e salt (bcrypt no servidor; PBKDF2-HMAC-SHA256 nas contas locais); nunca são armazenadas em texto.
 • Com a conta na nuvem, os dados trafegam criptografados (HTTPS) e ficam em um banco de dados acessível apenas pela sua conta.
 • O app nunca solicita ou armazena senhas bancárias. Conexões Open Finance usam o consentimento oficial da instituição e podem ser revogadas a qualquer momento.
+• Lançamentos pelo WhatsApp (opcional): as mensagens, fotos e áudios enviados ao bot são lidos por serviços de IA (Anthropic e, para áudio, OpenAI) apenas para montar o lançamento; o app guarda só o lançamento confirmado.
 • Você pode excluir sua conta e todos os dados a qualquer momento em Configurações.
 • Base legal (LGPD, art. 7º): execução de contrato e consentimento para integrações Open Finance.
 
