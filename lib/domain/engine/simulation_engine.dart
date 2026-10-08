@@ -182,6 +182,25 @@ class SimulationEngine {
     return out;
   }
 
+  /// Quanto cabe a cada pessoa (id; `null` = não dividido) nas linhas do
+  /// tipo pedido ([income]) nos meses informados.
+  static Map<String?, int> byPerson(
+    Iterable<SimItem> items,
+    Iterable<YearMonth> months,
+    bool income,
+  ) {
+    final out = <String?, int>{};
+    for (final i in items) {
+      if (i.isIncome != income) continue;
+      for (final m in months) {
+        final v = i.valueAt(m);
+        if (v == 0) continue;
+        i.splitCents(v).forEach((k, c) => out[k] = (out[k] ?? 0) + c);
+      }
+    }
+    return out;
+  }
+
   /// Total por categoria (raiz) no período: [income] = receitas.
   static Map<String?, int> byCategory(
     List<SimItem> items,

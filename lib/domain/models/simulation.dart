@@ -70,6 +70,10 @@ class SimItem {
   /// Valor por mês (`"2027-01"` → centavos).
   final Map<String, int> values;
 
+  /// Divisão entre as pessoas da simulação (id da pessoa → percentual).
+  /// Vazio = valor não dividido.
+  final Map<String, double> shares;
+
   const SimItem({
     required this.id,
     required this.type,
@@ -85,7 +89,41 @@ class SimItem {
     this.sourceKey,
     this.refs = const {},
     this.values = const {},
+    this.shares = const {},
   });
+
+  bool get isSplit => shares.values.any((p) => p > 0);
+
+  /// Soma dos percentuais informados.
+  double get sharesTotal => shares.values.fold(0.0, (a, p) => a + p);
+
+  /// Valor de cada pessoa em [cents], sem perder centavos (o resto vai para
+  /// quem tem a maior fração). A parte não atribuída (percentuais que não
+  /// somam 100%) fica em `null`.
+  Map<String?, int> splitCents(int cents) {
+    final out = <String?, int>{};
+    if (!isSplit) return {null: cents};
+    var used = 0;
+    final fracs = <String, double>{};
+    for (final e in shares.entries) {
+      if (e.value <= 0) continue;
+      final exact = cents * e.value / 100;
+      final v = exact.floor();
+      out[e.key] = v;
+      fracs[e.key] = exact - v;
+      used += v;
+    }
+    final target = (cents * sharesTotal.clamp(0, 100) / 100).round();
+    final order = fracs.keys.toList()
+      ..sort((a, b) => fracs[b]!.compareTo(fracs[a]!));
+    for (var k = 0; used < target && order.isNotEmpty; k++) {
+      final id = order[k % order.length];
+      out[id] = out[id]! + 1;
+      used++;
+    }
+    if (cents - used != 0) out[null] = cents - used;
+    return out;
+  }
 
   bool get isIncome => type == TransactionType.income;
 
@@ -149,6 +187,7 @@ class SimItem {
     Object? sourceKey = _keep,
     Map<String, List<String>>? refs,
     Map<String, int>? values,
+    Map<String, double>? shares,
   }) => SimItem(
     id: id ?? this.id,
     type: type ?? this.type,
@@ -164,6 +203,7 @@ class SimItem {
     sourceKey: sourceKey == _keep ? this.sourceKey : sourceKey as String?,
     refs: refs ?? this.refs,
     values: values ?? this.values,
+    shares: shares ?? this.shares,
   );
 
   Map<String, Object?> toJson() => {
@@ -181,6 +221,7 @@ class SimItem {
     'sourceKey': sourceKey,
     'refs': refs,
     'values': values,
+    if (shares.isNotEmpty) 'shares': shares,
   };
 
   factory SimItem.fromJson(Map<String, Object?> j) => SimItem(
@@ -205,10 +246,37 @@ class SimItem {
       for (final e in ((j['values'] as Map?) ?? const {}).entries)
         e.key as String: (e.value as num).toInt(),
     },
+    shares: {
+      for (final e in ((j['shares'] as Map?) ?? const {}).entries)
+        e.key as String: (e.value as num).toDouble(),
+    },
   );
 }
 
 const _keep = Object();
+
+/// Pessoa que participa do pagamento das despesas de uma simulação.
+class SimPerson {
+  final String id;
+  final String name;
+  final int color;
+  const SimPerson({
+    required this.id,
+    required this.name,
+    this.color = 0xFF1565C0,
+  });
+
+  SimPerson copyWith({String? name, int? color}) =>
+      SimPerson(id: id, name: name ?? this.name, color: color ?? this.color);
+
+  Map<String, Object?> toJson() => {'id': id, 'name': name, 'color': color};
+
+  factory SimPerson.fromJson(Map<String, Object?> j) => SimPerson(
+    id: j['id'] as String,
+    name: j['name'] as String? ?? '',
+    color: (j['color'] as num?)?.toInt() ?? 0xFF1565C0,
+  );
+}
 
 /// Um cenário de orçamento: cópia independente (sandbox) de um orçamento
 /// base em um período. Nada aqui altera os lançamentos oficiais.
@@ -237,6 +305,9 @@ class Simulation {
 
   /// Estado atual da simulação.
   final List<SimItem> items;
+
+  /// Pessoas entre as quais as despesas podem ser divididas.
+  final List<SimPerson> people;
   final DateTime? appliedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -254,6 +325,7 @@ class Simulation {
     this.opening = 0,
     this.baseItems = const [],
     this.items = const [],
+    this.people = const [],
     this.appliedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -285,6 +357,7 @@ class Simulation {
     int? opening,
     List<SimItem>? baseItems,
     List<SimItem>? items,
+    List<SimPerson>? people,
     Object? appliedAt = _keep,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -303,6 +376,7 @@ class Simulation {
     opening: opening ?? this.opening,
     baseItems: baseItems ?? this.baseItems,
     items: items ?? this.items,
+    people: people ?? this.people,
     appliedAt: appliedAt == _keep ? this.appliedAt : appliedAt as DateTime?,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -339,6 +413,7 @@ class Simulation {
     'opening': opening,
     'baseItems': [for (final i in baseItems) i.toJson()],
     'items': [for (final i in items) i.toJson()],
+    'people': [for (final p in people) p.toJson()],
     'appliedAt': appliedAt?.toIso8601String(),
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
@@ -365,6 +440,10 @@ class Simulation {
       opening: (j['opening'] as num?)?.toInt() ?? 0,
       baseItems: list(j['baseItems']),
       items: list(j['items']),
+      people: [
+        for (final x in (j['people'] as List?) ?? const [])
+          SimPerson.fromJson((x as Map).cast<String, Object?>()),
+      ],
       appliedAt: date(j['appliedAt']),
       createdAt: date(j['createdAt']),
       updatedAt: date(j['updatedAt']),

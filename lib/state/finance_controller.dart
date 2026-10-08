@@ -977,6 +977,7 @@ class FinanceController extends ChangeNotifier {
       opening: opening,
       baseItems: items,
       items: items,
+      people: base?.people ?? const [],
     );
     await saveSimulation(s, touch: false);
     return s;

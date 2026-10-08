@@ -427,8 +427,7 @@ class FinTransaction {
 
   /// Despesa em conta: sempre tem vencimento (o informado ou a própria data).
   /// No cartão vale o vencimento da fatura.
-  bool get hasOwnDueDate =>
-      type == TransactionType.expense && cardId == null;
+  bool get hasOwnDueDate => type == TransactionType.expense && cardId == null;
 
   /// Vencimento exibido: sempre presente nas despesas em conta; nas
   /// receitas, só quando informado.
