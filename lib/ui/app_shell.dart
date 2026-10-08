@@ -5,6 +5,7 @@ import '../app.dart';
 import '../state/auth_controller.dart';
 import '../state/finance_controller.dart';
 import 'nav.dart';
+import 'screens/simulations/simulations_screen.dart';
 import 'screens/cards/invoices_screen.dart';
 import 'screens/categories/categories_screen.dart';
 import 'screens/dashboards/dashboards_screen.dart';
@@ -343,6 +344,12 @@ class SideMenu extends StatelessWidget {
                         icon: Icons.insights_outlined,
                         label: 'Painéis',
                         onTap: () => push(context, const DashboardsScreen()),
+                      ),
+                      entry(
+                        key: const ValueKey('side-menu-simulations'),
+                        icon: Icons.science_outlined,
+                        label: 'Simulações',
+                        onTap: () => push(context, const SimulationsScreen()),
                       ),
                       if (user?.isAdmin ?? false)
                         entry(

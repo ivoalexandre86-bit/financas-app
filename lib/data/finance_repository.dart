@@ -3,6 +3,7 @@ import 'package:sembast/sembast.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
+import '../domain/models/simulation.dart';
 import 'db_factory.dart';
 
 /// Coleções persistidas. Os nomes espelham as tabelas do PostgreSQL
@@ -19,6 +20,7 @@ enum Coll {
   openFinanceConnections,
   externalTransactions,
   dashboards,
+  simulations,
 }
 
 /// Nome da "coleção" das configurações do app na nuvem (registro `app`).
@@ -43,6 +45,7 @@ abstract class FinanceRepository {
   Future<List<OpenFinanceConnection>> loadConnections();
   Future<List<ExternalTransaction>> loadExternalTransactions();
   Future<List<Dashboard>> loadDashboards();
+  Future<List<Simulation>> loadSimulations();
   Future<void> write(List<WriteOp> ops);
   Future<void> saveSettings(AppSettings settings);
   Future<void> close();
@@ -109,6 +112,10 @@ class LocalFinanceRepository implements FinanceRepository {
   @override
   Future<List<Dashboard>> loadDashboards() =>
       _all(Coll.dashboards, Dashboard.fromJson);
+
+  @override
+  Future<List<Simulation>> loadSimulations() =>
+      _all(Coll.simulations, Simulation.fromJson);
 
   /// Grava todas as operações atomicamente (tudo ou nada).
   @override

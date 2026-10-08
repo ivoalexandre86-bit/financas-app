@@ -13,9 +13,11 @@ import '../domain/engine/billing_cycle.dart';
 import '../domain/engine/dashboard_engine.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/engine/installments.dart';
+import '../domain/engine/simulation_engine.dart';
 import '../domain/import/expense_import.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
+import '../domain/models/simulation.dart';
 
 /// Escopo de alteração de uma regra recorrente.
 enum RuleEditScope {
@@ -51,6 +53,9 @@ class FinanceController extends ChangeNotifier {
 
   /// Painéis personalizados, ordenados.
   List<Dashboard> dashboards = [];
+
+  /// Simulações de orçamento (cenários), mais recentes primeiro.
+  List<Simulation> simulations = [];
 
   /// Motor dos gráficos, sempre derivado do [engine] atual — qualquer
   /// mudança nas transações recalcula todos os painéis.
@@ -92,6 +97,8 @@ class FinanceController extends ChangeNotifier {
         dashboards = [d];
       }
       _sortDashboards();
+      simulations = await repo.loadSimulations();
+      _sortSimulations();
     } catch (e) {
       error = 'Falha ao carregar dados: $e';
     }
@@ -139,6 +146,8 @@ class FinanceController extends ChangeNotifier {
     _set(await repo.load());
     dashboards = await repo.loadDashboards();
     _sortDashboards();
+    simulations = await repo.loadSimulations();
+    _sortSimulations();
     connections = await repo.loadConnections();
     externalTransactions = await repo.loadExternalTransactions();
     notifyListeners();
@@ -874,6 +883,125 @@ class FinanceController extends ChangeNotifier {
         ? [rest.first.copyWith(isDefault: true)]
         : <Dashboard>[];
     await _writeDashboards(promote, deleted: d.id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Simulações de orçamento (sandbox: nunca alteram os lançamentos oficiais)
+
+  void _sortSimulations() =>
+      simulations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+  Simulation? simulationById(String id) =>
+      simulations.where((s) => s.id == id).firstOrNull;
+
+  Future<void> saveSimulation(Simulation s, {bool touch = true}) async {
+    if (s.name.trim().isEmpty) throw ArgumentError('Informe um nome');
+    if (s.to < s.from) throw ArgumentError('Período inválido');
+    final saved = touch ? s.copyWith(updatedAt: DateTime.now()) : s;
+    simulations = [
+      for (final x in simulations)
+        if (x.id != saved.id) x,
+      saved,
+    ];
+    _sortSimulations();
+    notifyListeners();
+    await repo.write([WriteOp.put(Coll.simulations, saved.id, saved.toJson())]);
+  }
+
+  /// Cria uma simulação a partir do orçamento oficial do período, ou de
+  /// outra simulação ([base]).
+  Future<Simulation> createSimulation({
+    required String name,
+    String description = '',
+    required YearMonth from,
+    required YearMonth to,
+    int color = 0xFF1565C0,
+    Simulation? base,
+  }) async {
+    if (to < from) throw ArgumentError('Período inválido');
+    final List<SimItem> items;
+    final int opening;
+    if (base == null) {
+      final snap = SimulationEngine.snapshot(engine, from, to);
+      items = snap.items;
+      opening = snap.opening;
+    } else {
+      items = base.items;
+      opening = from == base.from
+          ? base.opening
+          : SimTotals.of(
+              base.items,
+              YearMonth.range(base.from, from.previous).toList(),
+              base.opening,
+            ).finalBalance;
+    }
+    final s = Simulation(
+      id: newId('sim_'),
+      name: name.trim(),
+      description: description.trim(),
+      color: color,
+      baseName: base?.name ?? 'Orçamento atual',
+      baseSimulationId: base?.id,
+      from: from,
+      to: to,
+      opening: opening,
+      baseItems: items,
+      items: items,
+    );
+    await saveSimulation(s, touch: false);
+    return s;
+  }
+
+  Future<Simulation> duplicateSimulation(Simulation s, String name) async {
+    final copy = s.duplicate(name.trim());
+    await saveSimulation(copy, touch: false);
+    return copy;
+  }
+
+  Future<void> deleteSimulation(Simulation s) async {
+    simulations = simulations.where((x) => x.id != s.id).toList();
+    notifyListeners();
+    await repo.write([WriteOp.delete(Coll.simulations, s.id)]);
+  }
+
+  /// Plano de alterações para aplicar a simulação ao orçamento oficial.
+  SimApplyPlan simulationPlan(Simulation s) => SimApplyPlan.build(
+    engine,
+    s,
+    fallbackAccountId: activeAccounts.firstOrNull?.id,
+  );
+
+  /// Aplica a simulação ao orçamento oficial (único ponto em que uma
+  /// simulação altera lançamentos). Exige confirmação na interface.
+  Future<SimApplyPlan> applySimulation(Simulation s) async {
+    final plan = simulationPlan(s);
+    if (plan.isEmpty) throw StateError('Nada a aplicar');
+    for (final t in plan.puts) {
+      final err = validateTransaction(t);
+      if (err != null) throw ArgumentError('${t.description}: $err');
+    }
+    final deleted = plan.deletes.toSet();
+    await _commit([
+      ...plan.puts.map(_putTx),
+      for (final id in deleted) WriteOp.delete(Coll.transactions, id),
+      for (final r in plan.rules)
+        WriteOp.put(Coll.recurringTransactions, r.id, r.toJson()),
+      for (final e in externalTransactions)
+        if (deleted.contains(e.matchedTransactionId))
+          WriteOp.put(
+            Coll.externalTransactions,
+            e.id,
+            e
+                .copyWith(
+                  status: ExternalTxStatus.pending,
+                  matchedTransactionId: null,
+                )
+                .toJson(),
+          ),
+    ]);
+    externalTransactions = await repo.loadExternalTransactions();
+    await saveSimulation(s.copyWith(appliedAt: DateTime.now()));
+    return plan;
   }
 
   // ---------------------------------------------------------------------------
