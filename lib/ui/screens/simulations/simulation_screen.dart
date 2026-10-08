@@ -10,6 +10,7 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import 'scenario_compare_screen.dart';
 import 'sim_grid.dart';
+import 'sim_people.dart';
 import 'sim_views.dart';
 import 'simulations_screen.dart';
 
@@ -31,6 +32,7 @@ enum _Menu { edit, reset, compare, apply }
 class _SimulationScreenState extends State<SimulationScreen> {
   Simulation? saved;
   List<SimItem> items = const [];
+  List<SimPerson> people = const [];
   final undo = <List<SimItem>>[];
   final redo = <List<SimItem>>[];
   bool dirty = false;
@@ -42,9 +44,15 @@ class _SimulationScreenState extends State<SimulationScreen> {
       widget.simulationId,
     );
     items = saved?.items ?? const [];
+    people = saved?.people ?? const [];
   }
 
-  Simulation get working => saved!.copyWith(items: items);
+  Simulation get working => saved!.copyWith(items: items, people: people);
+
+  void _changePeople(List<SimPerson> next) => setState(() {
+    people = next;
+    dirty = true;
+  });
 
   void _change(List<SimItem> next) => setState(() {
     undo.add(items);
@@ -90,6 +98,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
   void _discard() => setState(() {
     items = saved!.items;
+    people = saved!.people;
     undo.clear();
     redo.clear();
     dirty = false;
@@ -226,7 +235,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
         child: Focus(
           autofocus: true,
           child: DefaultTabController(
-            length: 3,
+            length: 4,
             child: Scaffold(
               appBar: AppBar(
                 titleSpacing: 0,
@@ -320,6 +329,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     Tab(icon: Icon(Icons.grid_on), text: 'Planilha'),
                     Tab(icon: Icon(Icons.compare), text: 'Comparação'),
                     Tab(icon: Icon(Icons.insights), text: 'Painel'),
+                    Tab(icon: Icon(Icons.groups_outlined), text: 'Por pessoa'),
                   ],
                 ),
               ),
@@ -361,6 +371,12 @@ class _SimulationScreenState extends State<SimulationScreen> {
                         SimGrid(fc: fc, sim: sim, onChanged: _change),
                         SimCompareView(sim: sim),
                         SimDashboardView(fc: fc, sim: sim),
+                        SimPeopleView(
+                          fc: fc,
+                          sim: sim,
+                          onItemsChanged: _change,
+                          onPeopleChanged: _changePeople,
+                        ),
                       ],
                     ),
                   ),

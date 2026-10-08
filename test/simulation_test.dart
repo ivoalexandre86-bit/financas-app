@@ -156,6 +156,40 @@ void main() {
     expect(fromSim.months, [_mar]);
   });
 
+  test('divisão por pessoa em percentual, sem perder centavos', () {
+    final i = SimItem(
+      id: 'x',
+      type: TransactionType.expense,
+      description: 'Prestação',
+      values: {_jan.key: 318000, _mar.key: 54715},
+      shares: const {'pai': 40, 'elis': 30, 'ivo': 30},
+    );
+    expect(i.splitCents(318000), {'pai': 127200, 'elis': 95400, 'ivo': 95400});
+    final s = i.splitCents(54715);
+    expect(s.values.fold(0, (a, v) => a + v), 54715);
+    expect(s[null], isNull);
+
+    // Percentuais que não fecham 100%: o resto fica sem divisão.
+    final half = i.copyWith(shares: const {'pai': 50});
+    expect(half.splitCents(1001), {'pai': 501, null: 500});
+
+    final by = SimulationEngine.byPerson([i], [_jan, _mar], false);
+    expect(by['pai']! + by['elis']! + by['ivo']!, 318000 + 54715);
+
+    // Persistência.
+    final back = SimItem.fromJson(i.toJson());
+    expect(back.shares, i.shares);
+    final sim = Simulation(
+      id: 's',
+      name: 'S',
+      baseName: 'B',
+      from: _jan,
+      to: _dec,
+      people: const [SimPerson(id: 'pai', name: 'Pai')],
+    );
+    expect(Simulation.fromJson(sim.toJson()).people.single.name, 'Pai');
+  });
+
   testWidgets('gestão e planilha: criar, editar célula, salvar', (
     tester,
   ) async {
@@ -228,5 +262,26 @@ void main() {
     await tester.tap(find.text('Painel'));
     await tester.pumpAndSettle();
     expect(find.text('Maiores impactos'), findsOneWidget);
+
+    // Divisão por pessoa: cadastra pessoas e divide o aluguel igualmente.
+    await tester.tap(find.text('Por pessoa'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cadastrar pessoas'));
+    await tester.pumpAndSettle();
+    for (final n in ['Pai', 'Ivo']) {
+      await tester.tap(find.byKey(const ValueKey('sim-person-add')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, n);
+    }
+    await tester.tap(find.byKey(const ValueKey('sim-people-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('Pai'), findsWidgets);
+    await tester.tap(find.text('Aluguel').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sim-share-equal')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sim-share-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('50%'), findsWidgets);
   });
 }

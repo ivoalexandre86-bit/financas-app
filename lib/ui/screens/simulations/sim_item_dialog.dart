@@ -10,6 +10,7 @@ import '../../../state/finance_controller.dart';
 import '../../theme.dart';
 import '../../widgets/form_fields.dart';
 import 'sim_common.dart';
+import 'sim_people.dart';
 
 enum _Mode { keep, set, percent }
 
@@ -55,6 +56,7 @@ class _SimItemDialogState extends State<SimItemDialog> {
   late _Mode mode = item == null ? _Mode.set : _Mode.keep;
   late YearMonth start = _firstFilled ?? widget.sim.from;
   late YearMonth end = widget.sim.to;
+  late Map<String, double>? shares = Map.of(item?.shares ?? const {});
   String? error;
 
   int get _initialAmount {
@@ -88,6 +90,11 @@ class _SimItemDialogState extends State<SimItemDialog> {
       setState(() => error = 'O mês final deve ser depois do inicial');
       return;
     }
+    final shareErr = validateShares(shares);
+    if (shareErr != null) {
+      setState(() => error = shareErr);
+      return;
+    }
     var out = (item ?? SimItem(id: newId('si_'), type: type, description: d))
         .copyWith(
           type: type,
@@ -98,6 +105,10 @@ class _SimItemDialogState extends State<SimItemDialog> {
           day: day,
           classification: classification,
           notes: notes.text.trim(),
+          shares: {
+            for (final e in shares!.entries)
+              if (widget.sim.people.any((p) => p.id == e.key)) e.key: e.value,
+          },
         );
     switch (mode) {
       case _Mode.keep:
@@ -318,6 +329,24 @@ class _SimItemDialogState extends State<SimItemDialog> {
                   ),
                 ),
               ],
+              const SizedBox(height: 16),
+              Text('Divisão entre pessoas', style: context.text.titleSmall),
+              const SizedBox(height: 6),
+              if (widget.sim.people.isEmpty)
+                Text(
+                  'Cadastre as pessoas na aba "Por pessoa" para dividir esta '
+                  'linha por percentual.',
+                  style: context.text.bodySmall?.copyWith(
+                    color: context.fin.subtle,
+                  ),
+                )
+              else
+                SharesEditor(
+                  people: widget.sim.people,
+                  initial: shares ?? const {},
+                  sample: _initialAmount,
+                  onChanged: (v) => shares = v,
+                ),
               const SizedBox(height: 10),
               TextField(
                 controller: notes,

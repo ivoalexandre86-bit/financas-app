@@ -630,6 +630,7 @@ class _SimGridState extends State<SimGrid> {
                         categoryLabel(widget.fc, i.categoryId),
                         if (i.recurrence != SimRecurrence.once)
                           i.recurrence.label,
+                        if (i.isSplit) '÷ ${i.shares.length} pessoas',
                         if (added) 'nova',
                       ].join(' · '),
                       maxLines: 1,
