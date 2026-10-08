@@ -2,6 +2,7 @@ import '../../core/dates.dart';
 import '../../core/money.dart';
 import 'enums.dart';
 
+export 'banks.dart';
 export 'enums.dart';
 
 // Helpers de serialização ---------------------------------------------------
@@ -20,6 +21,10 @@ class Account {
   final String id;
   final String name;
   final String institution;
+
+  /// Código COMPE da instituição (ex.: "341"); vazio quando não é um banco
+  /// da lista padrão.
+  final String institutionCode;
   final AccountType type;
   final Money initialBalance;
   final bool active;
@@ -31,6 +36,7 @@ class Account {
     required this.id,
     required this.name,
     this.institution = '',
+    this.institutionCode = '',
     this.type = AccountType.checking,
     this.initialBalance = Money.zero,
     this.active = true,
@@ -43,6 +49,7 @@ class Account {
   Account copyWith({
     String? name,
     String? institution,
+    String? institutionCode,
     AccountType? type,
     Money? initialBalance,
     bool? active,
@@ -51,6 +58,7 @@ class Account {
     id: id,
     name: name ?? this.name,
     institution: institution ?? this.institution,
+    institutionCode: institutionCode ?? this.institutionCode,
     type: type ?? this.type,
     initialBalance: initialBalance ?? this.initialBalance,
     active: active ?? this.active,
@@ -63,6 +71,7 @@ class Account {
     'id': id,
     'name': name,
     'institution': institution,
+    'institutionCode': institutionCode,
     'type': type.name,
     'initialBalance': initialBalance.cents,
     'active': active,
@@ -75,6 +84,7 @@ class Account {
     id: j['id'] as String,
     name: j['name'] as String,
     institution: (j['institution'] as String?) ?? '',
+    institutionCode: (j['institutionCode'] as String?) ?? '',
     type: enumByName(
       AccountType.values,
       j['type'] as String?,
@@ -94,6 +104,9 @@ class CreditCard {
   final String id;
   final String name;
   final String bank;
+
+  /// Código COMPE do banco emissor (ex.: "260"); vazio quando livre.
+  final String bankCode;
   final String brand;
   final String lastFour;
   final Money limit;
@@ -113,6 +126,7 @@ class CreditCard {
     required this.id,
     required this.name,
     this.bank = '',
+    this.bankCode = '',
     this.brand = '',
     this.lastFour = '',
     this.limit = Money.zero,
@@ -129,6 +143,7 @@ class CreditCard {
   CreditCard copyWith({
     String? name,
     String? bank,
+    String? bankCode,
     String? brand,
     String? lastFour,
     Money? limit,
@@ -141,6 +156,7 @@ class CreditCard {
     id: id,
     name: name ?? this.name,
     bank: bank ?? this.bank,
+    bankCode: bankCode ?? this.bankCode,
     brand: brand ?? this.brand,
     lastFour: lastFour ?? this.lastFour,
     limit: limit ?? this.limit,
@@ -159,6 +175,7 @@ class CreditCard {
     'id': id,
     'name': name,
     'bank': bank,
+    'bankCode': bankCode,
     'brand': brand,
     'lastFour': lastFour,
     'limit': limit.cents,
@@ -175,6 +192,7 @@ class CreditCard {
     id: j['id'] as String,
     name: j['name'] as String,
     bank: (j['bank'] as String?) ?? '',
+    bankCode: (j['bankCode'] as String?) ?? '',
     brand: (j['brand'] as String?) ?? '',
     lastFour: (j['lastFour'] as String?) ?? '',
     limit: Money((j['limit'] as int?) ?? 0),

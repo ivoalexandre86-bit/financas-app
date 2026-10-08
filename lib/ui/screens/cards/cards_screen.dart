@@ -108,7 +108,8 @@ class CreditCardVisual extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                '${card.bank.isEmpty ? '' : '${card.bank} · '}•••• ${card.lastFour}'
+                '${card.bank.isEmpty ? '' : '${institutionLabel(card.bankCode, card.bank)} · '}'
+                '•••• ${card.lastFour}'
                 '${card.active ? '' : ' · Inativo'}',
                 style: context.text.bodySmall?.copyWith(color: muted),
               ),
@@ -169,7 +170,10 @@ class CardFormScreen extends StatefulWidget {
 class _CardFormScreenState extends State<CardFormScreen> {
   final _form = GlobalKey<FormState>();
   late final name = TextEditingController(text: widget.card?.name ?? '');
-  late final bank = TextEditingController(text: widget.card?.bank ?? '');
+  late Institution bank = (
+    code: widget.card?.bankCode ?? '',
+    name: widget.card?.bank ?? '',
+  );
   late final last4 = TextEditingController(text: widget.card?.lastFour ?? '');
   late final limit = TextEditingController(
     text: widget.card?.limit.formatPlain() ?? '',
@@ -257,9 +261,10 @@ class _CardFormScreenState extends State<CardFormScreen> {
                   (v == null || v.trim().isEmpty) ? 'Informe o nome' : null,
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: bank,
-              decoration: const InputDecoration(labelText: 'Banco emissor'),
+            BankField(
+              label: 'Banco emissor',
+              value: bank,
+              onChanged: (v) => setState(() => bank = v),
             ),
             const SizedBox(height: 12),
             Row(
@@ -411,7 +416,8 @@ class _CardFormScreenState extends State<CardFormScreen> {
                             ))
                         .copyWith(
                           name: name.text.trim(),
-                          bank: bank.text.trim(),
+                          bank: bank.name,
+                          bankCode: bank.code,
                           brand: brand,
                           lastFour: last4.text,
                           limit: Money.tryEval(limit.text)!,

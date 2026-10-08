@@ -635,3 +635,125 @@ class IntField extends StatelessWidget {
     },
   );
 }
+
+/// Instituição escolhida: código COMPE (vazio se fora da lista) + nome.
+typedef Institution = ({String code, String name});
+
+/// Campo de instituição financeira: abre a lista de bancos brasileiros
+/// (busca por código ou nome) e aceita um nome livre como alternativa.
+class BankField extends StatelessWidget {
+  final String label;
+  final Institution value;
+  final ValueChanged<Institution> onChanged;
+  const BankField({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = institutionLabel(value.code, value.name);
+    return InkWell(
+      onTap: () async {
+        final r = await pickBank(context, value);
+        if (r != null) onChanged(r);
+      },
+      child: InputDecorator(
+        isEmpty: text.isEmpty,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: 'Selecionar banco',
+          suffixIcon: const Icon(Icons.arrow_drop_down),
+        ),
+        child: Text(text),
+      ),
+    );
+  }
+}
+
+Future<Institution?> pickBank(BuildContext context, Institution current) =>
+    showModalBottomSheet<Institution>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _BankPicker(current: current),
+    );
+
+class _BankPicker extends StatefulWidget {
+  final Institution current;
+  const _BankPicker({required this.current});
+  @override
+  State<_BankPicker> createState() => _BankPickerState();
+}
+
+class _BankPickerState extends State<_BankPicker> {
+  String q = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final results = searchBanks(q);
+    final typed = q.trim();
+    final exact = typed.isNotEmpty && matchBank(typed) != null;
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.8,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: TextField(
+                autofocus: true,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Buscar por código ou nome (ex.: 341, Nubank)',
+                ),
+                onChanged: (v) => setState(() => q = v),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                children: [
+                  if (typed.isEmpty)
+                    ListTile(
+                      leading: const Icon(Icons.block),
+                      title: const Text('Nenhuma'),
+                      onTap: () => Navigator.pop(context, (code: '', name: '')),
+                    ),
+                  if (typed.isNotEmpty && !exact)
+                    ListTile(
+                      leading: const Icon(Icons.edit_outlined),
+                      title: Text('Usar "$typed"'),
+                      subtitle: const Text('Instituição fora da lista'),
+                      onTap: () =>
+                          Navigator.pop(context, (code: '', name: typed)),
+                    ),
+                  for (final b in results)
+                    ListTile(
+                      leading: CircleAvatar(
+                        child: Text(
+                          b.code,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      title: Text(b.name),
+                      selected: b.code == widget.current.code,
+                      trailing: b.code == widget.current.code
+                          ? const Icon(Icons.check)
+                          : null,
+                      onTap: () =>
+                          Navigator.pop(context, (code: b.code, name: b.name)),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

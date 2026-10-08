@@ -82,6 +82,11 @@ class FinanceController extends ChangeNotifier {
         }
         d = await repo.load();
       }
+      final fixes = institutionFixes(d);
+      if (fixes.isNotEmpty) {
+        await repo.write(fixes);
+        d = await repo.load();
+      }
       _set(d);
       connections = await repo.loadConnections();
       externalTransactions = await repo.loadExternalTransactions();
@@ -699,6 +704,28 @@ class FinanceController extends ChangeNotifier {
 
   // ---------------------------------------------------------------------------
   // Cadastros
+
+  /// Padroniza instituições digitadas livremente ("Itaú", "Nu Pagamentos")
+  /// com o banco da lista (código COMPE + nome oficial). Só toca registros
+  /// ainda sem código e que correspondem com segurança a um banco.
+  static List<WriteOp> institutionFixes(FinanceData d) => [
+    for (final a in d.accounts)
+      if (a.institutionCode.isEmpty)
+        if (matchBank(a.institution) case final b?)
+          WriteOp.put(
+            Coll.accounts,
+            a.id,
+            a.copyWith(institution: b.name, institutionCode: b.code).toJson(),
+          ),
+    for (final c in d.cards)
+      if (c.bankCode.isEmpty)
+        if (matchBank(c.bank) case final b?)
+          WriteOp.put(
+            Coll.cards,
+            c.id,
+            c.copyWith(bank: b.name, bankCode: b.code).toJson(),
+          ),
+  ];
 
   Future<void> saveAccount(Account a) =>
       _commit([WriteOp.put(Coll.accounts, a.id, a.toJson())]);

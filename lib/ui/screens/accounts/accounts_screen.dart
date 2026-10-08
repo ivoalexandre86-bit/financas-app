@@ -92,7 +92,12 @@ class AccountsScreen extends StatelessWidget {
                           subtitle: Text(
                             [
                               a.type.label,
-                              if (a.institution.isNotEmpty) a.institution,
+                              if (a.institution.isNotEmpty ||
+                                  a.institutionCode.isNotEmpty)
+                                institutionLabel(
+                                  a.institutionCode,
+                                  a.institution,
+                                ),
                               if (!a.active) 'Inativa',
                             ].join(' · '),
                           ),
@@ -172,8 +177,11 @@ class AccountDetailsScreen extends StatelessWidget {
                   ),
                   InfoRow('Saldo inicial', MoneyText(a.initialBalance)),
                   InfoRow.text('Tipo', a.type.label),
-                  if (a.institution.isNotEmpty)
-                    InfoRow.text('Instituição', a.institution),
+                  if (a.institution.isNotEmpty || a.institutionCode.isNotEmpty)
+                    InfoRow.text(
+                      'Instituição',
+                      institutionLabel(a.institutionCode, a.institution),
+                    ),
                   InfoRow.text('Situação', a.active ? 'Ativa' : 'Inativa'),
                   if (payments.isNotEmpty)
                     InfoRow(
@@ -216,8 +224,9 @@ class AccountFormScreen extends StatefulWidget {
 class _AccountFormScreenState extends State<AccountFormScreen> {
   final _form = GlobalKey<FormState>();
   late final name = TextEditingController(text: widget.account?.name ?? '');
-  late final inst = TextEditingController(
-    text: widget.account?.institution ?? '',
+  late Institution inst = (
+    code: widget.account?.institutionCode ?? '',
+    name: widget.account?.institution ?? '',
   );
   late final initial = TextEditingController(
     text: widget.account?.initialBalance.formatPlain() ?? '0,00',
@@ -279,9 +288,10 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
                   (v == null || v.trim().isEmpty) ? 'Informe o nome' : null,
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: inst,
-              decoration: const InputDecoration(labelText: 'Instituição'),
+            BankField(
+              label: 'Instituição',
+              value: inst,
+              onChanged: (v) => setState(() => inst = v),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<AccountType>(
@@ -339,7 +349,8 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
                 final acc = (a ?? Account(id: newId('acc_'), name: name.text))
                     .copyWith(
                       name: name.text.trim(),
-                      institution: inst.text.trim(),
+                      institution: inst.name,
+                      institutionCode: inst.code,
                       type: type,
                       initialBalance: Money.tryEval(initial.text)!,
                       active: active,
