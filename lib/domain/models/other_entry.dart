@@ -128,6 +128,15 @@ class HistoryEntry {
       HistoryEntry(DateTime.parse(j['at'] as String), j['text'] as String);
 }
 
+/// Lançamento que faz parte de uma série: recorrência ou parcelamento.
+enum OtherSeriesKind {
+  recurring('Recorrente'),
+  installment('Parcelado');
+
+  final String label;
+  const OtherSeriesKind(this.label);
+}
+
 /// Situação de pagamento.
 enum PayStatus {
   pending('Pendente'),
@@ -173,6 +182,14 @@ class OtherEntry {
   final List<OtherPayment> payments;
   final List<HistoryEntry> history;
 
+  /// Série (recorrência ou parcelamento) a que pertence; nulo = avulso.
+  final String? seriesId;
+  final OtherSeriesKind? seriesKind;
+
+  /// Posição na série (1 = primeira) e total de lançamentos da série.
+  final int seriesIndex;
+  final int seriesCount;
+
   /// Exclusão lógica (preserva o histórico de pagamentos).
   final DateTime? deletedAt;
   final DateTime createdAt;
@@ -191,6 +208,10 @@ class OtherEntry {
     this.allocations = const [],
     this.payments = const [],
     this.history = const [],
+    this.seriesId,
+    this.seriesKind,
+    this.seriesIndex = 0,
+    this.seriesCount = 0,
     this.deletedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -199,6 +220,14 @@ class OtherEntry {
 
   bool get isIncome => type == TransactionType.income;
   bool get isDeleted => deletedAt != null;
+  bool get inSeries => seriesId != null;
+
+  /// "3/10" nas parcelas; "3ª de 12" nas recorrências.
+  String get seriesLabel => switch (seriesKind) {
+    OtherSeriesKind.installment => '$seriesIndex/$seriesCount',
+    OtherSeriesKind.recurring => '$seriesIndexª de $seriesCount',
+    null => '',
+  };
 
   /// Valor de cada pessoa. Percentuais são divididos sem perder centavos;
   /// valores fixos são usados como estão.
@@ -298,10 +327,15 @@ class OtherEntry {
     List<Allocation>? allocations,
     List<OtherPayment>? payments,
     List<HistoryEntry>? history,
+    Object? seriesId = _keep,
+    Object? seriesKind = _keep,
+    int? seriesIndex,
+    int? seriesCount,
     Object? deletedAt = _keep,
     DateTime? updatedAt,
+    String? id,
   }) => OtherEntry(
-    id: id,
+    id: id ?? this.id,
     type: type ?? this.type,
     description: description ?? this.description,
     amount: amount ?? this.amount,
@@ -313,6 +347,12 @@ class OtherEntry {
     allocations: allocations ?? this.allocations,
     payments: payments ?? this.payments,
     history: history ?? this.history,
+    seriesId: seriesId == _keep ? this.seriesId : seriesId as String?,
+    seriesKind: seriesKind == _keep
+        ? this.seriesKind
+        : seriesKind as OtherSeriesKind?,
+    seriesIndex: seriesIndex ?? this.seriesIndex,
+    seriesCount: seriesCount ?? this.seriesCount,
     deletedAt: deletedAt == _keep ? this.deletedAt : deletedAt as DateTime?,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -331,6 +371,10 @@ class OtherEntry {
     'allocations': [for (final a in allocations) a.toJson()],
     'payments': [for (final p in payments) p.toJson()],
     'history': [for (final h in history) h.toJson()],
+    'seriesId': seriesId,
+    'seriesKind': seriesKind?.name,
+    'seriesIndex': seriesIndex,
+    'seriesCount': seriesCount,
     'deletedAt': deletedAt?.toIso8601String(),
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
@@ -355,6 +399,10 @@ class OtherEntry {
       allocations: list('allocations', Allocation.fromJson),
       payments: list('payments', OtherPayment.fromJson),
       history: list('history', HistoryEntry.fromJson),
+      seriesId: j['seriesId'] as String?,
+      seriesKind: OtherSeriesKind.values.asNameMap()[j['seriesKind']],
+      seriesIndex: (j['seriesIndex'] as num?)?.toInt() ?? 0,
+      seriesCount: (j['seriesCount'] as num?)?.toInt() ?? 0,
       deletedAt: date(j['deletedAt']),
       createdAt: date(j['createdAt']),
       updatedAt: date(j['updatedAt']),
