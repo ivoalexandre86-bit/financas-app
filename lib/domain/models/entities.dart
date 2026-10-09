@@ -1053,12 +1053,17 @@ class AppSettings {
   /// formato JSON de `GridColumnsConfig`. Nulo = padrão.
   final List<Object?>? txGridColumns;
 
+  /// Conta usada nas linhas consolidadas de "Outras despesas/receitas" e
+  /// nos reembolsos. Nulo = primeira conta ativa.
+  final String? otherAccountId;
+
   const AppSettings({
     this.themeMode = 'system',
     this.cardExpenseBasis = CardExpenseBasis.invoiceDue,
     this.isSampleData = false,
     this.groupCardInvoices = true,
     this.txGridColumns,
+    this.otherAccountId,
   });
 
   AppSettings copyWith({
@@ -1067,12 +1072,14 @@ class AppSettings {
     bool? isSampleData,
     bool? groupCardInvoices,
     List<Object?>? txGridColumns,
+    String? otherAccountId,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     cardExpenseBasis: cardExpenseBasis ?? this.cardExpenseBasis,
     isSampleData: isSampleData ?? this.isSampleData,
     groupCardInvoices: groupCardInvoices ?? this.groupCardInvoices,
     txGridColumns: txGridColumns ?? this.txGridColumns,
+    otherAccountId: otherAccountId ?? this.otherAccountId,
   );
 
   Map<String, Object?> toJson() => {
@@ -1081,6 +1088,7 @@ class AppSettings {
     'isSampleData': isSampleData,
     'groupCardInvoices': groupCardInvoices,
     'txGridColumns': txGridColumns,
+    'otherAccountId': otherAccountId,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> j) => AppSettings(
@@ -1093,5 +1101,6 @@ class AppSettings {
     isSampleData: (j['isSampleData'] as bool?) ?? false,
     groupCardInvoices: (j['groupCardInvoices'] as bool?) ?? true,
     txGridColumns: j['txGridColumns'] as List<Object?>?,
+    otherAccountId: j['otherAccountId'] as String?,
   );
 }

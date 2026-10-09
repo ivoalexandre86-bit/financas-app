@@ -65,6 +65,12 @@ class MoreScreen extends StatelessWidget {
             const SimulationsScreen(),
           ),
           item(
+            Icons.call_split,
+            'Outras despesas e receitas',
+            'Contas divididas por pessoa, reembolsos e pagamentos',
+            const SimulationsScreen(initialTab: 1),
+          ),
+          item(
             Icons.account_balance_outlined,
             'Contas',
             'Corrente, poupança, digital, dinheiro, investimentos',

@@ -351,6 +351,15 @@ class SideMenu extends StatelessWidget {
                         label: 'Simulações',
                         onTap: () => push(context, const SimulationsScreen()),
                       ),
+                      entry(
+                        key: const ValueKey('side-menu-other-entries'),
+                        icon: Icons.call_split,
+                        label: 'Outras despesas',
+                        onTap: () => push(
+                          context,
+                          const SimulationsScreen(initialTab: 1),
+                        ),
+                      ),
                       if (user?.isAdmin ?? false)
                         entry(
                           key: const ValueKey('side-menu-users'),
