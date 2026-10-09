@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:sembast/sembast.dart';
 
 import '../auth_service.dart';
@@ -56,6 +58,24 @@ class CloudAuthService implements AuthService {
       return _demo ? demo : null;
     }
     api.token = s['token'] as String;
+    final cached = s['user'];
+    if (cached is Map) {
+      // Abre na hora com a conta guardada; confirma a sessão em segundo
+      // plano (um 401 dispara onUnauthorized → sessão expirada).
+      unawaited(_refreshMe(s));
+      return _toUser(cached.cast<String, Object?>());
+    }
+    try {
+      return await _refreshMe(s);
+    } on OfflineException {
+      return null;
+    } on AuthException {
+      await logout();
+      return null;
+    }
+  }
+
+  Future<AppUser> _refreshMe(Map<String, Object?> s) async {
     try {
       final me = await api.get('me');
       final user = (me['user'] as Map).cast<String, Object?>();
@@ -64,12 +84,11 @@ class CloudAuthService implements AuthService {
         'user': user,
       });
       return _toUser(user);
-    } on OfflineException {
-      // Sem internet: abre com a última conta (dados do cache local).
-      return _toUser((s['user'] as Map).cast<String, Object?>());
-    } on AuthException {
-      await logout();
-      return null;
+    } catch (e) {
+      if (s['user'] is Map) {
+        return _toUser((s['user'] as Map).cast<String, Object?>());
+      }
+      rethrow;
     }
   }
 

@@ -164,6 +164,10 @@ class LocalFinanceRepository implements FinanceRepository {
     return out;
   }
 
+  /// Já existe uma cópia local com dados (ex.: de uma sincronização anterior)?
+  Future<bool> hasData() async =>
+      await _store(Coll.categories).count(await db) > 0;
+
   /// Substitui todo o conteúdo pelos documentos dados (cópia local da nuvem).
   Future<void> replaceAll(
     Map<String, Map<String, Map<String, Object?>>> docs,

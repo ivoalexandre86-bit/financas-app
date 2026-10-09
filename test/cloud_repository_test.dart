@@ -77,6 +77,32 @@ void main() {
     expect((await pc.load()).accounts, isEmpty);
   });
 
+  test('com cópia local, abre na hora e sincroniza em segundo plano', () async {
+    final pc = device('pc');
+    await pc.load();
+    await pc.write([
+      WriteOp.put(
+        Coll.categories,
+        'k',
+        FinCategory(id: 'k', name: 'K', kind: CategoryKind.expense).toJson(),
+      ),
+      account('a', 'Nubank'),
+    ]);
+    await pc.flush();
+    // Outro aparelho muda a nuvem.
+    remote.docs['accounts/b'] = Account(id: 'b', name: 'Inter').toJson();
+
+    final reopened = device('pc');
+    final first = await reopened.load();
+    expect(reopened.backgroundSync, isNotNull);
+    expect(first.accounts.map((a) => a.name), ['Nubank']);
+    await reopened.backgroundSync;
+    expect((await reopened.load()).accounts.map((a) => a.name).toSet(), {
+      'Nubank',
+      'Inter',
+    });
+  });
+
   test('sem internet: grava localmente e envia quando voltar', () async {
     final pc = device('pc');
     await pc.load();

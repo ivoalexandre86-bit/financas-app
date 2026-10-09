@@ -119,6 +119,44 @@ class FinanceController extends ChangeNotifier {
     }
     loading = false;
     notifyListeners();
+    final sync = repo is CloudFinanceRepository
+        ? (repo as CloudFinanceRepository).backgroundSync
+        : null;
+    if (sync != null) {
+      try {
+        await sync;
+        if (!_disposed) await _reloadAll();
+      } catch (_) {
+        // Falha na nuvem: segue com a cópia local.
+      }
+    }
+  }
+
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  /// Relê tudo da cópia local (depois de uma sincronização com a nuvem).
+  Future<void> _reloadAll() async {
+    _set(await repo.load());
+    dashboards = await repo.loadDashboards();
+    _sortDashboards();
+    simulations = await repo.loadSimulations();
+    _sortSimulations();
+    otherEntries = await repo.loadOtherEntries();
+    people = await repo.loadPeople();
+    connections = await repo.loadConnections();
+    externalTransactions = await repo.loadExternalTransactions();
+    notifyListeners();
   }
 
   /// Dados guardados na nuvem (conta sincronizada entre aparelhos)?
@@ -158,16 +196,7 @@ class FinanceController extends ChangeNotifier {
     final cloud = repo;
     if (cloud is! CloudFinanceRepository) return false;
     await cloud.refresh();
-    _set(await repo.load());
-    dashboards = await repo.loadDashboards();
-    _sortDashboards();
-    simulations = await repo.loadSimulations();
-    _sortSimulations();
-    otherEntries = await repo.loadOtherEntries();
-    people = await repo.loadPeople();
-    connections = await repo.loadConnections();
-    externalTransactions = await repo.loadExternalTransactions();
-    notifyListeners();
+    await _reloadAll();
     return cloud.online;
   }
 
