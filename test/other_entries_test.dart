@@ -189,6 +189,88 @@ void main() {
     expect(a.id, 'oe1');
   });
 
+  test('parcelamento e recorrência criam séries; editar e excluir '
+      '"este e os próximos"', () async {
+    final fc = await _setup();
+    final first = await fc.createOtherSeries(
+      OtherEntry(
+        id: 'x',
+        type: TransactionType.expense,
+        description: 'Geladeira',
+        amount: 100000,
+        month: _m,
+        dueDate: Dates.clampedDate(_m.year, _m.month, 31),
+        allocations: const [
+          Allocation('pai', AllocMode.fixed, 30000),
+          Allocation('mae', AllocMode.percent, 50),
+        ],
+      ),
+      kind: OtherSeriesKind.installment,
+      count: 3,
+    );
+    expect(first.length, 3);
+    expect(first.map((e) => e.amount).fold(0, (a, v) => a + v), 100000);
+    expect(first.map((e) => e.month).toList(), [_m, _m.add(1), _m.add(2)]);
+    expect(first[1].seriesLabel, '2/3');
+    expect(
+      first.map((e) => e.owedByPerson()['pai']!).fold(0, (a, v) => a + v),
+      30000,
+    );
+    expect(first.every((e) => e.dueDate!.month == e.month.month), isTrue);
+    // Cada parcela entra na linha do seu mês.
+    for (final e in first) {
+      expect(
+        fc.data.transactions
+            .where((t) => t.id == OtherSync.monthTxId(e.type, e.month))
+            .single
+            .amount,
+        Money(e.amount),
+      );
+    }
+
+    final rec = await fc.createOtherSeries(
+      OtherEntry(
+        id: 'y',
+        type: TransactionType.expense,
+        description: 'Condomínio',
+        amount: 50000,
+        month: _m,
+      ),
+      kind: OtherSeriesKind.recurring,
+      count: 4,
+      intervalMonths: 3,
+    );
+    expect(rec.map((e) => e.month).toList(), [
+      _m,
+      _m.add(3),
+      _m.add(6),
+      _m.add(9),
+    ]);
+    expect(rec.every((e) => e.amount == 50000), isTrue);
+
+    // Editar a 2ª e as próximas: a 1ª não muda.
+    await fc.saveOtherEntry(
+      fc.otherEntryById(rec[1].id)!.copyWith(amount: 55000),
+      following: true,
+    );
+    final series =
+        fc.otherEntries.where((e) => e.seriesId == rec[0].seriesId).toList()
+          ..sort((a, b) => a.seriesIndex.compareTo(b.seriesIndex));
+    expect(series.map((e) => e.amount).toList(), [50000, 55000, 55000, 55000]);
+
+    // Excluir a 3ª e as próximas.
+    await fc.deleteOtherEntry(series[2], following: true);
+    expect(
+      fc.otherEntries
+          .where((e) => e.seriesId == rec[0].seriesId && !e.isDeleted)
+          .length,
+      2,
+    );
+    final back = OtherEntry.fromJson(series[1].toJson());
+    expect(back.seriesKind, OtherSeriesKind.recurring);
+    expect(back.seriesIndex, 2);
+  });
+
   test('receitas: previsto, recebido e a receber', () async {
     final fc = await _setup();
     await fc.saveOtherEntry(
@@ -297,5 +379,60 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('lançamento consolidado'), findsOneWidget);
     expect(find.text('Mercado'), findsOneWidget);
+  });
+
+  testWidgets('tela: despesa parcelada e planilha agrupada', (tester) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    late FinanceController fc;
+    await tester.runAsync(() async => fc = await _setup());
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: fc,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const SimulationsScreen(initialTab: 1),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('oe-new-expense')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('oe-desc')), 'Sofá');
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const ValueKey('oe-amount')),
+        matching: find.byType(TextField),
+      ),
+      '1000',
+    );
+    await tester.tap(find.text('Parcelada'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const ValueKey('oe-installments')),
+        matching: find.byType(TextField),
+      ),
+      '4',
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('4× de '), findsOneWidget);
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('oe-save')));
+      await tester.pump();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pumpAndSettle();
+    expect(fc.otherEntries.length, 4);
+    expect(find.textContaining('Parcelado 1/4'), findsOneWidget);
+
+    await tester.tap(find.text('Planilha'));
+    await tester.pumpAndSettle();
+    expect(find.text('Sofá'), findsOneWidget);
+    final total = tester.widget<Text>(
+      find.byKey(const ValueKey('oe-sheet-total')),
+    );
+    expect(total.data, contains('1.000,00'));
   });
 }

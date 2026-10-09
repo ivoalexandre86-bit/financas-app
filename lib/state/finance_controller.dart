@@ -1117,15 +1117,119 @@ class FinanceController extends ChangeNotifier {
   }
 
   /// Cria ou altera um lançamento, registrando o que mudou no histórico.
-  Future<OtherEntry> saveOtherEntry(OtherEntry e) async {
+  /// Com [following], as mudanças valem também para os próximos lançamentos
+  /// da mesma série (recorrência ou parcelamento).
+  Future<OtherEntry> saveOtherEntry(
+    OtherEntry e, {
+    bool following = false,
+  }) async {
     final err = _otherError(e);
     if (err.isNotEmpty) throw ArgumentError(err);
     final old = otherEntryById(e.id);
     final text = old == null ? 'Criado' : _otherChanges(old, e);
     var saved = e.copyWith(updatedAt: DateTime.now());
     if (text.isNotEmpty) saved = saved.withHistory(text);
-    await _commitOther([saved]);
+    final changed = [saved];
+    if (following && old != null && e.inSeries) {
+      for (final x in _seriesAfter(e)) {
+        final due = e.dueDate == null
+            ? null
+            : Dates.clampedDate(x.month.year, x.month.month, e.dueDate!.day);
+        final next = x.copyWith(
+          type: e.type,
+          description: e.description,
+          amount: e.amount,
+          notes: e.notes,
+          linked: e.linked,
+          allocations: e.allocations,
+          dueDate: due,
+        );
+        final t = _otherChanges(x, next);
+        if (t.isEmpty) continue;
+        changed.add(
+          next.copyWith(updatedAt: DateTime.now()).withHistory('$t (série)'),
+        );
+      }
+    }
+    await _commitOther(changed);
     return saved;
+  }
+
+  /// Próximos lançamentos (não excluídos) da série de [e].
+  List<OtherEntry> _seriesAfter(OtherEntry e) => [
+    for (final x in otherEntries)
+      if (x.seriesId == e.seriesId &&
+          x.seriesIndex > e.seriesIndex &&
+          !x.isDeleted)
+        x,
+  ];
+
+  /// Cria uma série: recorrência (o mesmo valor a cada [intervalMonths]
+  /// meses) ou parcelamento (o total de [first] dividido em [count]
+  /// parcelas mensais, sem perder centavos; valores fixos por pessoa também
+  /// são divididos).
+  Future<List<OtherEntry>> createOtherSeries(
+    OtherEntry first, {
+    required OtherSeriesKind kind,
+    required int count,
+    int intervalMonths = 1,
+  }) async {
+    final err = _otherError(first);
+    if (err.isNotEmpty) throw ArgumentError(err);
+    if (count < 2 || count > 360) {
+      throw ArgumentError('Informe de 2 a 360 lançamentos');
+    }
+    final installment = kind == OtherSeriesKind.installment;
+    final step = installment ? 1 : intervalMonths.clamp(1, 120);
+    final amounts = installment
+        ? Money(first.amount).split(count).map((m) => m.cents).toList()
+        : List.filled(count, first.amount);
+    final fixedSplit = {
+      for (final a in first.allocations)
+        if (installment && a.mode == AllocMode.fixed)
+          a.personId: Money(a.value.round()).split(count),
+    };
+    final seriesId = newId('ser_');
+    final out = <OtherEntry>[];
+    for (var i = 0; i < count; i++) {
+      final m = first.month.add(i * step);
+      final d = first.dueDate;
+      out.add(
+        OtherEntry(
+          id: newId('oe_'),
+          type: first.type,
+          description: first.description,
+          amount: amounts[i],
+          month: m,
+          dueDate: d == null ? null : Dates.clampedDate(m.year, m.month, d.day),
+          notes: first.notes,
+          linked: first.linked,
+          settled: i == 0 && first.settled,
+          allocations: [
+            for (final a in first.allocations)
+              fixedSplit.containsKey(a.personId)
+                  ? Allocation(
+                      a.personId,
+                      a.mode,
+                      fixedSplit[a.personId]![i].cents,
+                    )
+                  : a,
+          ],
+          seriesId: seriesId,
+          seriesKind: kind,
+          seriesIndex: i + 1,
+          seriesCount: count,
+          history: [
+            HistoryEntry(
+              DateTime.now(),
+              'Criado (${kind.label.toLowerCase()}, ${i + 1} de $count)',
+            ),
+          ],
+        ),
+      );
+    }
+    await _commitOther(out);
+    return out;
   }
 
   String _otherChanges(OtherEntry a, OtherEntry b) {
@@ -1157,11 +1261,13 @@ class FinanceController extends ChangeNotifier {
   }
 
   /// Exclusão lógica: some do orçamento, mas mantém pagamentos e histórico.
-  Future<void> deleteOtherEntry(OtherEntry e) => _commitOther([
-    e
-        .copyWith(deletedAt: DateTime.now(), updatedAt: DateTime.now())
-        .withHistory('Excluído'),
-  ]);
+  Future<void> deleteOtherEntry(OtherEntry e, {bool following = false}) =>
+      _commitOther([
+        for (final x in [e, if (following && e.inSeries) ..._seriesAfter(e)])
+          x
+              .copyWith(deletedAt: DateTime.now(), updatedAt: DateTime.now())
+              .withHistory(x.id == e.id ? 'Excluído' : 'Excluído (série)'),
+      ]);
 
   Future<void> restoreOtherEntry(OtherEntry e) => _commitOther([
     e

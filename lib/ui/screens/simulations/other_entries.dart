@@ -50,6 +50,10 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
   bool? linked;
   bool showDeleted = false;
 
+  /// Planilha (meses em colunas) em vez da lista agrupada por mês.
+  bool sheet = false;
+  bool sheetByPerson = false;
+
   bool get isIncome => widget.type == TransactionType.income;
 
   bool _inPeriod(OtherEntry e) {
@@ -80,7 +84,7 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
               e.description.toLowerCase().contains(q) ||
               e.notes.toLowerCase().contains(q);
         }).toList()..sort((a, b) {
-          final c = b.month.compareTo(a.month);
+          final c = a.month.compareTo(b.month);
           return c != 0 ? c : a.description.compareTo(b.description);
         });
     final sum = OtherSummary.of(list.where((e) => !e.isDeleted), me);
@@ -272,6 +276,40 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
             ),
           ],
         ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: [
+            SegmentedButton<bool>(
+              key: const ValueKey('oe-view'),
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  icon: Icon(Icons.view_list_outlined),
+                  label: Text('Lista por mês'),
+                ),
+                ButtonSegment(
+                  value: true,
+                  icon: Icon(Icons.table_chart_outlined),
+                  label: Text('Planilha'),
+                ),
+              ],
+              selected: {sheet},
+              onSelectionChanged: (v) => setState(() => sheet = v.first),
+            ),
+            if (sheet)
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: false, label: Text('Por lançamento')),
+                  ButtonSegment(value: true, label: Text('Por pessoa')),
+                ],
+                selected: {sheetByPerson},
+                onSelectionChanged: (v) =>
+                    setState(() => sheetByPerson = v.first),
+              ),
+          ],
+        ),
         if (selMonth != null) ...[
           const SizedBox(height: 12),
           _MonthLine(type: widget.type, month: selMonth),
@@ -289,8 +327,20 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
                   : 'Nada com esses filtros',
             ),
           )
+        else if (sheet)
+          OtherSheet(entries: list, byPerson: sheetByPerson)
         else
-          for (final e in list) _EntryTile(entry: e),
+          for (final m in {for (final e in list) e.month}) ...[
+            _MonthHeader(
+              month: m,
+              entries: [
+                for (final e in list)
+                  if (e.month == m) e,
+              ],
+            ),
+            for (final e in list)
+              if (e.month == m) _EntryTile(entry: e),
+          ],
       ],
     );
   }
@@ -391,6 +441,213 @@ class _MonthLine extends StatelessWidget {
   }
 }
 
+class _MonthHeader extends StatelessWidget {
+  final YearMonth month;
+  final List<OtherEntry> entries;
+  const _MonthHeader({required this.month, required this.entries});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = entries
+        .where((e) => !e.isDeleted)
+        .fold(0, (a, e) => a + e.amount);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 20, 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(month.longLabel, style: context.text.titleSmall),
+          ),
+          Text(
+            '${entries.length} · ${fmtCents(total)}',
+            style: context.text.titleSmall?.copyWith(color: context.fin.subtle),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Visão agrupada: linhas (lançamento/série ou pessoa) × meses, com totais.
+class OtherSheet extends StatelessWidget {
+  final List<OtherEntry> entries;
+  final bool byPerson;
+  const OtherSheet({super.key, required this.entries, required this.byPerson});
+
+  static const _labelW = 240.0, _monthW = 116.0, _totalW = 128.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final fc = context.watch<FinanceController>();
+    final live = entries.where((e) => !e.isDeleted).toList();
+    final months = {for (final e in live) e.month}.toList()..sort();
+    if (months.isEmpty) return const SizedBox.shrink();
+    // Linhas: chave → (rótulo, valor por mês, pago por mês, lançamentos).
+    final rows = <String, _SheetRow>{};
+    if (byPerson) {
+      for (final e in live) {
+        final owed = e.owedByPerson();
+        for (final p in owed.entries) {
+          final r = rows[p.key] ??= _SheetRow(
+            fc.personById(p.key)?.name ?? '?',
+          );
+          r.add(e.month, p.value, e.paidBy(p.key), e);
+        }
+        if (e.unallocated > 0) {
+          rows['~'] ??= _SheetRow('Sem divisão');
+          rows['~']!.add(e.month, e.unallocated, 0, e);
+        }
+      }
+    } else {
+      for (final e in live) {
+        final r = rows[e.seriesId ?? e.id] ??= _SheetRow(
+          e.description,
+          detail: e.inSeries
+              ? '${e.seriesKind!.label} · ${e.seriesCount}×'
+              : null,
+        );
+        r.add(e.month, e.amount, null, e);
+      }
+    }
+    final totals = <YearMonth, int>{};
+    for (final r in rows.values) {
+      for (final v in r.values.entries) {
+        totals[v.key] = (totals[v.key] ?? 0) + v.value;
+      }
+    }
+    final grand = totals.values.fold(0, (a, v) => a + v);
+    final head = context.text.labelMedium?.copyWith(color: context.fin.subtle);
+    final bold = context.text.titleSmall;
+
+    Widget cell(double w, Widget child, {bool right = true}) => SizedBox(
+      width: w,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        child: Align(
+          alignment: right ? Alignment.centerRight : Alignment.centerLeft,
+          child: child,
+        ),
+      ),
+    );
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                cell(
+                  _labelW,
+                  Text(byPerson ? 'Pessoa' : 'Lançamento', style: head),
+                  right: false,
+                ),
+                for (final m in months)
+                  cell(_monthW, Text(m.shortLabel, style: head)),
+                cell(_totalW, Text('Total', style: head)),
+              ],
+            ),
+            const Divider(height: 1),
+            for (final r in rows.values) ...[
+              Row(
+                children: [
+                  cell(
+                    _labelW,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(r.label, overflow: TextOverflow.ellipsis),
+                        if (r.detail != null)
+                          Text(
+                            r.detail!,
+                            style: context.text.bodySmall?.copyWith(
+                              color: context.fin.subtle,
+                            ),
+                          ),
+                      ],
+                    ),
+                    right: false,
+                  ),
+                  for (final m in months)
+                    SizedBox(
+                      width: _monthW,
+                      child: InkWell(
+                        onTap: r.entries[m] == null
+                            ? null
+                            : () => push(
+                                context,
+                                OtherEntryScreen(entryId: r.entries[m]!.id),
+                              ),
+                        child: cell(
+                          _monthW,
+                          r.values[m] == null
+                              ? Text('—', style: head)
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(fmtCents(r.values[m]!)),
+                                    if (r.paid[m] != null && r.paid[m]! > 0)
+                                      Text(
+                                        'pago ${fmtCents(r.paid[m]!)}',
+                                        style: context.text.bodySmall?.copyWith(
+                                          color: context.fin.positive,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ),
+                  cell(
+                    _totalW,
+                    Text(
+                      fmtCents(r.values.values.fold(0, (a, v) => a + v)),
+                      style: bold,
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 1),
+            ],
+            Row(
+              children: [
+                cell(_labelW, Text('Total', style: bold), right: false),
+                for (final m in months)
+                  cell(_monthW, Text(fmtCents(totals[m] ?? 0), style: bold)),
+                cell(
+                  _totalW,
+                  Text(
+                    fmtCents(grand),
+                    key: const ValueKey('oe-sheet-total'),
+                    style: bold,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetRow {
+  final String label;
+  final String? detail;
+  final values = <YearMonth, int>{};
+  final paid = <YearMonth, int>{};
+  final entries = <YearMonth, OtherEntry>{};
+  _SheetRow(this.label, {this.detail});
+
+  void add(YearMonth m, int value, int? paidValue, OtherEntry e) {
+    values[m] = (values[m] ?? 0) + value;
+    if (paidValue != null) paid[m] = (paid[m] ?? 0) + paidValue;
+    entries[m] ??= e;
+  }
+}
+
 class _EntryTile extends StatelessWidget {
   final OtherEntry entry;
   const _EntryTile({required this.entry});
@@ -421,6 +678,7 @@ class _EntryTile extends StatelessWidget {
         subtitle: Text(
           [
             e.month.shortLabel,
+            if (e.inSeries) '${e.seriesKind!.label} ${e.seriesLabel}',
             if (e.dueDate != null) 'vence ${Dates.format(e.dueDate!)}',
             if (names.isNotEmpty) names.join(', '),
             if (!e.isIncome && e.settled) 'conta paga',
@@ -611,7 +869,7 @@ Future<OtherEntry?> editOtherEntry(
   YearMonth? month,
 }) async {
   final fc = context.read<FinanceController>();
-  final draft = await showDialog<OtherEntry>(
+  final r = await showDialog<OtherFormResult>(
     context: context,
     builder: (_) => ChangeNotifierProvider.value(
       value: fc,
@@ -629,13 +887,90 @@ Future<OtherEntry?> editOtherEntry(
       ),
     ),
   );
-  if (draft == null || !context.mounted) return null;
+  if (r == null || !context.mounted) return null;
+  final draft = r.entry;
+  var following = false;
+  if (entry != null &&
+      entry.inSeries &&
+      fc.otherEntries.any(
+        (x) =>
+            x.seriesId == entry.seriesId &&
+            x.seriesIndex > entry.seriesIndex &&
+            !x.isDeleted,
+      )) {
+    final scope = await askSeriesScope(context, action: 'Salvar');
+    if (scope == null || !context.mounted) return null;
+    following = scope;
+  }
   OtherEntry? saved;
-  await runAction(context, () async {
-    saved = await fc.saveOtherEntry(draft);
-  }, success: entry == null ? 'Lançamento criado' : 'Lançamento salvo');
+  await runAction(
+    context,
+    () async {
+      if (r.kind != null) {
+        saved = (await fc.createOtherSeries(
+          draft,
+          kind: r.kind!,
+          count: r.count,
+          intervalMonths: r.interval,
+        )).first;
+      } else {
+        saved = await fc.saveOtherEntry(draft, following: following);
+      }
+    },
+    success: entry != null
+        ? 'Lançamento salvo'
+        : r.kind == null
+        ? 'Lançamento criado'
+        : '${r.count} lançamentos criados',
+  );
   return saved;
 }
+
+/// Pergunta se a ação vale só para este lançamento ou também para os
+/// próximos da série. `true` = este e os próximos.
+Future<bool?> askSeriesScope(BuildContext context, {required String action}) =>
+    showDialog<bool>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Este lançamento faz parte de uma série'),
+        children: [
+          SimpleDialogOption(
+            key: const ValueKey('oe-scope-one'),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('$action só este'),
+          ),
+          SimpleDialogOption(
+            key: const ValueKey('oe-scope-following'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('$action este e os próximos'),
+          ),
+        ],
+      ),
+    );
+
+/// Resultado do formulário: o lançamento e, ao criar, a repetição.
+class OtherFormResult {
+  final OtherEntry entry;
+  final OtherSeriesKind? kind;
+  final int count;
+  final int interval;
+  const OtherFormResult(
+    this.entry, {
+    this.kind,
+    this.count = 1,
+    this.interval = 1,
+  });
+}
+
+/// Frequências da recorrência, em meses (0 = personalizada).
+const _frequencies = <(String, int)>[
+  ('Mensal', 1),
+  ('Bimestral', 2),
+  ('Trimestral', 3),
+  ('Semestral', 6),
+  ('Anual', 12),
+  ('Personalizada', 0),
+];
 
 class _AllocRow {
   String? personId;
@@ -670,6 +1005,13 @@ class _OtherEntryFormState extends State<OtherEntryForm> {
   late DateTime? due = e.dueDate;
   late bool linked = e.linked;
   late bool settled = e.settled;
+
+  /// Repetição ao criar: nulo = lançamento único.
+  OtherSeriesKind? repeat;
+  int freq = 1;
+  final countCtl = TextEditingController(text: '12');
+  final installCtl = TextEditingController(text: '2');
+  final everyCtl = TextEditingController(text: '1');
   late final rows = [
     for (final a in e.allocations)
       _AllocRow(
@@ -689,7 +1031,15 @@ class _OtherEntryFormState extends State<OtherEntryForm> {
 
   @override
   void dispose() {
-    for (final c in [desc, amount, notes, ...rows.map((r) => r.ctl)]) {
+    for (final c in [
+      desc,
+      amount,
+      notes,
+      countCtl,
+      installCtl,
+      everyCtl,
+      ...rows.map((r) => r.ctl),
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -764,7 +1114,136 @@ class _OtherEntryFormState extends State<OtherEntryForm> {
       setState(() => error = err);
       return;
     }
-    Navigator.pop(context, d);
+    if (repeat != null) {
+      final n = _count;
+      if (n < 2 || n > 360) {
+        setState(() => error = 'Informe de 2 a 360 lançamentos');
+        return;
+      }
+      if (repeat == OtherSeriesKind.recurring && _interval < 1) {
+        setState(() => error = 'Informe a cada quantos meses repete');
+        return;
+      }
+    }
+    Navigator.pop(
+      context,
+      OtherFormResult(d, kind: repeat, count: _count, interval: _interval),
+    );
+  }
+
+  int get _count =>
+      int.tryParse(
+        (repeat == OtherSeriesKind.installment ? installCtl : countCtl).text,
+      ) ??
+      0;
+
+  int get _interval => freq > 0 ? freq : (int.tryParse(everyCtl.text) ?? 0);
+
+  Widget _repeatFields(BuildContext context, OtherEntry d) {
+    final n = _count;
+    String preview = '';
+    if (repeat == OtherSeriesKind.installment && n >= 2 && d.amount > 0) {
+      final parts = Money(d.amount).split(n);
+      preview =
+          '$n× de ${parts.first.format()}'
+          '${parts.toSet().length > 1 ? ' (ajuste de centavos)' : ''} · '
+          '${month.shortLabel} a ${month.add(n - 1).shortLabel}';
+    } else if (repeat == OtherSeriesKind.recurring &&
+        n >= 2 &&
+        _interval >= 1) {
+      preview =
+          '$n lançamentos de ${fmtCents(d.amount)} · ${month.shortLabel} a '
+          '${month.add((n - 1) * _interval).shortLabel}';
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Repetição', style: context.text.titleSmall),
+        const SizedBox(height: 8),
+        SegmentedButton<OtherSeriesKind?>(
+          key: const ValueKey('oe-repeat'),
+          segments: [
+            const ButtonSegment(value: null, label: Text('Única')),
+            const ButtonSegment(
+              value: OtherSeriesKind.recurring,
+              label: Text('Recorrente'),
+            ),
+            if (type == TransactionType.expense)
+              const ButtonSegment(
+                value: OtherSeriesKind.installment,
+                label: Text('Parcelada'),
+              ),
+          ],
+          selected: {repeat},
+          onSelectionChanged: (v) => setState(() => repeat = v.first),
+        ),
+        if (repeat == OtherSeriesKind.recurring) ...[
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<int>(
+                  initialValue: freq,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Frequência'),
+                  items: [
+                    for (final f in _frequencies)
+                      DropdownMenuItem(value: f.$2, child: Text(f.$1)),
+                  ],
+                  onChanged: (v) => setState(() => freq = v ?? 1),
+                ),
+              ),
+              if (freq == 0) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: IntField(
+                    controller: everyCtl,
+                    label: 'A cada (meses)',
+                    min: 1,
+                    max: 120,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: IntField(
+                  key: const ValueKey('oe-repeat-count'),
+                  controller: countCtl,
+                  label: 'Quantidade',
+                  min: 2,
+                  max: 360,
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+            ],
+          ),
+        ],
+        if (repeat == OtherSeriesKind.installment) ...[
+          const SizedBox(height: 12),
+          IntField(
+            key: const ValueKey('oe-installments'),
+            controller: installCtl,
+            label: 'Número de parcelas',
+            min: 2,
+            max: 360,
+            onChanged: (_) => setState(() {}),
+          ),
+        ],
+        if (preview.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8, left: 4),
+            child: Text(
+              preview,
+              key: const ValueKey('oe-repeat-preview'),
+              style: context.text.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ),
+        const SizedBox(height: 8),
+      ],
+    );
   }
 
   num _pctTotal(OtherEntry d) => d.allocations
@@ -806,7 +1285,13 @@ class _OtherEntryFormState extends State<OtherEntryForm> {
                   ),
                 ],
                 selected: {type},
-                onSelectionChanged: (s) => setState(() => type = s.first),
+                onSelectionChanged: (s) => setState(() {
+                  type = s.first;
+                  if (type == TransactionType.income &&
+                      repeat == OtherSeriesKind.installment) {
+                    repeat = null;
+                  }
+                }),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -822,7 +1307,11 @@ class _OtherEntryFormState extends State<OtherEntryForm> {
                     child: MoneyField(
                       key: const ValueKey('oe-amount'),
                       controller: amount,
-                      label: 'Valor total',
+                      label: repeat == OtherSeriesKind.installment
+                          ? 'Valor total (a dividir)'
+                          : e.seriesKind == OtherSeriesKind.installment
+                          ? 'Valor da parcela'
+                          : 'Valor',
                       onChanged: (_) => setState(() {}),
                     ),
                   ),
@@ -844,7 +1333,18 @@ class _OtherEntryFormState extends State<OtherEntryForm> {
                 clearable: true,
                 onChanged: (v) => setState(() => due = v),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 12),
+              if (widget.isNew)
+                _repeatFields(context, d)
+              else if (e.inSeries)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    '${e.seriesKind!.label}: ${e.seriesLabel}. Ao salvar, você '
+                    'escolhe se a mudança vale também para os próximos.',
+                    style: context.text.bodySmall,
+                  ),
+                ),
               SwitchListTile(
                 key: const ValueKey('oe-linked'),
                 contentPadding: EdgeInsets.zero,
@@ -1330,9 +1830,21 @@ class OtherEntryScreen extends StatelessWidget {
       destructive: true,
     );
     if (!ok || !context.mounted) return;
+    var following = false;
+    if (e.inSeries &&
+        fc.otherEntries.any(
+          (x) =>
+              x.seriesId == e.seriesId &&
+              x.seriesIndex > e.seriesIndex &&
+              !x.isDeleted,
+        )) {
+      final scope = await askSeriesScope(context, action: 'Excluir');
+      if (scope == null || !context.mounted) return;
+      following = scope;
+    }
     await runAction(
       context,
-      () => fc.deleteOtherEntry(e),
+      () => fc.deleteOtherEntry(e, following: following),
       success: 'Lançamento excluído',
     );
   }
