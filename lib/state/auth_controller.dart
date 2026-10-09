@@ -19,7 +19,8 @@ class AuthController extends ChangeNotifier {
   Future<void> init() async {
     try {
       user = await service.restoreSession();
-      canRegister = !await service.hasUsers();
+      // Só consulta o servidor quando vai mostrar o login.
+      if (user == null) canRegister = !await service.hasUsers();
     } catch (e) {
       error = 'Não foi possível restaurar a sessão';
     }

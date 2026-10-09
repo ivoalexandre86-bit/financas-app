@@ -95,9 +95,21 @@ class CloudFinanceRepository implements FinanceRepository {
 
   Future<void> _flushing = Future.value();
 
+  /// Sincronização iniciada em segundo plano ao abrir com cópia local.
+  Future<void>? backgroundSync;
+
+  /// Abre na hora com a cópia local, quando existe, e sincroniza com a
+  /// nuvem em segundo plano ([backgroundSync]). Sem cópia local (primeiro
+  /// acesso no aparelho), espera o download.
   @override
   Future<FinanceData> load() async {
-    if (!_pulled) await refresh();
+    if (!_pulled && backgroundSync == null) {
+      if (await local.hasData()) {
+        backgroundSync = refresh();
+      } else {
+        await refresh();
+      }
+    }
     return local.load();
   }
 
