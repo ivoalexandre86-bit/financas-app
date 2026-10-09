@@ -13,10 +13,12 @@ import '../domain/engine/billing_cycle.dart';
 import '../domain/engine/dashboard_engine.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/engine/installments.dart';
+import '../domain/engine/other_entries_engine.dart';
 import '../domain/engine/simulation_engine.dart';
 import '../domain/import/expense_import.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
+import '../domain/models/other_entry.dart';
 import '../domain/models/simulation.dart';
 
 /// Escopo de alteração de uma regra recorrente.
@@ -56,6 +58,12 @@ class FinanceController extends ChangeNotifier {
 
   /// Simulações de orçamento (cenários), mais recentes primeiro.
   List<Simulation> simulations = [];
+
+  /// "Outras despesas/receitas" (inclui as excluídas, para auditoria).
+  List<OtherEntry> otherEntries = [];
+
+  /// Pessoas que dividem despesas.
+  List<Person> people = [];
 
   /// Motor dos gráficos, sempre derivado do [engine] atual — qualquer
   /// mudança nas transações recalcula todos os painéis.
@@ -104,6 +112,8 @@ class FinanceController extends ChangeNotifier {
       _sortDashboards();
       simulations = await repo.loadSimulations();
       _sortSimulations();
+      otherEntries = await repo.loadOtherEntries();
+      people = await repo.loadPeople();
     } catch (e) {
       error = 'Falha ao carregar dados: $e';
     }
@@ -153,6 +163,8 @@ class FinanceController extends ChangeNotifier {
     _sortDashboards();
     simulations = await repo.loadSimulations();
     _sortSimulations();
+    otherEntries = await repo.loadOtherEntries();
+    people = await repo.loadPeople();
     connections = await repo.loadConnections();
     externalTransactions = await repo.loadExternalTransactions();
     notifyListeners();
@@ -1033,6 +1045,183 @@ class FinanceController extends ChangeNotifier {
     externalTransactions = await repo.loadExternalTransactions();
     await saveSimulation(s.copyWith(appliedAt: DateTime.now()));
     return plan;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Outras despesas / outras receitas
+
+  Set<String> get meIds => {
+    for (final p in people)
+      if (p.isMe) p.id,
+  };
+
+  Person? personById(String id) => people.where((p) => p.id == id).firstOrNull;
+
+  OtherEntry? otherEntryById(String id) =>
+      otherEntries.where((e) => e.id == id).firstOrNull;
+
+  /// Conta das linhas consolidadas e dos reembolsos.
+  Account? get otherAccount =>
+      activeAccounts
+          .where((a) => a.id == data.settings.otherAccountId)
+          .firstOrNull ??
+      activeAccounts.firstOrNull;
+
+  /// Grava lançamentos e, na mesma operação, alinha o orçamento: uma linha
+  /// por mês e tipo + uma receita por pagamento de reembolso.
+  Future<void> _commitOther(
+    List<OtherEntry> changed, {
+    List<WriteOp> extra = const [],
+  }) async {
+    final byId = {for (final e in otherEntries) e.id: e};
+    for (final e in changed) {
+      byId[e.id] = e;
+    }
+    final all = byId.values.toList();
+    final ops = <WriteOp>[
+      for (final e in changed) WriteOp.put(Coll.otherEntries, e.id, e.toJson()),
+      ...extra,
+    ];
+    final account = otherAccount;
+    if (account != null) {
+      for (final c in OtherSync.missingCategories(data.categories)) {
+        ops.add(WriteOp.put(Coll.categories, c.id, c.toJson()));
+      }
+      final (puts, deletes) = OtherSync.diff(
+        existing: data.transactions,
+        desired: OtherSync.desired(
+          entries: all,
+          people: {for (final p in people) p.id: p},
+          accountId: account.id,
+        ),
+      );
+      ops.addAll(puts.map(_putTx));
+      ops.addAll(deletes.map((id) => WriteOp.delete(Coll.transactions, id)));
+    }
+    otherEntries = all;
+    await _commit(ops);
+  }
+
+  String _otherError(OtherEntry e) {
+    if (e.description.trim().isEmpty) return 'Informe uma descrição';
+    if (e.amount <= 0) return 'O valor deve ser maior que zero';
+    for (final a in e.allocations) {
+      if (a.value < 0) return 'Valores de divisão não podem ser negativos';
+    }
+    final pct = e.allocations
+        .where((a) => a.mode == AllocMode.percent)
+        .fold<num>(0, (s, a) => s + a.value);
+    if (pct > 100.0001) return 'A soma dos percentuais passa de 100%';
+    if (e.allocated > e.amount) return 'A divisão passa do valor total';
+    return '';
+  }
+
+  /// Cria ou altera um lançamento, registrando o que mudou no histórico.
+  Future<OtherEntry> saveOtherEntry(OtherEntry e) async {
+    final err = _otherError(e);
+    if (err.isNotEmpty) throw ArgumentError(err);
+    final old = otherEntryById(e.id);
+    final text = old == null ? 'Criado' : _otherChanges(old, e);
+    var saved = e.copyWith(updatedAt: DateTime.now());
+    if (text.isNotEmpty) saved = saved.withHistory(text);
+    await _commitOther([saved]);
+    return saved;
+  }
+
+  String _otherChanges(OtherEntry a, OtherEntry b) {
+    final c = <String>[];
+    if (a.description != b.description) {
+      c.add('descrição "${a.description}" → "${b.description}"');
+    }
+    if (a.amount != b.amount) {
+      c.add('valor ${Money(a.amount).format()} → ${Money(b.amount).format()}');
+    }
+    if (a.month != b.month) c.add('mês ${a.month.key} → ${b.month.key}');
+    if (a.dueDate != b.dueDate) c.add('vencimento alterado');
+    if (a.notes != b.notes) c.add('observações alteradas');
+    if (a.linked != b.linked) {
+      c.add(b.linked ? 'vinculado ao orçamento' : 'desvinculado do orçamento');
+    }
+    if (a.settled != b.settled) {
+      c.add(
+        b.isIncome
+            ? (b.settled ? 'marcado como recebido' : 'recebimento desfeito')
+            : (b.settled ? 'marcado como pago' : 'pagamento desfeito'),
+      );
+    }
+    String alloc(OtherEntry e) => [
+      for (final x in e.allocations) '${x.personId}:${x.mode.name}:${x.value}',
+    ].join(',');
+    if (alloc(a) != alloc(b)) c.add('divisão entre pessoas alterada');
+    return c.isEmpty ? '' : 'Alterado: ${c.join('; ')}';
+  }
+
+  /// Exclusão lógica: some do orçamento, mas mantém pagamentos e histórico.
+  Future<void> deleteOtherEntry(OtherEntry e) => _commitOther([
+    e
+        .copyWith(deletedAt: DateTime.now(), updatedAt: DateTime.now())
+        .withHistory('Excluído'),
+  ]);
+
+  Future<void> restoreOtherEntry(OtherEntry e) => _commitOther([
+    e
+        .copyWith(deletedAt: null, updatedAt: DateTime.now())
+        .withHistory('Restaurado'),
+  ]);
+
+  /// Inclui ou altera um pagamento (parcial ou total) de uma pessoa.
+  Future<void> saveOtherPayment(OtherEntry e, OtherPayment p) async {
+    if (p.amount <= 0) throw ArgumentError('O valor deve ser maior que zero');
+    final exists = e.payments.any((x) => x.id == p.id);
+    final name = personById(p.personId)?.name ?? 'pessoa';
+    final text =
+        '${exists ? 'Pagamento alterado' : 'Pagamento registrado'}: $name '
+        '${Money(p.amount).format()} em ${Dates.format(p.date)} '
+        '(${p.method})';
+    await _commitOther([
+      e
+          .copyWith(
+            payments: exists
+                ? [for (final x in e.payments) x.id == p.id ? p : x]
+                : [...e.payments, p],
+            updatedAt: DateTime.now(),
+          )
+          .withHistory(text),
+    ]);
+  }
+
+  Future<void> deleteOtherPayment(OtherEntry e, OtherPayment p) async {
+    final name = personById(p.personId)?.name ?? 'pessoa';
+    await _commitOther([
+      e
+          .copyWith(
+            payments: e.payments.where((x) => x.id != p.id).toList(),
+            updatedAt: DateTime.now(),
+          )
+          .withHistory(
+            'Pagamento excluído: $name ${Money(p.amount).format()} em '
+            '${Dates.format(p.date)}',
+          ),
+    ]);
+  }
+
+  /// Substitui o cadastro de pessoas. Nomes nos reembolsos são atualizados.
+  Future<void> savePeople(List<Person> list) async {
+    final ids = list.map((p) => p.id).toSet();
+    final extra = <WriteOp>[
+      for (final p in list) WriteOp.put(Coll.people, p.id, p.toJson()),
+      for (final p in people)
+        if (!ids.contains(p.id)) WriteOp.delete(Coll.people, p.id),
+    ];
+    people = List.of(list);
+    await _commitOther(const [], extra: extra);
+  }
+
+  /// Muda a conta das linhas consolidadas e reembolsos.
+  Future<void> setOtherAccount(String accountId) async {
+    await repo.saveSettings(data.settings.copyWith(otherAccountId: accountId));
+    _set(await repo.load());
+    await _commitOther(const []);
   }
 
   // ---------------------------------------------------------------------------

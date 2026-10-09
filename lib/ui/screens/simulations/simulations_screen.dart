@@ -8,12 +8,17 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import 'scenario_compare_screen.dart';
+import '../../../domain/models/entities.dart';
+import 'other_entries.dart';
 import 'sim_common.dart';
 import 'simulation_screen.dart';
 
 /// Gestão de simulações (cenários de orçamento).
 class SimulationsScreen extends StatefulWidget {
-  const SimulationsScreen({super.key});
+  /// 0 = cenários, 1 = outras despesas, 2 = outras receitas.
+  final int initialTab;
+  final YearMonth? initialMonth;
+  const SimulationsScreen({super.key, this.initialTab = 0, this.initialMonth});
 
   @override
   State<SimulationsScreen> createState() => _SimulationsScreenState();
@@ -21,7 +26,20 @@ class SimulationsScreen extends StatefulWidget {
 
 enum _Show { active, archived, all }
 
-class _SimulationsScreenState extends State<SimulationsScreen> {
+class _SimulationsScreenState extends State<SimulationsScreen>
+    with SingleTickerProviderStateMixin {
+  late final tabs = TabController(
+    length: 3,
+    vsync: this,
+    initialIndex: widget.initialTab,
+  )..addListener(() => setState(() {}));
+
+  @override
+  void dispose() {
+    tabs.dispose();
+    super.dispose();
+  }
+
   _Show show = _Show.active;
   String query = '';
   final selected = <String>{};
@@ -43,8 +61,18 @@ class _SimulationsScreenState extends State<SimulationsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Simulações'),
+        bottom: TabBar(
+          controller: tabs,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          tabs: const [
+            Tab(text: 'Cenários'),
+            Tab(key: ValueKey('tab-other-expenses'), text: 'Outras despesas'),
+            Tab(key: ValueKey('tab-other-income'), text: 'Outras receitas'),
+          ],
+        ),
         actions: [
-          if (selected.isNotEmpty)
+          if (selected.isNotEmpty && tabs.index == 0)
             TextButton.icon(
               key: const ValueKey('sim-compare-selected'),
               onPressed: () => _compare(context, selected.toList()),
@@ -54,105 +82,126 @@ class _SimulationsScreenState extends State<SimulationsScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        key: const ValueKey('sim-create'),
-        onPressed: () => _create(context),
-        icon: const Icon(Icons.add),
-        label: const Text('Criar simulação'),
-      ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      floatingActionButton: tabs.index != 0
+          ? null
+          : FloatingActionButton.extended(
+              key: const ValueKey('sim-create'),
+              onPressed: () => _create(context),
+              icon: const Icon(Icons.add),
+              label: const Text('Criar simulação'),
+            ),
+      body: TabBarView(
+        controller: tabs,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Text(
-              'Cenários de orçamento em sandbox: o que você muda aqui não '
-              'altera seus lançamentos, até você escolher "Aplicar ao '
-              'orçamento".',
-              style: context.text.bodySmall?.copyWith(
-                color: context.fin.subtle,
-              ),
-            ),
+          _scenarios(context, fc, list, wide),
+          OtherEntriesView(
+            type: TransactionType.expense,
+            initialMonth: widget.initialMonth,
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                SizedBox(
-                  width: 260,
-                  child: TextField(
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      hintText: 'Buscar simulação',
-                      isDense: true,
-                    ),
-                    onChanged: (v) => setState(() => query = v),
-                  ),
-                ),
-                SegmentedButton<_Show>(
-                  segments: const [
-                    ButtonSegment(value: _Show.active, label: Text('Ativas')),
-                    ButtonSegment(
-                      value: _Show.archived,
-                      label: Text('Arquivadas'),
-                    ),
-                    ButtonSegment(value: _Show.all, label: Text('Todas')),
-                  ],
-                  selected: {show},
-                  onSelectionChanged: (s) => setState(() => show = s.first),
-                ),
-                OutlinedButton.icon(
-                  onPressed: fc.simulations.isEmpty
-                      ? null
-                      : () => _compare(context, selected.toList()),
-                  icon: const Icon(Icons.compare_arrows),
-                  label: const Text('Comparar cenários'),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: list.isEmpty
-                ? EmptyState(
-                    icon: Icons.science_outlined,
-                    title: fc.simulations.isEmpty
-                        ? 'Nenhuma simulação ainda'
-                        : 'Nenhuma simulação aqui',
-                    message: fc.simulations.isEmpty
-                        ? 'Crie um cenário a partir do seu orçamento para '
-                              'testar uma compra, um aumento de salário ou '
-                              'uma nova despesa sem mexer nos dados reais.'
-                        : null,
-                    actionLabel: fc.simulations.isEmpty
-                        ? 'Criar simulação'
-                        : null,
-                    onAction: fc.simulations.isEmpty
-                        ? () => _create(context)
-                        : null,
-                  )
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
-                    children: [
-                      if (wide) const _TableHeader(),
-                      for (final s in list)
-                        _SimRow(
-                          sim: s,
-                          wide: wide,
-                          selected: selected.contains(s.id),
-                          onSelect: (v) => setState(
-                            () =>
-                                v ? selected.add(s.id) : selected.remove(s.id),
-                          ),
-                          onAction: (a) => _action(context, s, a),
-                        ),
-                    ],
-                  ),
+          OtherEntriesView(
+            type: TransactionType.income,
+            initialMonth: widget.initialMonth,
           ),
         ],
       ),
+    );
+  }
+
+  Widget _scenarios(
+    BuildContext context,
+    FinanceController fc,
+    List<Simulation> list,
+    bool wide,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text(
+            'Cenários de orçamento em sandbox: o que você muda aqui não '
+            'altera seus lançamentos, até você escolher "Aplicar ao '
+            'orçamento".',
+            style: context.text.bodySmall?.copyWith(color: context.fin.subtle),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 260,
+                child: TextField(
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Buscar simulação',
+                    isDense: true,
+                  ),
+                  onChanged: (v) => setState(() => query = v),
+                ),
+              ),
+              SegmentedButton<_Show>(
+                segments: const [
+                  ButtonSegment(value: _Show.active, label: Text('Ativas')),
+                  ButtonSegment(
+                    value: _Show.archived,
+                    label: Text('Arquivadas'),
+                  ),
+                  ButtonSegment(value: _Show.all, label: Text('Todas')),
+                ],
+                selected: {show},
+                onSelectionChanged: (s) => setState(() => show = s.first),
+              ),
+              OutlinedButton.icon(
+                onPressed: fc.simulations.isEmpty
+                    ? null
+                    : () => _compare(context, selected.toList()),
+                icon: const Icon(Icons.compare_arrows),
+                label: const Text('Comparar cenários'),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: list.isEmpty
+              ? EmptyState(
+                  icon: Icons.science_outlined,
+                  title: fc.simulations.isEmpty
+                      ? 'Nenhuma simulação ainda'
+                      : 'Nenhuma simulação aqui',
+                  message: fc.simulations.isEmpty
+                      ? 'Crie um cenário a partir do seu orçamento para '
+                            'testar uma compra, um aumento de salário ou '
+                            'uma nova despesa sem mexer nos dados reais.'
+                      : null,
+                  actionLabel: fc.simulations.isEmpty
+                      ? 'Criar simulação'
+                      : null,
+                  onAction: fc.simulations.isEmpty
+                      ? () => _create(context)
+                      : null,
+                )
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+                  children: [
+                    if (wide) const _TableHeader(),
+                    for (final s in list)
+                      _SimRow(
+                        sim: s,
+                        wide: wide,
+                        selected: selected.contains(s.id),
+                        onSelect: (v) => setState(
+                          () => v ? selected.add(s.id) : selected.remove(s.id),
+                        ),
+                        onAction: (a) => _action(context, s, a),
+                      ),
+                  ],
+                ),
+        ),
+      ],
     );
   }
 

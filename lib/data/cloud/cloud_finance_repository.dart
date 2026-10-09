@@ -5,6 +5,7 @@ import 'package:sembast/sembast.dart';
 import '../../domain/engine/financial_engine.dart';
 import '../../domain/models/dashboard.dart';
 import '../../domain/models/entities.dart';
+import '../../domain/models/other_entry.dart';
 import '../../domain/models/simulation.dart';
 import '../db_factory.dart';
 import '../finance_repository.dart';
@@ -136,6 +137,12 @@ class CloudFinanceRepository implements FinanceRepository {
 
   @override
   Future<List<Simulation>> loadSimulations() => local.loadSimulations();
+
+  @override
+  Future<List<OtherEntry>> loadOtherEntries() => local.loadOtherEntries();
+
+  @override
+  Future<List<Person>> loadPeople() => local.loadPeople();
 
   @override
   Future<void> write(List<WriteOp> ops) async {

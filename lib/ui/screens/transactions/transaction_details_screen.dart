@@ -1,3 +1,7 @@
+import '../../../domain/engine/other_entries_engine.dart';
+import '../simulations/other_entries.dart';
+import '../simulations/simulations_screen.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -22,6 +26,21 @@ class TransactionDetailsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fc = context.watch<FinanceController>();
+    // Linha consolidada de "Outras despesas/receitas": abre o detalhamento
+    // do mês (como a fatura do cartão). Reembolso: abre o lançamento.
+    final other = OtherSync.parseMonthTx(tx.id);
+    if (other != null) {
+      return SimulationsScreen(
+        initialTab: other.$1 == TransactionType.income ? 2 : 1,
+        initialMonth: other.$2,
+      );
+    }
+    if (tx.id.startsWith('oe_pay_')) {
+      final entry = fc.otherEntries
+          .where((x) => x.payments.any((p) => p.incomeTxId == tx.id))
+          .firstOrNull;
+      if (entry != null) return OtherEntryScreen(entryId: entry.id);
+    }
     final e = fc.engine;
     // Recarrega a versão atual (pode ter sido editada).
     final t = tx.isVirtual

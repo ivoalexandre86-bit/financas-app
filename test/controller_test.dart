@@ -5,6 +5,7 @@ import 'package:financas_app/data/finance_repository.dart';
 import 'package:financas_app/domain/engine/financial_engine.dart';
 import 'package:financas_app/domain/models/dashboard.dart';
 import 'package:financas_app/domain/models/entities.dart';
+import 'package:financas_app/domain/models/other_entry.dart';
 import 'package:financas_app/domain/models/simulation.dart';
 import 'package:financas_app/state/finance_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -43,6 +44,11 @@ class MemoryRepo implements FinanceRepository {
   @override
   Future<List<Simulation>> loadSimulations() async =>
       _all(Coll.simulations, Simulation.fromJson);
+  @override
+  Future<List<OtherEntry>> loadOtherEntries() async =>
+      _all(Coll.otherEntries, OtherEntry.fromJson);
+  @override
+  Future<List<Person>> loadPeople() async => _all(Coll.people, Person.fromJson);
   @override
   Future<void> write(List<WriteOp> ops) async {
     for (final op in ops) {

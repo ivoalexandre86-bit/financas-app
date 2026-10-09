@@ -3,6 +3,7 @@ import 'package:sembast/sembast.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
+import '../domain/models/other_entry.dart';
 import '../domain/models/simulation.dart';
 import 'db_factory.dart';
 
@@ -21,6 +22,8 @@ enum Coll {
   externalTransactions,
   dashboards,
   simulations,
+  otherEntries,
+  people,
 }
 
 /// Nome da "coleção" das configurações do app na nuvem (registro `app`).
@@ -46,6 +49,8 @@ abstract class FinanceRepository {
   Future<List<ExternalTransaction>> loadExternalTransactions();
   Future<List<Dashboard>> loadDashboards();
   Future<List<Simulation>> loadSimulations();
+  Future<List<OtherEntry>> loadOtherEntries();
+  Future<List<Person>> loadPeople();
   Future<void> write(List<WriteOp> ops);
   Future<void> saveSettings(AppSettings settings);
   Future<void> close();
@@ -116,6 +121,13 @@ class LocalFinanceRepository implements FinanceRepository {
   @override
   Future<List<Simulation>> loadSimulations() =>
       _all(Coll.simulations, Simulation.fromJson);
+
+  @override
+  Future<List<OtherEntry>> loadOtherEntries() =>
+      _all(Coll.otherEntries, OtherEntry.fromJson);
+
+  @override
+  Future<List<Person>> loadPeople() => _all(Coll.people, Person.fromJson);
 
   /// Grava todas as operações atomicamente (tudo ou nada).
   @override
