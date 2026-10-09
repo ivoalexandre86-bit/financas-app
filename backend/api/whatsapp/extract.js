@@ -49,7 +49,7 @@ Extraia um único lançamento:
 - installments: número de parcelas ("em 3x", "parcelado em 10") ou 1.
 - notes: detalhes úteis que não couberam na descrição (pode ficar vazio).
 
-Use somente ids que aparecem nas listas. Se a mensagem não for um lançamento (cumprimento, pergunta, assunto sem relação) ou não der para identificar o valor, responda is_transaction=false e escreva em reply uma resposta curta em português explicando que você só registra despesas e receitas, com um exemplo ("gastei 45,90 no mercado no cartão Nubank"). Nesse caso preencha os demais campos com valores neutros (amount 0, textos vazios, ids null, installments 1, type "expense", date de hoje). Não responda a outros assuntos.`;
+Use somente ids que aparecem nas listas. Se a mensagem não for um lançamento (cumprimento, pergunta, assunto sem relação) ou não der para identificar o valor, responda is_transaction=false e escreva em reply uma resposta curta em português explicando que você registra despesas e receitas, com um exemplo ("gastei 45,90 no mercado no cartão Nubank"), e que "resumo" mostra como está o mês. Nesse caso preencha os demais campos com valores neutros (amount 0, textos vazios, ids null, installments 1, type "expense", date de hoje). Não responda a outros assuntos.`;
 
 function contextText(ctx) {
   const list = (items, fmt) =>

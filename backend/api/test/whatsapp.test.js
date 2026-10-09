@@ -305,6 +305,15 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
     assert.equal(again.filter((d) => d.coll === 'transactions').length, 3);
   });
 
+  await t.test('resumo responde sem passar pela IA', async () => {
+    const before = extracted.length;
+    await deliver('5511999990000', text('Resumo'));
+    assert.equal(extracted.length, before);
+    assert.match(sent[0].text, /^📊 \*Resumo de /);
+    await deliver('5511999990000', text('resumo março 2030'));
+    assert.match(sent[0].text, /Resumo de março\/2030/);
+  });
+
   await t.test('Cancelar e mensagens que não são lançamento', async () => {
     nextRaw = raw();
     await deliver('5511999990000', text('mercado 45,90'));

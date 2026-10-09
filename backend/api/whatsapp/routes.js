@@ -12,14 +12,17 @@ const {
   normalizeDraft,
   buildDocs,
   formatSummary,
+  todayIso,
 } = require('./ledger');
+const { computeSummary, formatMonthSummary, parseSummaryRequest } = require('./summary');
 
 const CODE_MINUTES = 10;
 const EDIT_WINDOW = "interval '1 hour'";
 
 const HELP =
   'Mande um gasto ou recebimento e eu lanço no app. Pode ser texto, foto do cupom/comprovante ou áudio.\n\n' +
-  'Exemplos:\n• gastei 45,90 no mercado\n• uber 23 ontem no cartão Nubank\n• tênis 600 em 3x no cartão\n• recebi 3500 de salário';
+  'Exemplos:\n• gastei 45,90 no mercado\n• uber 23 ontem no cartão Nubank\n• tênis 600 em 3x no cartão\n• recebi 3500 de salário\n\n' +
+  'Para ver como está o mês, mande *resumo* (ou "resumo mês passado", "resumo novembro").';
 
 /**
  * @param {import('express').Express} app
@@ -222,6 +225,9 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
     if (/^(ajuda|menu|help|oi|olá|ola)$/i.test(text)) {
       return meta.sendText(from, `Olá, ${firstName(user.name)}! ${HELP}`);
     }
+    if (text && parseSummaryRequest(text, todayIso())) {
+      return sendSummary(from, user, text);
+    }
 
     let input;
     switch (m.type) {
@@ -245,6 +251,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
         }
         const said = await transcribe(await meta.downloadMedia(m.audio.id));
         if (!said) return meta.sendText(from, 'Não entendi o áudio. Pode repetir ou escrever?');
+        if (parseSummaryRequest(said, todayIso())) return sendSummary(from, user, said);
         input = { text: `(áudio transcrito) ${said}` };
         break;
       }
@@ -280,6 +287,21 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
       from,
       `Pronto, ${firstName(u.rows[0]?.name)}! Este WhatsApp está ligado à sua conta.\n\n${HELP}`,
     );
+  }
+
+  async function sendSummary(from, user, text) {
+    const today = todayIso();
+    const month = parseSummaryRequest(text, today);
+    const { rows } = await pool.query(
+      `select coll, data from app_docs
+       where user_id = $1 and not deleted
+         and coll in ('transactions', 'recurringTransactions', 'cards',
+                      'categories', 'invoicePayments')`,
+      [user.id],
+    );
+    const docs = {};
+    for (const r of rows) (docs[r.coll] ??= []).push(r.data);
+    return meta.sendText(from, formatMonthSummary(computeSummary(docs, month, today), today));
   }
 
   async function loadContext(userId) {
