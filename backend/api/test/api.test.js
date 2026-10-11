@@ -11,7 +11,7 @@ const url = process.env.TEST_DATABASE_URL;
 
 test('API', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
   const pool = new Pool({ connectionString: url });
-  await pool.query('drop table if exists of_items, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, app_docs, users cascade');
+  await pool.query('drop table if exists share_audit, share_payments, share_settlements, share_allocations, share_expenses, share_recurrences, share_categories, share_members, share_groups, of_items, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, app_docs, users cascade');
   await migrate(pool);
   const ITEM = '11111111-2222-3333-4444-555555555555';
   const OTHER_ITEM = '99999999-2222-3333-4444-555555555555';
