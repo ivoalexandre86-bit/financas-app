@@ -23,6 +23,7 @@ const Map<String, IconData> categoryIcons = {
   'flight': Icons.flight_takeoff,
   'pet': Icons.pets_outlined,
   'gift': Icons.card_giftcard,
+  'people': Icons.group_outlined,
   'other': Icons.more_horiz,
 };
 

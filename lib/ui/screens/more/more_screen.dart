@@ -14,6 +14,7 @@ import '../installments/installments_screen.dart';
 import '../open_finance/open_finance_screen.dart';
 import '../recurring/recurring_screen.dart';
 import '../settings/settings_screen.dart';
+import '../shared/shared_screen.dart';
 import '../simulations/simulations_screen.dart';
 import '../users/users_screen.dart';
 
@@ -69,6 +70,12 @@ class MoreScreen extends StatelessWidget {
             'Outras despesas e receitas',
             'Contas divididas por pessoa, reembolsos e pagamentos',
             const SimulationsScreen(initialTab: 1),
+          ),
+          item(
+            Icons.groups_outlined,
+            'Despesas compartilhadas',
+            'Grupos com outros usuários, % por categoria e acertos',
+            const SharedScreen(),
           ),
           item(
             Icons.account_balance_outlined,

@@ -14,11 +14,13 @@ import '../domain/engine/dashboard_engine.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/engine/installments.dart';
 import '../domain/engine/other_entries_engine.dart';
+import '../domain/engine/shared_engine.dart';
 import '../domain/engine/simulation_engine.dart';
 import '../domain/import/expense_import.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
 import '../domain/models/other_entry.dart';
+import '../domain/models/shared.dart';
 import '../domain/models/simulation.dart';
 
 /// Escopo de alteração de uma regra recorrente.
@@ -75,6 +77,11 @@ class FinanceController extends ChangeNotifier {
   bool loading = true;
   String? error;
 
+  /// A cópia local já foi conferida com a nuvem nesta sessão (ou não há
+  /// nuvem). Só então mudanças inferidas do orçamento (ex.: lançamento
+  /// excluído) são propagadas para as despesas compartilhadas.
+  bool cloudSynced = false;
+
   Future<void> load() async {
     loading = true;
     error = null;
@@ -117,14 +124,17 @@ class FinanceController extends ChangeNotifier {
     } catch (e) {
       error = 'Falha ao carregar dados: $e';
     }
+    final cloud = repo is CloudFinanceRepository
+        ? repo as CloudFinanceRepository
+        : null;
+    final sync = cloud?.backgroundSync;
+    cloudSynced = cloud == null || (sync == null && cloud.online);
     loading = false;
     notifyListeners();
-    final sync = repo is CloudFinanceRepository
-        ? (repo as CloudFinanceRepository).backgroundSync
-        : null;
     if (sync != null) {
       try {
         await sync;
+        cloudSynced = cloud!.online;
         if (!_disposed) await _reloadAll();
       } catch (_) {
         // Falha na nuvem: segue com a cópia local.
@@ -196,6 +206,7 @@ class FinanceController extends ChangeNotifier {
     final cloud = repo;
     if (cloud is! CloudFinanceRepository) return false;
     await cloud.refresh();
+    if (cloud.online) cloudSynced = true;
     await _reloadAll();
     return cloud.online;
   }
@@ -1129,6 +1140,34 @@ class FinanceController extends ChangeNotifier {
     }
     otherEntries = all;
     await _commit(ops);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Despesas compartilhadas
+
+  /// Alinha o orçamento com as despesas compartilhadas: minha parte nas
+  /// despesas pagas por outros e os reembolsos das que eu paguei (ids fixos
+  /// `sh_…`, nunca duplica). Retorna se algo mudou.
+  Future<bool> applyShared(SharedState state) async {
+    final account = otherAccount;
+    if (account == null || state.userId.isEmpty) return false;
+    final ops = <WriteOp>[];
+    final (puts, deletes) = SharedBudgetSync.diff(
+      existing: data.transactions,
+      desired: SharedBudgetSync.desired(
+        state: state,
+        categories: data.categories,
+        accountId: account.id,
+      ),
+    );
+    if (puts.isEmpty && deletes.isEmpty) return false;
+    for (final c in SharedBudgetSync.missingCategories(data.categories)) {
+      ops.add(WriteOp.put(Coll.categories, c.id, c.toJson()));
+    }
+    ops.addAll(puts.map(_putTx));
+    ops.addAll(deletes.map((id) => WriteOp.delete(Coll.transactions, id)));
+    await _commit(ops);
+    return true;
   }
 
   String _otherError(OtherEntry e) {

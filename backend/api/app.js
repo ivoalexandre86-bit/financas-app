@@ -10,6 +10,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { toAppTransaction, toAppAccount, PluggyError } = require('./pluggy');
 const { mountWhatsApp } = require('./whatsapp/routes');
+const { mountShared } = require('./shared/routes');
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const TOKEN_DAYS = 30;
@@ -465,6 +466,7 @@ function createApp({ pool, jwtSecret, allowedOrigins = [], pluggy = null, whatsa
   }));
 
   mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp });
+  mountShared(app, { pool, authed, wrap, HttpError });
 
   // Erros -------------------------------------------------------------------
 
