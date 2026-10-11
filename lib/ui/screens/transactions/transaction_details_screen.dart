@@ -1,6 +1,11 @@
 import '../../../domain/engine/other_entries_engine.dart';
 import '../simulations/other_entries.dart';
 import '../simulations/simulations_screen.dart';
+import '../../../core/money.dart';
+import '../../../domain/engine/shared_engine.dart';
+import '../shared/share_dialog.dart';
+import '../shared/shared_expense_screen.dart';
+import '../shared/shared_widgets.dart' show watchShared;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -41,6 +46,12 @@ class TransactionDetailsScreen extends StatelessWidget {
           .firstOrNull;
       if (entry != null) return OtherEntryScreen(entryId: entry.id);
     }
+    // Parte/reembolso de despesa compartilhada: abre a despesa do grupo.
+    final shared = watchShared(context);
+    if (shared != null && SharedBudgetSync.isDerived(tx.id)) {
+      final id = SharedBudgetSync.expenseIdOf(tx.id, shared.state);
+      if (id != null) return SharedExpenseScreen(expenseId: id);
+    }
     final e = fc.engine;
     // Recarrega a versão atual (pode ter sido editada).
     final t = tx.isVirtual
@@ -72,11 +83,25 @@ class TransactionDetailsScreen extends StatelessWidget {
         : BillingCycle.invoiceForTransaction(card, t);
     final rule = fc.data.ruleById[t.recurringId];
     final project = fc.data.projectById[t.projectId];
+    final sharedExpense = shared?.expenseForTx(t);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detalhes'),
         actions: [
+          if (shared != null &&
+              shared.available &&
+              t.type == TransactionType.expense &&
+              !SharedBudgetSync.isDerived(t.id) &&
+              !OtherSync.isDerived(t.id) &&
+              shared.expenseForTx(t) == null)
+            IconButton(
+              tooltip: 'Compartilhar',
+              icon: const Icon(Icons.group_add_outlined),
+              onPressed: () => t.isRecurring && rule != null
+                  ? showShareDialog(context, rule: rule)
+                  : showShareDialog(context, tx: t),
+            ),
           IconButton(
             tooltip: 'Editar',
             icon: const Icon(Icons.edit_outlined),
@@ -144,6 +169,25 @@ class TransactionDetailsScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
+          if (sharedExpense != null)
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.groups_outlined),
+                title: Text(
+                  'Compartilhada · ${shared!.group(sharedExpense.groupId)?.name ?? ''}',
+                ),
+                subtitle: Text(
+                  'Total ${sharedExpense.total == t.amount.cents ? '' : '${Money(sharedExpense.total).format()} · '}'
+                  'a receber dos outros ${Money(sharedExpense.outstanding).format()} · '
+                  '${sharedExpense.status.label}',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => push(
+                  context,
+                  SharedExpenseScreen(expenseId: sharedExpense.id),
+                ),
+              ),
+            ),
           SectionCard(
             child: Column(
               children: [

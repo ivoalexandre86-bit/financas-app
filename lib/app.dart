@@ -8,9 +8,11 @@ import 'data/cloud/api_client.dart';
 import 'data/cloud/cloud_auth_service.dart';
 import 'data/cloud/cloud_finance_repository.dart';
 import 'data/cloud/pluggy_open_finance.dart';
+import 'data/cloud/shared_api.dart';
 import 'data/finance_repository.dart';
 import 'state/auth_controller.dart';
 import 'state/finance_controller.dart';
+import 'state/shared_controller.dart';
 import 'ui/app_shell.dart';
 import 'ui/screens/auth/login_screen.dart';
 import 'ui/screens/settings/cloud_import.dart';
@@ -79,7 +81,22 @@ class FinancasApp extends StatelessWidget {
                     : null,
               )..load();
             },
-            child: app,
+            // Despesas compartilhadas: só com a conta na nuvem.
+            child: ChangeNotifierProvider(
+              // Já cria com o app: a minha parte nas despesas compartilhadas
+              // entra no orçamento mesmo sem abrir a tela delas.
+              lazy: false,
+              create: (context) {
+                final service = context.read<AuthController>().service;
+                return SharedController(
+                  service is CloudAuthService && !user.isDemo
+                      ? HttpSharedApi(service.api)
+                      : null,
+                  context.read<FinanceController>(),
+                );
+              },
+              child: app,
+            ),
           );
         },
       ),

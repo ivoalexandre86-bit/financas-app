@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../app.dart';
 import '../state/auth_controller.dart';
 import '../state/finance_controller.dart';
+import '../state/shared_controller.dart';
 import 'nav.dart';
 import 'screens/simulations/simulations_screen.dart';
 import 'screens/cards/invoices_screen.dart';
@@ -14,6 +15,7 @@ import 'screens/more/more_screen.dart';
 import 'screens/projection/projection_screen.dart';
 import 'screens/projects/projects_screen.dart';
 import 'screens/settings/settings_screen.dart';
+import 'screens/shared/shared_screen.dart';
 import 'screens/transactions/transactions_screen.dart';
 import 'screens/users/users_screen.dart';
 import 'widgets/common.dart';
@@ -57,6 +59,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (now.difference(_lastRefresh) < const Duration(seconds: 30)) return;
     _lastRefresh = now;
     fc.refreshFromCloud().ignore();
+    try {
+      context.read<SharedController>().refresh().ignore();
+    } on ProviderNotFoundException {
+      // Sem despesas compartilhadas nesta árvore (ex.: testes).
+    }
   }
 
   /// Menu lateral expandido (`null` = padrão pela largura da tela).
@@ -359,6 +366,12 @@ class SideMenu extends StatelessWidget {
                           context,
                           const SimulationsScreen(initialTab: 1),
                         ),
+                      ),
+                      entry(
+                        key: const ValueKey('side-menu-shared'),
+                        icon: Icons.groups_outlined,
+                        label: 'Compartilhadas',
+                        onTap: () => push(context, const SharedScreen()),
                       ),
                       if (user?.isAdmin ?? false)
                         entry(

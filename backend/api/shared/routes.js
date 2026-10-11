@@ -279,6 +279,7 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
             description: r.description,
             override: r.override,
             paused: r.paused,
+            createdAt: r.created_at,
           })),
         expenses: expenses
           .filter((e) => e.group_id === gid)

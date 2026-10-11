@@ -10,6 +10,10 @@ import '../../../state/finance_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
+import '../../nav.dart';
+import '../shared/group_screen.dart';
+import '../shared/share_dialog.dart';
+import '../shared/shared_widgets.dart' show watchShared;
 
 /// Cadastro/edição de regra recorrente, com pausa, retomada e exclusão.
 class RecurringFormScreen extends StatefulWidget {
@@ -162,6 +166,33 @@ class _RecurringFormScreenState extends State<RecurringFormScreen> {
       appBar: AppBar(
         title: Text(rule == null ? 'Nova recorrência' : 'Editar recorrência'),
         actions: [
+          if (rule != null &&
+              rule.type == TransactionType.expense &&
+              (watchShared(context)?.available ?? false))
+            Builder(
+              builder: (context) {
+                final sc = watchShared(context)!;
+                final sr = sc.recurrenceForRule(rule);
+                return IconButton(
+                  tooltip: sr == null
+                      ? 'Compartilhar'
+                      : 'Compartilhada em grupo',
+                  icon: Icon(
+                    sr == null ? Icons.group_add_outlined : Icons.groups,
+                  ),
+                  onPressed: () => sr == null
+                      ? showShareDialog(context, rule: rule)
+                      : push(
+                          context,
+                          GroupScreen(
+                            groupId: sc.state.groups
+                                .firstWhere((g) => g.recurrences.contains(sr))
+                                .id,
+                          ),
+                        ),
+                );
+              },
+            ),
           if (rule != null)
             IconButton(
               tooltip: rule.isPaused ? 'Retomar' : 'Pausar',
