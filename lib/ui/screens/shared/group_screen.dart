@@ -151,7 +151,7 @@ class GroupScreen extends StatelessWidget {
                   ? TextButton.icon(
                       icon: const Icon(Icons.person_add_alt),
                       label: const Text('Convidar'),
-                      onPressed: () => _invite(context, g),
+                      onPressed: () => inviteToGroup(context, g),
                     )
                   : null,
               child: Column(
@@ -356,75 +356,6 @@ class GroupScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _invite(BuildContext context, ShareGroup g) async {
-    final email = TextEditingController();
-    var role = ShareRole.member;
-    final sc = context.read<SharedController>();
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, set) => AlertDialog(
-          title: const Text('Convidar participante'),
-          content: SizedBox(
-            width: 360,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: email,
-                  autofocus: true,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'E-mail da conta no app',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<ShareRole>(
-                  initialValue: role,
-                  decoration: const InputDecoration(labelText: 'Papel'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: ShareRole.member,
-                      child: Text('Participante'),
-                    ),
-                    DropdownMenuItem(
-                      value: ShareRole.manager,
-                      child: Text('Gestor'),
-                    ),
-                  ],
-                  onChanged: (r) => set(() => role = r!),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'A pessoa precisa ter conta no app. Ela vê o convite em '
-                  'Despesas compartilhadas e decide se aceita.',
-                  style: ctx.text.bodySmall,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final ok = await runAction(
-                  ctx,
-                  () => sc.invite(g, email.text, role),
-                  success: 'Convite enviado',
-                );
-                if (ok && ctx.mounted) Navigator.pop(ctx);
-              },
-              child: const Text('Convidar'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _member(
     BuildContext context,
     ShareGroup g,
@@ -588,6 +519,77 @@ class _PercentMatrix extends StatelessWidget {
 }
 
 /// Cria ou edita uma categoria do grupo e os percentuais dela.
+/// Convida alguém (pela conta no app) para o grupo [g].
+Future<bool> inviteToGroup(BuildContext context, ShareGroup g) async {
+  final email = TextEditingController();
+  var role = ShareRole.member;
+  final sc = context.read<SharedController>();
+  final sent = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, set) => AlertDialog(
+        title: const Text('Convidar participante'),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: email,
+                autofocus: true,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'E-mail da conta no app',
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<ShareRole>(
+                initialValue: role,
+                decoration: const InputDecoration(labelText: 'Papel'),
+                items: const [
+                  DropdownMenuItem(
+                    value: ShareRole.member,
+                    child: Text('Participante'),
+                  ),
+                  DropdownMenuItem(
+                    value: ShareRole.manager,
+                    child: Text('Gestor'),
+                  ),
+                ],
+                onChanged: (r) => set(() => role = r!),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'A pessoa precisa ter conta no app. Ela vê o convite em '
+                'Despesas compartilhadas e decide se aceita.',
+                style: ctx.text.bodySmall,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final ok = await runAction(
+                ctx,
+                () => sc.invite(g, email.text, role),
+                success: 'Convite enviado',
+              );
+              if (ok && ctx.mounted) Navigator.pop(ctx, true);
+            },
+            child: const Text('Convidar'),
+          ),
+        ],
+      ),
+    ),
+  );
+  return sent == true;
+}
+
 Future<void> showCategoryDialog(
   BuildContext context,
   ShareGroup g, {
@@ -620,6 +622,15 @@ Future<void> showCategoryDialog(
                   ids: g.activeIds,
                   nameOf: g.nameOf,
                   initial: value,
+                  onInvite: () async {
+                    if (await inviteToGroup(ctx, g) && ctx.mounted) {
+                      showMessage(
+                        ctx,
+                        'Convite enviado. Quando a pessoa aceitar, ela '
+                        'aparece aqui para receber um percentual.',
+                      );
+                    }
+                  },
                   onChanged: (v, e) {
                     value = v;
                     set(() => error = e);

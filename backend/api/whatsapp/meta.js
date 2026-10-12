@@ -64,6 +64,29 @@ function createMetaClient({ token, phoneNumberId, apiVersion = 'v23.0' }) {
         },
       }),
 
+    /// Lista de opções (até 10 linhas {id, title ≤ 24, description ≤ 72})
+    /// aberta pelo botão [button].
+    sendList: (to, text, button, rows) =>
+      send(to, {
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: { text: text.slice(0, 1024) },
+          action: {
+            button: button.slice(0, 20),
+            sections: [
+              {
+                rows: rows.slice(0, 10).map((r) => ({
+                  id: r.id.slice(0, 200),
+                  title: r.title.slice(0, 24),
+                  ...(r.description ? { description: r.description.slice(0, 72) } : {}),
+                })),
+              },
+            ],
+          },
+        },
+      }),
+
     markRead: (messageId) =>
       send(undefined, { status: 'read', message_id: messageId }).catch(() => {}),
 

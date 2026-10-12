@@ -12,6 +12,7 @@ import '../../../state/shared_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../transactions/transaction_form_screen.dart';
 import 'group_screen.dart';
 import 'payment_dialogs.dart';
 import 'share_dialog.dart';
@@ -144,10 +145,24 @@ class _ExpensesTabState extends State<_ExpensesTab> {
     return Scaffold(
       floatingActionButton: sc.managedGroups.isEmpty
           ? null
-          : FloatingActionButton.extended(
-              icon: const Icon(Icons.group_add_outlined),
-              label: const Text('Compartilhar'),
-              onPressed: () => _pickTransaction(context),
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'share-existing',
+                  tooltip: 'Compartilhar despesa já lançada',
+                  onPressed: () => _pickTransaction(context),
+                  child: const Icon(Icons.group_add_outlined),
+                ),
+                const SizedBox(height: 12),
+                FloatingActionButton.extended(
+                  heroTag: 'share-new',
+                  icon: const Icon(Icons.add),
+                  label: const Text('Nova despesa'),
+                  onPressed: () => newSharedExpense(context),
+                ),
+              ],
             ),
       body: RefreshIndicator(
         onRefresh: sc.refresh,
@@ -266,6 +281,27 @@ class _ExpensesTabState extends State<_ExpensesTab> {
         ),
       ),
     );
+  }
+
+  /// Lança uma despesa nova e já segue para a divisão no grupo.
+  Future<void> newSharedExpense(BuildContext context) async {
+    final saved = await push<Object>(
+      context,
+      const TransactionFormScreen(sharing: true),
+    );
+    if (saved == null || !context.mounted) return;
+    final ok = await showShareDialog(
+      context,
+      tx: saved is FinTransaction ? saved : null,
+      rule: saved is RecurringRule ? saved : null,
+    );
+    if (!ok && context.mounted) {
+      showMessage(
+        context,
+        'A despesa foi lançada só no seu orçamento. Para dividir, use '
+        '"Compartilhar despesa já lançada".',
+      );
+    }
   }
 
   /// Escolhe uma despesa minha (ainda não compartilhada) para compartilhar.

@@ -465,8 +465,8 @@ function createApp({ pool, jwtSecret, allowedOrigins = [], pluggy = null, whatsa
     res.json({ transactions: txs.map(toAppTransaction) });
   }));
 
-  mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp });
-  mountShared(app, { pool, authed, wrap, HttpError });
+  const shared = mountShared(app, { pool, authed, wrap, HttpError });
+  mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared });
 
   // Erros -------------------------------------------------------------------
 

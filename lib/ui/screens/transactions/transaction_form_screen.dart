@@ -27,6 +27,10 @@ class TransactionFormScreen extends StatefulWidget {
   /// recorrência" na fatura ou "Parcelar" em uma compra salva).
   final bool initialRecurring;
   final bool initialInstallment;
+
+  /// Nova despesa que será compartilhada em seguida: só despesa, sem
+  /// parcelamento, e a tela devolve o lançamento (ou a regra) salvo.
+  final bool sharing;
   const TransactionFormScreen({
     super.key,
     this.tx,
@@ -36,6 +40,7 @@ class TransactionFormScreen extends StatefulWidget {
     this.initialDate,
     this.initialRecurring = false,
     this.initialInstallment = false,
+    this.sharing = false,
   });
 
   /// Lançamento à vista já salvo: pode virar parcelado ou recorrente.
@@ -77,6 +82,9 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
 
   bool installment = false;
   bool saving = false;
+
+  /// O que foi salvo (lançamento ou regra), devolvido no modo [sharing].
+  Object? saved;
 
   bool get isEdit => widget.tx != null && !widget.tx!.isVirtual;
 
@@ -244,6 +252,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             return;
           }
           await fc.createRule(rule);
+          saved = rule;
           // A primeira ocorrência já realizada é registrada como concluída.
           if (status == TransactionStatus.completed &&
               !date.isAfter(fc.today)) {
@@ -277,25 +286,25 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
               description: '',
               date: date,
             );
-        await fc.saveTransaction(
-          base.copyWith(
-            type: type,
-            amount: value,
-            description: description.text.trim(),
-            categoryId: isTransfer ? null : categoryId,
-            date: date,
-            accountId: isTransfer ? fromAccount : funding?.accountId,
-            cardId: isTransfer ? null : funding?.cardId,
-            destinationAccountId: isTransfer ? toAccount : null,
-            projectId: projectId,
-            notes: notes.text.trim(),
-            status: status,
-            // Igual à data: não grava, assim o vencimento acompanha a data.
-            dueDate: !_showsDueDate || _dueOffset == 0 && _dueRequired
-                ? null
-                : _due,
-          ),
+        final tx = base.copyWith(
+          type: type,
+          amount: value,
+          description: description.text.trim(),
+          categoryId: isTransfer ? null : categoryId,
+          date: date,
+          accountId: isTransfer ? fromAccount : funding?.accountId,
+          cardId: isTransfer ? null : funding?.cardId,
+          destinationAccountId: isTransfer ? toAccount : null,
+          projectId: projectId,
+          notes: notes.text.trim(),
+          status: status,
+          // Igual à data: não grava, assim o vencimento acompanha a data.
+          dueDate: !_showsDueDate || _dueOffset == 0 && _dueRequired
+              ? null
+              : _due,
         );
+        await fc.saveTransaction(tx);
+        saved = tx;
       },
       success: installment
           ? (isEdit ? 'Compra parcelada' : 'Compra parcelada registrada')
@@ -307,7 +316,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     );
     if (!mounted) return;
     setState(() => saving = false);
-    if (ok) Navigator.pop(context, true);
+    if (ok) Navigator.pop(context, widget.sharing ? saved : true);
   }
 
   @override
@@ -322,7 +331,13 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isEdit ? 'Editar transação' : 'Nova transação'),
+        title: Text(
+          isEdit
+              ? 'Editar transação'
+              : widget.sharing
+              ? 'Nova despesa compartilhada'
+              : 'Nova transação',
+        ),
       ),
       body: Form(
         key: _form,
@@ -357,32 +372,33 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 'Alterações aqui valem somente para esta ocorrência. '
                 'Para alterar a regra, edite a recorrência.',
               ),
-            SegmentedButton<TransactionType>(
-              segments: const [
-                ButtonSegment(
-                  value: TransactionType.expense,
-                  label: Text('Despesa'),
-                  icon: Icon(Icons.north_east, size: 16),
-                ),
-                ButtonSegment(
-                  value: TransactionType.income,
-                  label: Text('Receita'),
-                  icon: Icon(Icons.south_west, size: 16),
-                ),
-                ButtonSegment(
-                  value: TransactionType.transfer,
-                  label: Text('Transf.'),
-                  icon: Icon(Icons.swap_horiz, size: 16),
-                ),
-              ],
-              selected: {type},
-              onSelectionChanged: (s) => setState(() {
-                type = s.first;
-                categoryId = null;
-                if (type != TransactionType.expense) installment = false;
-                if (type == TransactionType.transfer) recurring = false;
-              }),
-            ),
+            if (!widget.sharing)
+              SegmentedButton<TransactionType>(
+                segments: const [
+                  ButtonSegment(
+                    value: TransactionType.expense,
+                    label: Text('Despesa'),
+                    icon: Icon(Icons.north_east, size: 16),
+                  ),
+                  ButtonSegment(
+                    value: TransactionType.income,
+                    label: Text('Receita'),
+                    icon: Icon(Icons.south_west, size: 16),
+                  ),
+                  ButtonSegment(
+                    value: TransactionType.transfer,
+                    label: Text('Transf.'),
+                    icon: Icon(Icons.swap_horiz, size: 16),
+                  ),
+                ],
+                selected: {type},
+                onSelectionChanged: (s) => setState(() {
+                  type = s.first;
+                  categoryId = null;
+                  if (type != TransactionType.expense) installment = false;
+                  if (type == TransactionType.transfer) recurring = false;
+                }),
+              ),
             const SizedBox(height: 16),
             MoneyField(
               controller: amount,
@@ -534,7 +550,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 }),
               ),
               if (recurring) _recurrenceFields(),
-              if (type == TransactionType.expense)
+              if (type == TransactionType.expense && !widget.sharing)
                 SwitchListTile(
                   key: const ValueKey('switch-installment'),
                   contentPadding: EdgeInsets.zero,
@@ -590,7 +606,13 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Text(isEdit ? 'Salvar alterações' : 'Salvar'),
+                : Text(
+                    isEdit
+                        ? 'Salvar alterações'
+                        : widget.sharing
+                        ? 'Continuar para a divisão'
+                        : 'Salvar',
+                  ),
           ),
         ),
       ),

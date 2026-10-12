@@ -9,6 +9,7 @@ import 'package:financas_app/state/finance_controller.dart';
 import 'package:financas_app/state/shared_controller.dart';
 import 'package:financas_app/ui/screens/shared/shared_expense_screen.dart';
 import 'package:financas_app/ui/screens/shared/shared_screen.dart';
+import 'package:financas_app/ui/screens/shared/shared_widgets.dart';
 import 'package:financas_app/ui/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -647,5 +648,58 @@ void main() {
     expect(find.text('Divisão'), findsOneWidget);
     expect(find.textContaining('em aberto'), findsOneWidget);
     expect(find.text('Pendente'), findsWidgets);
+  });
+
+  testWidgets('divisão por pessoa: adicionar, editar % e R\$', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    Map<String, int>? value;
+    String? error;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: PercentEditor(
+            ids: const [ana, bia],
+            nameOf: (id) => id == ana ? 'Ana' : 'Bia',
+            initial: const {ana: fullBp},
+            total: 10000,
+            onChanged: (v, e) {
+              value = v;
+              error = e;
+            },
+          ),
+        ),
+      ),
+    );
+    // Começa só com quem já tem percentual.
+    expect(find.byKey(const ValueKey('share-person-1')), findsNothing);
+    expect(find.text('Tudo distribuído (100%)'), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('share-value-0')), '60');
+    await tester.pump();
+    expect(find.text('Falta distribuir 40%'), findsOneWidget);
+    expect(error, isNotNull);
+    // Adicionar pessoa já sugere o que falta.
+    await tester.tap(find.byKey(const ValueKey('share-add-person')));
+    await tester.pump();
+    expect(value, {ana: 6000, bia: 4000});
+    expect(error, isNull);
+    expect(find.byKey(const ValueKey('share-add-person')), findsNothing);
+    // Em R\$: 25,00 de 100,00 = 25%.
+    await tester.tap(find.text('R\$').last);
+    await tester.pump();
+    await tester.enterText(find.byKey(const ValueKey('share-value-1')), '25');
+    await tester.pump();
+    expect(value, {ana: 6000, bia: 2500});
+    await tester.enterText(find.byKey(const ValueKey('share-value-0')), '75');
+    await tester.pump();
+    expect(value, {ana: 7500, bia: 2500});
+    expect(error, isNull);
+    // Remover a pessoa.
+    await tester.tap(find.byTooltip('Remover').last);
+    await tester.pump();
+    expect(value, {ana: 7500});
+    expect(find.text('Falta distribuir 25%'), findsOneWidget);
   });
 }
