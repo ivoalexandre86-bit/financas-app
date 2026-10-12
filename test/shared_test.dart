@@ -119,14 +119,37 @@ void main() {
       expect(odd.map((x) => x.amount), [51, 50]);
     });
 
-    test('valida 100% e participantes ativos', () {
+    test('convidado entra na divisão; ex-participante não', () {
+      const g = ShareGroup(
+        id: 'g',
+        name: 'Casa',
+        ownerId: ana,
+        members: [
+          ShareMember(userId: ana, name: 'Ana', role: ShareRole.owner),
+          ShareMember(userId: bia, name: 'Bia', status: 'invited'),
+          ShareMember(userId: caio, name: 'Caio', status: 'left'),
+        ],
+      );
+      expect(g.splitIds, [ana, bia]);
+      expect(g.splitLabel(bia), 'Bia (convidado)');
+      expect(
+        ShareMath.checkPercentages({ana: 5000, bia: 5000}, g.splitIds),
+        isNull,
+      );
+      expect(
+        ShareMath.checkPercentages({ana: 5000, caio: 5000}, g.splitIds),
+        isNotNull,
+      );
+    });
+
+    test('valida 100% e participantes do grupo', () {
       expect(
         ShareMath.checkPercentages({ana: 6000, bia: 3000}, [ana, bia]),
         contains('100%'),
       );
       expect(
         ShareMath.checkPercentages({ana: 6000, caio: 4000}, [ana, bia]),
-        contains('ativos'),
+        contains('participantes do grupo'),
       );
       expect(
         ShareMath.checkPercentages({ana: 6000, bia: 4000}, [ana, bia]),
@@ -673,19 +696,18 @@ void main() {
         ),
       ),
     );
-    // Começa só com quem já tem percentual.
-    expect(find.byKey(const ValueKey('share-person-1')), findsNothing);
+    // Todos do grupo aparecem, mesmo quem está com 0%.
+    expect(find.byKey(const ValueKey('share-person-1')), findsOneWidget);
     expect(find.text('Tudo distribuído (100%)'), findsOneWidget);
+    expect(find.byKey(const ValueKey('share-add-person')), findsNothing);
     await tester.enterText(find.byKey(const ValueKey('share-value-0')), '60');
     await tester.pump();
     expect(find.text('Falta distribuir 40%'), findsOneWidget);
     expect(error, isNotNull);
-    // Adicionar pessoa já sugere o que falta.
-    await tester.tap(find.byKey(const ValueKey('share-add-person')));
+    await tester.enterText(find.byKey(const ValueKey('share-value-1')), '40');
     await tester.pump();
     expect(value, {ana: 6000, bia: 4000});
     expect(error, isNull);
-    expect(find.byKey(const ValueKey('share-add-person')), findsNothing);
     // Em R\$: 25,00 de 100,00 = 25%.
     await tester.tap(find.text('R\$').last);
     await tester.pump();
@@ -701,5 +723,9 @@ void main() {
     await tester.pump();
     expect(value, {ana: 7500});
     expect(find.text('Falta distribuir 25%'), findsOneWidget);
+    // Quem foi removido pode voltar.
+    await tester.tap(find.byKey(const ValueKey('share-add-person')));
+    await tester.pump();
+    expect(value, {ana: 7500, bia: 2500});
   });
 }

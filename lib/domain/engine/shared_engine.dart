@@ -51,7 +51,7 @@ class ShareMath {
       if (e.value < 0 || e.value > fullBp) return 'Percentual inválido';
       if (e.value == 0) continue;
       if (!activeIds.contains(e.key)) {
-        return 'Só participantes ativos do grupo podem ter percentual';
+        return 'Só participantes do grupo (ou convidados) podem ter percentual';
       }
       sum += e.value;
     }
@@ -632,7 +632,7 @@ class SharedScenario {
     percentages: {
       for (final c in g.activeCategories) c.id: Map.of(c.percentages),
     },
-    participants: g.activeIds,
+    participants: g.splitIds,
   );
 
   String? error(ShareGroup g) {

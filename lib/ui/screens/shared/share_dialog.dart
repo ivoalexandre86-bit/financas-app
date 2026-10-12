@@ -92,7 +92,7 @@ class _ShareDialogState extends State<_ShareDialog> {
   String? get error {
     if (category == null) return 'Escolha a categoria do grupo';
     if (custom) return customError;
-    return ShareMath.checkPercentages(shares, group.activeIds) == null
+    return ShareMath.checkPercentages(shares, group.splitIds) == null
         ? null
         : 'Os percentuais desta categoria estão incompletos. Ajuste-os no '
               'grupo ou use uma divisão só para esta despesa.';
@@ -130,7 +130,7 @@ class _ShareDialogState extends State<_ShareDialog> {
     final cats = group.activeCategories;
     final err = error;
     final preview = err == null
-        ? ShareMath.allocate(total, shares, order: group.activeIds)
+        ? ShareMath.allocate(total, shares, order: group.splitIds)
         : const <ShareAllocation>[];
     final title = widget.rule != null
         ? 'Compartilhar recorrência'
@@ -198,7 +198,7 @@ class _ShareDialogState extends State<_ShareDialog> {
                         customShares = Map.of(category?.percentages ?? {});
                         customError = ShareMath.checkPercentages(
                           customShares,
-                          group.activeIds,
+                          group.splitIds,
                         );
                       })
                     : null,
@@ -206,8 +206,15 @@ class _ShareDialogState extends State<_ShareDialog> {
               if (custom) ...[
                 PercentEditor(
                   key: ValueKey('${group.id}/${category?.id}'),
-                  ids: group.activeIds,
-                  nameOf: group.nameOf,
+                  ids: group.splitIds,
+                  nameOf: group.splitLabel,
+                  onInvite: group.myRole == ShareRole.owner
+                      ? () async {
+                          if (await inviteToGroup(context, group)) {
+                            setState(() => group = sc.group(group.id) ?? group);
+                          }
+                        }
+                      : null,
                   initial: customShares,
                   total: total,
                   onChanged: (v, e) => setState(() {
@@ -249,12 +256,13 @@ class _ShareDialogState extends State<_ShareDialog> {
                   ),
                 ),
               ],
-              if (group.activeIds.length < 2)
+              if (group.splitIds.length < 2)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Text(
-                    'Ainda não há outros participantes ativos neste grupo: '
-                    'convide alguém em Grupos.',
+                    'Este grupo só tem você. Convide quem divide as despesas '
+                    '(a pessoa precisa ter conta no app) em Grupos ou em '
+                    '"Divisão diferente só nesta despesa".',
                     style: context.text.bodySmall,
                   ),
                 ),

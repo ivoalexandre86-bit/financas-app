@@ -25,7 +25,7 @@ test('allocate: soma exata e centavos para as maiores frações', () => {
 test('checkPercentages', () => {
   const ids = ['a', 'b'];
   assert.match(checkPercentages({ a: 6000, b: 3000 }, ids).error, /100%/);
-  assert.match(checkPercentages({ a: 6000, c: 4000 }, ids).error, /ativos/);
+  assert.match(checkPercentages({ a: 6000, c: 4000 }, ids).error, /participantes do grupo/);
   assert.match(checkPercentages({ a: 60.5, b: 3950 }, ids).error, /inválido/);
   assert.deepEqual(checkPercentages({ b: 4000, a: 6000 }, ids).list, [
     { userId: 'a', bp: 6000 },
@@ -325,5 +325,32 @@ test('API de despesas compartilhadas', { skip: !url && 'TEST_DATABASE_URL não d
       assert.ok(actions.has(a), a);
     }
     assert.equal(h[0].actorName, 'Bia');
+  });
+
+  await t.test('convidado já entra na divisão; se recusar, a parte volta ao dono', async () => {
+    assert.equal((await call('POST', `/shared/groups/${gid}/members`, ana.token, { email: 'caio@x.com' })).status, 201);
+    let s = await state(ana);
+    assert.equal(s.groups[0].members.find((m) => m.userId === caio.id).status, 'invited');
+    assert.equal(
+      (await call('PATCH', `/shared/categories/${luz.id}`, ana.token, {
+        percentages: { [ana.id]: 7000, [caio.id]: 3000 },
+      })).status,
+      204,
+    );
+    const r = await call('POST', '/shared/expenses', ana.token, {
+      groupId: gid, categoryId: luz.id, description: 'Gás', total: 10000,
+      date: '2026-10-10', source: 'manual',
+    });
+    assert.equal(r.status, 201);
+    s = await state(ana);
+    const e = s.groups[0].expenses.find((x) => x.id === r.body.id);
+    assert.deepEqual(e.allocations.map((a) => a.amount).sort((a, b) => a - b), [3000, 7000]);
+    // Convidado ainda não vê o grupo.
+    assert.equal((await state(caio)).groups.length, 0);
+    assert.equal((await call('POST', `/shared/groups/${gid}/reject`, caio.token)).status, 204);
+    s = await state(ana);
+    assert.deepEqual(s.groups[0].categories.find((c) => c.id === luz.id).percentages, { [ana.id]: 10000 });
+    const after = s.groups[0].expenses.find((x) => x.id === r.body.id);
+    assert.deepEqual(after.allocations, [{ userId: ana.id, bp: 10000, amount: 10000 }]);
   });
 });

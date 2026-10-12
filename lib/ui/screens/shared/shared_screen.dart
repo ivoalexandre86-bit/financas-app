@@ -508,7 +508,7 @@ class _SummaryTabState extends State<_SummaryTab> {
     final byMonth = SharedReport.byMonth(ofYear);
     final prevByMonth = SharedReport.byMonth(prevYear);
     final ids = {
-      ...g.activeIds,
+      ...g.splitIds,
       for (final e in ofYear) ...e.allocations.map((a) => a.userId),
     }.toList();
     final cats = totals.byCategory.entries.toList()

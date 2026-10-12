@@ -16,7 +16,7 @@ export '../simulations/other_entries.dart' show payStatusPill, payStatusColor;
 /// "Adicionar pessoa" inclui quem ainda não está na divisão; com todos já
 /// incluídos e [onInvite] presente, oferece convidar alguém para o grupo.
 class PercentEditor extends StatefulWidget {
-  /// Quem pode entrar na divisão (participantes ativos do grupo).
+  /// Quem pode entrar na divisão (participantes e convidados do grupo).
   final List<String> ids;
   final String Function(String id) nameOf;
   final Map<String, int> initial;
@@ -50,10 +50,10 @@ class _ShareRow {
 }
 
 class _PercentEditorState extends State<PercentEditor> {
+  // Todos do grupo aparecem, cada um com o percentual atual (0 se não tem).
   late final List<_ShareRow> rows = [
     for (final id in widget.ids)
-      if ((widget.initial[id] ?? 0) > 0)
-        _ShareRow(id, bpLabel(widget.initial[id]!).replaceAll('%', '')),
+      _ShareRow(id, bpLabel(widget.initial[id] ?? 0).replaceAll('%', '')),
   ];
   Map<String, int> value = {};
   String? error;
@@ -65,6 +65,18 @@ class _PercentEditorState extends State<PercentEditor> {
       rows.add(_ShareRow(widget.ids.first, '100'));
     }
     _read(notify: false);
+  }
+
+  @override
+  void didUpdateWidget(PercentEditor old) {
+    super.didUpdateWidget(old);
+    // Alguém entrou no grupo (ex.: convite feito daqui): ganha uma linha.
+    final added = widget.ids.where((id) => !old.ids.contains(id)).toList();
+    if (added.isEmpty) return;
+    rows.addAll([for (final id in added) _ShareRow(id, '0')]);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _read();
+    });
   }
 
   @override

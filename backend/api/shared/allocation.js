@@ -43,7 +43,7 @@ function checkPercentages(percentages, activeIds) {
     }
     if (bp === 0) continue;
     if (!activeIds.includes(userId)) {
-      return { error: 'Só participantes ativos do grupo podem ter percentual' };
+      return { error: 'Só participantes do grupo (ou convidados) podem ter percentual' };
     }
     list.push({ userId, bp });
   }
