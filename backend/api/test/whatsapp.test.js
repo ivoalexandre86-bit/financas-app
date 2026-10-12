@@ -158,6 +158,7 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
   const fakeMeta = (via) => ({
     sendText: async (to, text) => sent.push({ to, text, via }),
     sendButtons: async (to, text, buttons) => sent.push({ to, text, buttons, via }),
+    sendList: async (to, text, button, rows) => sent.push({ to, text, rows, via }),
     markRead: () => {},
     downloadMedia: async () => ({ data: Buffer.from('img'), mimeType: 'image/jpeg' }),
   });
@@ -217,6 +218,7 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
   }
   const text = (body) => ({ type: 'text', text: { body } });
   const button = (id) => ({ type: 'interactive', interactive: { type: 'button_reply', button_reply: { id } } });
+  const listPick = (id) => ({ type: 'interactive', interactive: { type: 'list_reply', list_reply: { id } } });
 
   const reg = await call('POST', '/auth/register', {
     body: { name: 'Ivo Alexandre', email: 'ivo@x.com', password: 'Senha1234' },
@@ -352,6 +354,81 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
     };
     assert.equal(await post(), 1);
     assert.equal(await post(), 0);
+  });
+
+  await t.test('despesa compartilhada: escolha entre despesa e compartilhada', async () => {
+    const created = await call('POST', '/users', {
+      token,
+      body: { name: 'Bia Souza', email: 'bia@x.com', password: 'Senha1234' },
+    });
+    assert.equal(created.status, 201);
+    const bia = (await call('POST', '/auth/login', { body: { email: 'bia@x.com', password: 'Senha1234' } })).body;
+    const g = await call('POST', '/shared/groups', { token, body: { name: 'Casa', categories: ['Mercado'] } });
+    await call('POST', `/shared/groups/${g.body.id}/members`, { token, body: { email: 'bia@x.com' } });
+    await call('POST', `/shared/groups/${g.body.id}/accept`, { token: bia.token });
+    const st = (await call('GET', '/shared/state', { token })).body;
+    const me = reg.body.user.id;
+    const cat = st.groups[0].categories[0];
+    assert.equal(
+      (await call('PATCH', `/shared/categories/${cat.id}`, {
+        token,
+        body: { percentages: { [me]: 6000, [bia.user.id]: 4000 } },
+      })).status,
+      204,
+    );
+
+    // Receita e parcelado continuam com Confirmar / Corrigir / Cancelar.
+    nextRaw = raw({ amount: 90, installments: 3 });
+    await deliver('5511999990000', text('tênis 90 em 3x'));
+    assert.deepEqual(sent[0].buttons.map((b) => b.title), ['Confirmar', 'Corrigir', 'Cancelar']);
+    await deliver('5511999990000', text('cancelar'));
+    assert.match(sent[0].text, /Cancelado/);
+
+    // Despesa à vista: Despesa / Compartilhada / Corrigir.
+    nextRaw = raw({ amount: 100, card_id: 'card_1', date: '2026-10-05' });
+    await deliver('5511999990000', text('mercado 100 no nubank'));
+    assert.deepEqual(sent[0].buttons.map((b) => b.title), ['Despesa', 'Compartilhada', 'Corrigir']);
+    assert.match(sent[0].text, /despesa sua ou compartilhada/);
+    const id = sent[0].buttons[1].id.split(':')[1];
+    // Um só grupo/categoria: compartilha direto.
+    await deliver('5511999990000', button(`sh:${id}`));
+    assert.match(sent[0].text, /compartilhado ✅ em Casa › Mercado/);
+    assert.match(sent[0].text, /Você: R\$\s?60,00/);
+    assert.match(sent[0].text, /Bia: R\$\s?40,00/);
+
+    const docs = (await call('GET', '/docs', { token })).body.docs;
+    const tx = docs.find((d) => d.coll === 'transactions' && d.data.amount === 10000);
+    const after = (await call('GET', '/shared/state', { token })).body;
+    const e = after.groups[0].expenses.find((x) => x.sourceKey === tx.id);
+    assert.equal(e.total, 10000);
+    assert.equal(e.source, 'card');
+    assert.equal(e.dueDate, '2026-11-08'); // fatura de novembro, vence dia 8
+    assert.deepEqual(
+      e.allocations.map((a) => a.amount).sort((a, b) => a - b),
+      [4000, 6000],
+    );
+    // Bia vê a despesa no estado dela.
+    const biaState = (await call('GET', '/shared/state', { token: bia.token })).body;
+    assert.equal(biaState.groups[0].expenses.length, 1);
+    await deliver('5511999990000', button(`sh:${id}`));
+    assert.match(sent[0].text, /já foi gravado/);
+
+    // Com mais de uma opção, o bot pergunta em lista.
+    await call('POST', '/shared/groups', { token, body: { name: 'Viagem', categories: ['Hotel'] } });
+    nextRaw = raw({ amount: 50 });
+    await deliver('5511999990000', text('mercado 50'));
+    const id2 = sent[0].buttons[1].id.split(':')[1];
+    await deliver('5511999990000', button(`sh:${id2}`));
+    assert.deepEqual(sent[0].rows.map((r) => r.title), ['Mercado', 'Hotel']);
+    assert.match(sent[0].rows[0].description, /sugerida/);
+    await deliver('5511999990000', listPick(sent[0].rows[1].id));
+    assert.match(sent[0].text, /compartilhado ✅ em Viagem › Hotel/);
+
+    // "Despesa" lança só no orçamento.
+    nextRaw = raw({ amount: 12 });
+    await deliver('5511999990000', text('café 12'));
+    await deliver('5511999990000', button(sent[0].buttons[0].id));
+    assert.match(sent[0].text, /^Lançado ✅/);
   });
 
   await t.test('desvincular', async () => {

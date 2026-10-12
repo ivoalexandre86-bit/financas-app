@@ -14,7 +14,15 @@ const {
   formatSummary,
   todayIso,
 } = require('./ledger');
-const { computeSummary, formatMonthSummary, parseSummaryRequest } = require('./summary');
+const {
+  computeSummary,
+  formatMonthSummary,
+  parseSummaryRequest,
+  invoiceDue,
+  invoiceForTx,
+} = require('./summary');
+const { brl } = require('./ledger');
+const { allocate: allocateLine } = require('../shared/allocation');
 
 const CODE_MINUTES = 10;
 const EDIT_WINDOW = "interval '1 hour'";
@@ -22,13 +30,14 @@ const EDIT_WINDOW = "interval '1 hour'";
 const HELP =
   'Mande um gasto ou recebimento e eu lanço no app. Pode ser texto, foto do cupom/comprovante ou áudio.\n\n' +
   'Exemplos:\n• gastei 45,90 no mercado\n• uber 23 ontem no cartão Nubank\n• tênis 600 em 3x no cartão\n• recebi 3500 de salário\n\n' +
+  'Se você participa de despesas compartilhadas, eu pergunto se o gasto é só seu ou dividido no grupo.\n\n' +
   'Para ver como está o mês, mande *resumo* (ou "resumo mês passado", "resumo novembro").';
 
 /**
  * @param {import('express').Express} app
  * @param {object} deps
  */
-function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
+function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared }) {
   const cfg = whatsapp?.config ?? {};
   const { extract, transcribe } = whatsapp ?? {};
   const digits = (n) => String(n ?? '').replace(/\D/g, '') || null;
@@ -222,6 +231,10 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
     if (m.type === 'interactive' && m.interactive?.type === 'button_reply') {
       return onButton(from, user, String(m.interactive.button_reply?.id ?? ''));
     }
+    if (m.type === 'interactive' && m.interactive?.type === 'list_reply') {
+      return onButton(from, user, String(m.interactive.list_reply?.id ?? ''));
+    }
+    if (/^cancelar$/i.test(text)) return cancelLatest(from, user);
     if (/^(ajuda|menu|help|oi|olá|ola)$/i.test(text)) {
       return meta.sendText(from, `Olá, ${firstName(user.name)}! ${HELP}`);
     }
@@ -347,11 +360,93 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
         [id, user.id, from, draft],
       );
     }
+    // Despesa à vista de quem administra um grupo: pode ir só para o
+    // orçamento dele ou ser dividida no grupo.
+    if ((await shareChoices(user.id, draft)).length) {
+      return meta.sendButtons(
+        from,
+        `${formatSummary(draft, ctx)}\n\nLançar como despesa sua ou compartilhada? ` +
+          'Para desistir, responda *cancelar*.',
+        [
+          { id: `ok:${id}`, title: 'Despesa' },
+          { id: `sh:${id}`, title: 'Compartilhada' },
+          { id: `edit:${id}`, title: 'Corrigir' },
+        ],
+      );
+    }
     return meta.sendButtons(from, formatSummary(draft, ctx), [
       { id: `ok:${id}`, title: 'Confirmar' },
       { id: `edit:${id}`, title: 'Corrigir' },
       { id: `no:${id}`, title: 'Cancelar' },
     ]);
+  }
+
+  /// Grupos/categorias onde o rascunho pode ser compartilhado.
+  async function shareChoices(userId, draft) {
+    if (!shared || draft.type !== 'expense' || draft.installments > 1) return [];
+    return shared.shareOptions(userId, draft.categoryId);
+  }
+
+  async function cancelLatest(from, user) {
+    const { rows } = await pool.query(
+      `update whatsapp_drafts set state = 'cancelled', updated_at = now()
+       where id = (select id from whatsapp_drafts
+                   where user_id = $1 and state in ('pending', 'editing')
+                     and updated_at > now() - ${EDIT_WINDOW}
+                   order by updated_at desc limit 1)
+       returning id`,
+      [user.id],
+    );
+    return meta.sendText(
+      from,
+      rows.length ? 'Cancelado. Nada foi lançado.' : 'Não há lançamento esperando confirmação.',
+    );
+  }
+
+  /// Despesa já gravada no orçamento: divide no grupo escolhido.
+  async function shareSaved(from, user, tx, option) {
+    try {
+      await shared.upsertExpense(user.id, {
+        groupId: option.groupId,
+        categoryId: option.categoryId,
+        sourceKey: tx.id,
+        source: tx.cardId ? 'card' : 'account',
+        description: tx.description,
+        total: tx.amount,
+        date: tx.date,
+        dueDate: await dueDateOf(user.id, tx),
+        budgetCategoryId: tx.categoryId ?? undefined,
+        notes: 'Lançado pelo WhatsApp',
+      });
+    } catch (e) {
+      console.error('WhatsApp: falha ao compartilhar despesa', e);
+      return meta.sendText(
+        from,
+        'Lancei a despesa só para você, mas não consegui dividir no grupo' +
+          `${e?.message ? ` (${e.message})` : ''}. Você pode compartilhar pelo app em Despesas compartilhadas.`,
+      );
+    }
+    const names = await shared.memberNames(option.groupId);
+    const parts = allocateLine(tx.amount, option.shares)
+      .map((p) => `• ${p.userId === user.id ? 'Você' : firstName(names[p.userId])}: ${brl(p.amount)}`)
+      .join('\n');
+    return meta.sendText(
+      from,
+      `Lançado e compartilhado ✅ em ${option.groupName} › ${option.categoryName}\n${parts}\n\n` +
+        'Cada um já vê a sua parte no app.',
+    );
+  }
+
+  /// Vencimento usado na despesa compartilhada: no cartão, o da fatura.
+  async function dueDateOf(userId, tx) {
+    if (!tx.cardId) return tx.date;
+    const { rows } = await pool.query(
+      `select data from app_docs where user_id = $1 and coll = 'cards' and id = $2`,
+      [userId, tx.cardId],
+    );
+    const card = rows[0]?.data;
+    if (!card?.closingDay || !card?.dueDay) return tx.date;
+    return invoiceDue(card, invoiceForTx(card, tx));
   }
 
   async function onButton(from, user, payload) {
@@ -372,7 +467,34 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
           : 'Não encontrei esse lançamento. Mande de novo, por favor.';
         return meta.sendText(from, msg);
       }
-      if (action === 'ok') {
+      if (action === 'sh') {
+        await client.query('rollback');
+        const opts = await shareChoices(user.id, d.draft);
+        if (!opts.length) {
+          return meta.sendText(from, 'Você não administra nenhum grupo com categorias prontas para dividir.');
+        }
+        if (opts.length === 1) return onButton(from, user, `sc:${id}:${opts[0].categoryId}`);
+        return meta.sendList(
+          from,
+          'Em qual grupo e categoria devo dividir esta despesa?',
+          'Escolher',
+          opts.map((o) => ({
+            id: `sc:${id}:${o.categoryId}`,
+            title: o.categoryName,
+            description: `${o.groupName}${o.suggested ? ' · sugerida' : ''}`,
+          })),
+        );
+      }
+      let option = null;
+      if (action === 'sc') {
+        const catId = payload.split(':')[2];
+        option = (await shareChoices(user.id, d.draft)).find((o) => o.categoryId === catId);
+        if (!option) {
+          await client.query('rollback');
+          return meta.sendText(from, 'Essa categoria não está mais disponível para dividir. Escolha de novo.');
+        }
+      }
+      if (action === 'ok' || option) {
         const ctx = await loadContext(user.id);
         const docs = buildDocs(d.draft, ctx.today);
         for (const doc of docs) {
@@ -386,6 +508,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp }) {
           [id],
         );
         await client.query('commit');
+        if (option) return shareSaved(from, user, docs[0].data, option);
         return meta.sendText(from, 'Lançado ✅ Já aparece no app (atualize a tela se ele estiver aberto).');
       }
       const state = action === 'edit' ? 'editing' : 'cancelled';

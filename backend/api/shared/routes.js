@@ -615,15 +615,61 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
     res.json({ updated });
   }));
 
+  /// Onde o usuário pode lançar uma despesa compartilhada: categorias com
+  /// percentuais completos dos grupos ativos que ele administra. A categoria
+  /// já usada para [budgetCategoryId] vem primeiro.
+  async function shareOptions(userId, budgetCategoryId) {
+    const { rows } = await pool.query(
+      `select g.id as group_id, g.name as group_name, c.id, c.name, c.percentages,
+              m.category_map
+       from share_members m
+       join share_groups g on g.id = m.group_id and not g.archived
+       join share_categories c on c.group_id = g.id and not c.archived
+       where m.user_id = $1 and m.status = 'active' and m.role in ('owner', 'manager')
+       order by g.created_at, c.sort, c.name`,
+      [userId],
+    );
+    const out = [];
+    const ids = {};
+    for (const r of rows) {
+      ids[r.group_id] ??= await activeIds(pool, r.group_id);
+      const chk = checkPercentages(r.percentages, ids[r.group_id]);
+      if (chk.error) continue;
+      out.push({
+        groupId: r.group_id,
+        groupName: r.group_name,
+        categoryId: r.id,
+        categoryName: r.name,
+        shares: chk.list,
+        suggested: !!budgetCategoryId && r.category_map?.[budgetCategoryId] === r.id,
+      });
+    }
+    return out.sort((a, b) => b.suggested - a.suggested);
+  }
+
+  /// Nomes dos participantes ativos de um grupo.
+  async function memberNames(groupId) {
+    const { rows } = await pool.query(
+      `select m.user_id, u.name from share_members m join users u on u.id = m.user_id
+       where m.group_id = $1 and m.status = 'active'`,
+      [groupId],
+    );
+    return Object.fromEntries(rows.map((r) => [r.user_id, r.name]));
+  }
+
   // Despesas -------------------------------------------------------------------
 
   /// Compartilha uma despesa (idempotente por origem: a mesma transação ou
   /// ocorrência devolve a despesa já existente, atualizando valor e datas).
   app.post('/shared/expenses', authed, wrap(async (req, res) => {
-    const b = req.body ?? {};
+    const out = await upsertExpense(req.user.id, req.body ?? {});
+    res.status(out.created ? 201 : 200).json(out);
+  }));
+
+  async function upsertExpense(userId, b) {
     const groupId = uuid(b.groupId);
-    const out = await inGroupTx(groupId, async (c) => {
-      const m = await membership(c, groupId, req.user.id);
+    return inGroupTx(groupId, async (c) => {
+      const m = await membership(c, groupId, userId);
       requireManager(m);
       if (m.archived) throw bad('Grupo arquivado');
       const description = text(b.description, 'a descrição');
@@ -638,7 +684,7 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
         const { rows } = await c.query(
           `select * from share_recurrences where id = $1 and group_id = $2
              and owner_id = $3 and canceled_at is null`,
-          [uuid(b.recurrenceId), groupId, req.user.id],
+          [uuid(b.recurrenceId), groupId, userId],
         );
         if (!rows.length) throw bad('Recorrência compartilhada não encontrada');
         rec = rows[0];
@@ -647,7 +693,7 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
         const { rows } = await c.query(
           `select * from share_expenses where group_id = $1 and owner_id = $2
              and source_key = $3 and deleted_at is null`,
-          [groupId, req.user.id, sourceKey],
+          [groupId, userId, sourceKey],
         );
         if (rows.length) {
           const e = rows[0];
@@ -664,7 +710,7 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
             if (Number(e.total) !== total) {
               await writeAllocations(c, e.id, total, await currentShares(c, e.id));
             }
-            await audit(c, groupId, req.user.id, 'expense.updated', {
+            await audit(c, groupId, userId, 'expense.updated', {
               expenseId: e.id,
               description,
               before: { total: Number(e.total), date: iso(e.date) },
@@ -688,7 +734,7 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
             'update share_categories set percentages = $2, updated_at = now() where id = $1',
             [cat.id, JSON.stringify(toObject(shares))],
           );
-          await audit(c, groupId, req.user.id, 'category.updated', {
+          await audit(c, groupId, userId, 'category.updated', {
             categoryId: cat.id,
             name: cat.name,
             before: cat.percentages,
@@ -704,7 +750,7 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
            total, date, due_date, source, source_key, recurrence_id, occurrence_date,
            overridden, notes)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) returning id`,
-        [groupId, req.user.id, cat.id, cat.name, description, total, d, due, source, sourceKey,
+        [groupId, userId, cat.id, cat.name, description, total, d, due, source, sourceKey,
           rec?.id ?? null, optDate(b.occurrenceDate), overridden, notes],
       );
       const id = rows[0].id;
@@ -713,10 +759,10 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
         await c.query(
           `update share_members set category_map = category_map || $3::jsonb
            where group_id = $1 and user_id = $2`,
-          [groupId, req.user.id, JSON.stringify({ [String(b.budgetCategoryId).slice(0, 200)]: cat.id })],
+          [groupId, userId, JSON.stringify({ [String(b.budgetCategoryId).slice(0, 200)]: cat.id })],
         );
       }
-      await audit(c, groupId, req.user.id, 'expense.created', {
+      await audit(c, groupId, userId, 'expense.created', {
         expenseId: id,
         description,
         total,
@@ -726,8 +772,7 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
       });
       return { id, created: true };
     });
-    res.status(out.created ? 201 : 200).json(out);
-  }));
+  }
 
   /// Edita uma despesa. `override`: objeto = divisão manual só desta
   /// despesa; `null` = volta ao padrão da categoria.
@@ -1110,6 +1155,8 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
       })),
     });
   }));
+
+  return { upsertExpense, shareOptions, memberNames };
 }
 
 module.exports = { mountShared, DEFAULT_CATEGORIES };
