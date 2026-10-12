@@ -104,10 +104,12 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
     if (m.role !== 'owner') throw new HttpError(403, 'Somente o dono do grupo pode fazer isso');
   }
 
-  /// Ids dos participantes ativos, dono primeiro (ordem estável da divisão).
+  /// Quem entra na divisão: participantes ativos e convidados que ainda não
+  /// responderam (a parte deles aparece quando aceitam), dono primeiro (ordem
+  /// estável da divisão).
   async function activeIds(c, groupId) {
     const { rows } = await c.query(
-      `select user_id from share_members where group_id = $1 and status = 'active'
+      `select user_id from share_members where group_id = $1 and status in ('active', 'invited')
        order by (role = 'owner') desc, created_at, user_id`,
       [groupId],
     );
@@ -247,17 +249,18 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
         archived: g.archived,
         myRole: g.role,
         categoryMap: g.category_map,
-        // Dono do grupo vê todos (com e-mail e situação); os demais veem os
-        // participantes ativos e, de ex-participantes, só o nome (histórico).
+        // Dono do grupo vê todos (com e-mail e situação); os demais veem
+        // participantes e convidados e, de ex-participantes, só o nome.
         members: members
-          .filter((m) => m.group_id === gid &&
-            (isOwner || m.status !== 'invited' || m.user_id === me))
+          .filter((m) => m.group_id === gid)
           .map((m) => ({
             userId: m.user_id,
             name: m.name,
             email: isOwner || m.user_id === me ? m.email : null,
             role: m.role,
-            status: isOwner || m.status === 'active' ? m.status : 'former',
+            status: isOwner || m.status === 'active' || m.status === 'invited'
+              ? m.status
+              : 'former',
           })),
         categories: categories
           .filter((c) => c.group_id === gid)
@@ -418,6 +421,70 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
     res.status(201).json(out);
   }));
 
+  /// Quem sai da divisão: o percentual dele nas categorias e recorrências
+  /// passa para o dono. Com [reassign] (convite recusado ou cancelado, a
+  /// pessoa nunca participou), as partes dele em despesas sem pagamento dele
+  /// também passam para o dono. Devolve as categorias alteradas.
+  async function releaseShares(c, groupId, ownerId, target, { reassign = false } = {}) {
+    const moved = [];
+    const { rows: cats } = await c.query(
+      'select id, name, percentages from share_categories where group_id = $1',
+      [groupId],
+    );
+    for (const cat of cats) {
+      const p = { ...cat.percentages };
+      const bp = Number(p[target] ?? 0);
+      if (!bp) continue;
+      delete p[target];
+      p[ownerId] = Number(p[ownerId] ?? 0) + bp;
+      await c.query(
+        'update share_categories set percentages = $2, updated_at = now() where id = $1',
+        [cat.id, JSON.stringify(p)],
+      );
+      moved.push(cat.name);
+    }
+    const { rows: recs } = await c.query(
+      `select id, override from share_recurrences
+       where group_id = $1 and override ? $2 and canceled_at is null`,
+      [groupId, target],
+    );
+    for (const r of recs) {
+      const p = { ...r.override };
+      const bp = Number(p[target] ?? 0);
+      delete p[target];
+      p[ownerId] = Number(p[ownerId] ?? 0) + bp;
+      await c.query('update share_recurrences set override = $2 where id = $1', [
+        r.id,
+        JSON.stringify(p),
+      ]);
+    }
+    if (reassign) {
+      const { rows: allocs } = await c.query(
+        `select a.expense_id, a.bp, a.amount from share_allocations a
+         join share_expenses e on e.id = a.expense_id
+         where e.group_id = $1 and e.deleted_at is null and a.user_id = $2
+           and not exists (select 1 from share_payments p where p.expense_id = a.expense_id
+                           and p.user_id = $2 and p.deleted_at is null)`,
+        [groupId, target],
+      );
+      for (const a of allocs) {
+        await c.query('delete from share_allocations where expense_id = $1 and user_id = $2', [
+          a.expense_id,
+          target,
+        ]);
+        await c.query(
+          `insert into share_allocations (expense_id, user_id, bp, amount) values ($1, $2, $3, $4)
+           on conflict (expense_id, user_id) do update
+             set bp = share_allocations.bp + excluded.bp,
+                 amount = share_allocations.amount + excluded.amount`,
+          [a.expense_id, ownerId, a.bp, a.amount],
+        );
+        await c.query('update share_expenses set updated_at = now() where id = $1', [a.expense_id]);
+      }
+    }
+    return moved;
+  }
+
   async function respondInvite(req, accept) {
     await inGroupTx(req.params.id, async (c) => {
       const { rows } = await c.query(
@@ -426,6 +493,12 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
         [uuid(req.params.id), req.user.id, accept ? 'active' : 'rejected'],
       );
       if (!rows.length) throw notFound();
+      if (!accept) {
+        const { rows: g } = await c.query('select owner_id from share_groups where id = $1', [
+          req.params.id,
+        ]);
+        await releaseShares(c, req.params.id, g[0].owner_id, req.user.id, { reassign: true });
+      }
       await audit(c, req.params.id, req.user.id, accept ? 'member.accepted' : 'member.rejected', {
         userId: req.user.id,
         name: req.user.name,
@@ -469,6 +542,10 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
       const m = await membership(c, req.params.id, req.user.id);
       if (self && m.role === 'owner') throw bad('O dono não pode sair do próprio grupo');
       if (!self) requireOwner(m);
+      const { rows: before } = await c.query(
+        'select status from share_members where group_id = $1 and user_id = $2',
+        [m.group_id, target],
+      );
       const { rows } = await c.query(
         `update share_members set status = $3, updated_at = now()
          where group_id = $1 and user_id = $2 and status in ('active', 'invited')
@@ -476,38 +553,9 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
         [m.group_id, target, self ? 'left' : 'revoked'],
       );
       if (!rows.length) throw notFound();
-      const moved = [];
-      const { rows: cats } = await c.query(
-        'select id, name, percentages from share_categories where group_id = $1',
-        [m.group_id],
-      );
-      for (const cat of cats) {
-        const p = { ...cat.percentages };
-        const bp = Number(p[target] ?? 0);
-        if (!bp) continue;
-        delete p[target];
-        p[m.owner_id] = Number(p[m.owner_id] ?? 0) + bp;
-        await c.query(
-          'update share_categories set percentages = $2, updated_at = now() where id = $1',
-          [cat.id, JSON.stringify(p)],
-        );
-        moved.push(cat.name);
-      }
-      const { rows: recs } = await c.query(
-        `select id, override from share_recurrences
-         where group_id = $1 and override ? $2 and canceled_at is null`,
-        [m.group_id, target],
-      );
-      for (const r of recs) {
-        const p = { ...r.override };
-        const bp = Number(p[target] ?? 0);
-        delete p[target];
-        p[m.owner_id] = Number(p[m.owner_id] ?? 0) + bp;
-        await c.query('update share_recurrences set override = $2 where id = $1', [
-          r.id,
-          JSON.stringify(p),
-        ]);
-      }
+      const moved = await releaseShares(c, m.group_id, m.owner_id, target, {
+        reassign: before[0]?.status === 'invited',
+      });
       await audit(c, m.group_id, req.user.id, self ? 'member.left' : 'member.revoked', {
         userId: target,
         movedCategories: moved,
@@ -647,11 +695,11 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
     return out.sort((a, b) => b.suggested - a.suggested);
   }
 
-  /// Nomes dos participantes ativos de um grupo.
+  /// Nomes de quem está na divisão de um grupo.
   async function memberNames(groupId) {
     const { rows } = await pool.query(
       `select m.user_id, u.name from share_members m join users u on u.id = m.user_id
-       where m.group_id = $1 and m.status = 'active'`,
+       where m.group_id = $1 and m.status in ('active', 'invited')`,
       [groupId],
     );
     return Object.fromEntries(rows.map((r) => [r.user_id, r.name]));

@@ -107,7 +107,7 @@ class _SharedSimulationScreenState extends State<SharedSimulationScreen> {
             child: Wrap(
               spacing: 6,
               children: [
-                for (final id in {...g.activeIds, ...extraNames.keys})
+                for (final id in {...g.splitIds, ...extraNames.keys})
                   FilterChip(
                     label: Text(nameOf(id)),
                     selected: people.contains(id),

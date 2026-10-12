@@ -76,6 +76,7 @@ class ShareMember {
   });
 
   bool get isActive => status == 'active';
+  bool get isInvited => status == 'invited';
 
   String get statusLabel => switch (status) {
     'active' => 'Ativo',
@@ -399,6 +400,20 @@ class ShareGroup {
 
   /// Ids ativos, dono primeiro (mesma ordem da divisão no servidor).
   List<String> get activeIds => [for (final m in activeMembers) m.userId];
+
+  /// Quem entra na divisão: ativos e convidados que ainda não responderam
+  /// (a parte deles aparece quando aceitam), dono primeiro.
+  List<String> get splitIds => [
+    for (final m in members)
+      if (m.isActive || m.isInvited) m.userId,
+  ];
+
+  /// Nome para a divisão, avisando quem ainda não aceitou o convite.
+  String splitLabel(String userId) {
+    final m = member(userId);
+    if (m == null) return 'Ex-participante';
+    return m.isInvited ? '${m.name} (convidado)' : m.name;
+  }
 
   List<ShareCategory> get activeCategories =>
       categories.where((c) => !c.archived).toList();

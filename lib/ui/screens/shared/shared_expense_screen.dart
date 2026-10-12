@@ -284,9 +284,9 @@ class SharedExpenseScreen extends StatelessWidget {
     final sc = context.read<SharedController>();
     var value = {
       for (final a in e.allocations)
-        if (g.activeIds.contains(a.userId)) a.userId: a.bp,
+        if (g.splitIds.contains(a.userId)) a.userId: a.bp,
     };
-    String? error = ShareMath.checkPercentages(value, g.activeIds);
+    String? error = ShareMath.checkPercentages(value, g.splitIds);
     var updateDefault = false;
     await showDialog<void>(
       context: context,
@@ -301,8 +301,8 @@ class SharedExpenseScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   PercentEditor(
-                    ids: g.activeIds,
-                    nameOf: g.nameOf,
+                    ids: g.splitIds,
+                    nameOf: g.splitLabel,
                     initial: value,
                     total: e.total,
                     onChanged: (v, err) {

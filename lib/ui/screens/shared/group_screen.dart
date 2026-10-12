@@ -432,7 +432,7 @@ class _PercentMatrix extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ids = group.activeIds;
+    final ids = group.splitIds;
     final cats = group.activeCategories;
     final archived = group.categories.where((c) => c.archived).toList();
     return Column(
@@ -599,6 +599,8 @@ Future<void> showCategoryDialog(
   final name = TextEditingController(text: category?.name ?? '');
   var value = Map.of(category?.percentages ?? {sc.me: fullBp});
   String? error;
+  // Atualizado quando alguém é convidado daqui.
+  var cur = g;
   final saved = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
@@ -619,18 +621,16 @@ Future<void> showCategoryDialog(
                 Text('Quanto cada um paga', style: ctx.text.labelLarge),
                 const SizedBox(height: 8),
                 PercentEditor(
-                  ids: g.activeIds,
-                  nameOf: g.nameOf,
+                  ids: cur.splitIds,
+                  nameOf: cur.splitLabel,
                   initial: value,
-                  onInvite: () async {
-                    if (await inviteToGroup(ctx, g) && ctx.mounted) {
-                      showMessage(
-                        ctx,
-                        'Convite enviado. Quando a pessoa aceitar, ela '
-                        'aparece aqui para receber um percentual.',
-                      );
-                    }
-                  },
+                  onInvite: cur.myRole == ShareRole.owner
+                      ? () async {
+                          if (await inviteToGroup(ctx, cur)) {
+                            set(() => cur = sc.group(g.id) ?? cur);
+                          }
+                        }
+                      : null,
                   onChanged: (v, e) {
                     value = v;
                     set(() => error = e);
@@ -657,7 +657,7 @@ Future<void> showCategoryDialog(
             child: const Text('Cancelar'),
           ),
           FilledButton(
-            onPressed: error != null || ShareMathCheck.invalid(value, g)
+            onPressed: error != null || ShareMathCheck.invalid(value, cur)
                 ? null
                 : () async {
                     if (name.text.trim().isEmpty) {
@@ -667,7 +667,7 @@ Future<void> showCategoryDialog(
                     final ok = await runAction(
                       ctx,
                       () => sc.saveCategory(
-                        g,
+                        cur,
                         category: category,
                         name: name.text.trim(),
                         percentages: value,
@@ -708,7 +708,7 @@ Future<void> showCategoryDialog(
 class ShareMathCheck {
   static bool invalid(Map<String, int> v, ShareGroup g) =>
       v.values.fold(0, (a, b) => a + b) != fullBp ||
-      v.keys.any((id) => !g.activeIds.contains(id));
+      v.keys.any((id) => !g.splitIds.contains(id));
 }
 
 /// Histórico (auditoria) do grupo.

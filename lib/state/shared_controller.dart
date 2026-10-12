@@ -291,7 +291,7 @@ class SharedController extends ChangeNotifier {
     required String name,
     required Map<String, int> percentages,
   }) {
-    final err = ShareMath.checkPercentages(percentages, g.activeIds);
+    final err = ShareMath.checkPercentages(percentages, g.splitIds);
     if (err != null) throw ArgumentError(err);
     return _act(
       (a) => category == null
@@ -318,7 +318,7 @@ class SharedController extends ChangeNotifier {
     String notes = '',
   }) {
     if (override != null) {
-      final err = ShareMath.checkPercentages(override, group.activeIds);
+      final err = ShareMath.checkPercentages(override, group.splitIds);
       if (err != null) throw ArgumentError(err);
     }
     if (t.type != TransactionType.expense) {
@@ -346,7 +346,7 @@ class SharedController extends ChangeNotifier {
     Map<String, int>? override,
   }) async {
     if (override != null) {
-      final err = ShareMath.checkPercentages(override, group.activeIds);
+      final err = ShareMath.checkPercentages(override, group.splitIds);
       if (err != null) throw ArgumentError(err);
     }
     await _act(
