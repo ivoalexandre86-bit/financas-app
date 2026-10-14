@@ -499,8 +499,7 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
         TransactionStatus.completed => 3,
         TransactionStatus.cancelled => 4,
         TransactionStatus.planned => 2,
-        TransactionStatus.pending =>
-          tx.effectiveDueDate.isBefore(e.today) ? 0 : 1,
+        TransactionStatus.pending => e.isOverdue(tx) ? 0 : 1,
       };
 
   void _sortItems(List<RecognizedEvent> items, FinancialEngine e) {
@@ -555,8 +554,7 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
     final accent = isIncome ? context.fin.positive : context.fin.expense;
     final cancelled = tx.status == TransactionStatus.cancelled;
     final completed = tx.status == TransactionStatus.completed;
-    final overdue =
-        !completed && !cancelled && tx.effectiveDueDate.isBefore(e.today);
+    final overdue = e.isOverdue(tx);
     final due = _due(e, tx);
     final (statusLabel, statusColor) = cancelled
         ? ('Cancelada', context.fin.subtle)

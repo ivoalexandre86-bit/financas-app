@@ -64,8 +64,7 @@ class TransactionTile extends StatelessWidget {
     final showToggle = onStatusToggle != null && canToggle(tx);
     // Lançamentos ainda não concluídos ficam com valor esmaecido.
     final openOpacity = completed || cancelled || isTransfer ? 1.0 : 0.72;
-    final overdue =
-        !completed && !cancelled && tx.effectiveDueDate.isBefore(engine.today);
+    final overdue = engine.isOverdue(tx);
     final invoice = onInvoiceTap != null ? engine.invoiceOf(tx) : null;
     final subtitle = [
       if (invoice != null)
