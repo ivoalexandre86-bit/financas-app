@@ -62,6 +62,79 @@ void main() {
     expect(back.owedByPerson(), owed);
   });
 
+  test('despesa não vinculada não gera receita de reembolso; parte sem '
+      'divisão fica com o responsável', () async {
+    final fc = await _setup();
+    await fc.saveOtherEntry(
+      OtherEntry(
+        id: 'apto',
+        type: TransactionType.expense,
+        description: 'Apartamento',
+        amount: 320000,
+        month: _m,
+        linked: false,
+        allocations: const [
+          Allocation('pai', AllocMode.percent, 30),
+          Allocation('mae', AllocMode.percent, 20),
+        ],
+      ),
+    );
+    await fc.saveOtherPayment(
+      fc.otherEntryById('apto')!,
+      OtherPayment(
+        id: 'pp',
+        personId: 'pai',
+        amount: 96000,
+        date: Dates.today(),
+      ),
+    );
+    expect(_derived(fc), isEmpty);
+    final e = fc.otherEntryById('apto')!;
+    expect(e.unallocated, 160000);
+    final shares = e.sharesWithOwner('ivo');
+    expect(shares.firstWhere((s) => s.personId == 'ivo').owed, 160000);
+    expect(shares.fold(0, (a, s) => a + s.owed), 320000);
+    // Vincular passa a gerar a linha do mês e o reembolso; desvincular tira.
+    await fc.saveOtherEntry(e.copyWith(linked: true));
+    expect(_derived(fc).length, 2);
+    await fc.saveOtherEntry(fc.otherEntryById('apto')!.copyWith(linked: false));
+    expect(_derived(fc), isEmpty);
+  });
+
+  test('ao abrir, apaga receitas antigas de despesas não vinculadas', () async {
+    final repo = MemoryRepo();
+    final fc = FinanceController(repo);
+    await fc.load();
+    await fc.saveAccount(Account(id: 'a', name: 'Conta'));
+    await fc.savePeople(const [Person(id: 'pai', name: 'Pai')]);
+    await fc.saveOtherEntry(
+      OtherEntry(
+        id: 'x',
+        type: TransactionType.expense,
+        description: 'Apto',
+        amount: 1000,
+        month: _m,
+        linked: false,
+        allocations: const [Allocation('pai', AllocMode.percent, 100)],
+      ),
+    );
+    // Receita gravada pela versão anterior.
+    await fc.saveTransaction(
+      FinTransaction(
+        id: 'oe_pay_old',
+        type: TransactionType.income,
+        amount: const Money(1000),
+        description: 'Reembolso Pai – Apto',
+        date: Dates.today(),
+        accountId: 'a',
+      ),
+    );
+    expect(_derived(fc).length, 1);
+    final again = FinanceController(repo);
+    await again.load();
+    expect(_derived(again), isEmpty);
+  });
+
   test('vinculados viram uma linha por mês; reembolsos viram receita; '
       'editar e excluir não duplicam', () async {
     final fc = await _setup();
