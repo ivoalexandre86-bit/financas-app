@@ -73,7 +73,7 @@ void main() {
     await tester.tap(find.byTooltip('Abrir fatura'));
     await tester.pumpAndSettle();
     expect(find.text('Fatura C6'), findsOneWidget);
-    expect(find.text('Compra 2'), findsOneWidget);
+    expect(find.text('Compra 2'), findsWidgets); // grade e "Maior compra"
     Navigator.of(tester.element(find.text('Fatura C6'))).pop();
     await tester.pumpAndSettle();
 

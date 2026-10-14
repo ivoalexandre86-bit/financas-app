@@ -12,6 +12,7 @@ import '../import/expense_import_screen.dart';
 import '../../widgets/common.dart';
 import '../../widgets/invoice_tile.dart';
 import '../../widgets/tx_grid.dart';
+import '../../widgets/tx_inline_edit.dart';
 import '../cards/invoice_details_screen.dart';
 import 'transaction_details_screen.dart';
 import 'transaction_form_screen.dart';
@@ -729,7 +730,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       decoration: cancelled ? TextDecoration.lineThrough : null,
     );
     void open() => push(context, TransactionDetailsScreen(tx: tx));
-    Future<void> save(FinTransaction t) => _saveInline(context, fc, t);
+    Future<void> save(FinTransaction t) => saveTxInline(context, fc, t);
     final key = '${tx.id}-${tx.date.toIso8601String()}';
 
     if (layout.compact) {
@@ -765,7 +766,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 key: ValueKey('tx-edit-date-$key'),
                 dense: true,
                 tooltip: 'Alterar data',
-                onPick: (_) => _pickDate(context, fc, tx),
+                onPick: (_) => pickTxDate(context, fc, tx),
                 display: _DateBadge(it.date),
               ),
               const SizedBox(width: 10),
@@ -812,7 +813,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                             dense: true,
                             tooltip: 'Alterar categoria',
                             onPick: (cell) =>
-                                _pickCategory(cell, fc, tx, onlyRoots: false),
+                                pickTxCategory(cell, fc, tx, onlyRoots: false),
                             display: catLine,
                           ),
                     ?invoiceLink,
@@ -859,7 +860,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      validate: _validateAmount,
+                      validate: validateInlineAmount,
                       onSubmit: (v) =>
                           save(tx.copyWith(amount: Money.tryEval(v))),
                       display: money,
@@ -903,7 +904,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       GridColumn.date => InlinePickerCell(
         key: ValueKey('tx-edit-date-$key'),
         tooltip: invoice == null ? 'Alterar data' : 'Alterar data da compra',
-        onPick: (_) => _pickDate(context, fc, tx),
+        onPick: (_) => pickTxDate(context, fc, tx),
         display: Text(
           Dates.format(it.date),
           style: context.text.bodySmall?.copyWith(
@@ -948,7 +949,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 key: ValueKey('tx-edit-category-$key'),
                 tooltip: 'Alterar categoria',
                 onPick: (cell) =>
-                    _pickCategory(cell, fc, tx, onlyRoots: showSub),
+                    pickTxCategory(cell, fc, tx, onlyRoots: showSub),
                 display: catLabel,
               )
             : GridCell(child: catLabel),
@@ -957,7 +958,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             ? InlinePickerCell(
                 key: ValueKey('tx-edit-subcategory-$key'),
                 tooltip: 'Alterar subcategoria',
-                onPick: (cell) => _pickSubcategory(cell, fc, tx),
+                onPick: (cell) => pickTxSubcategory(cell, fc, tx),
                 display: subLabel,
               )
             : GridCell(child: subLabel),
@@ -1020,7 +1021,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         hint: '0,00',
         background: GridPalette.of(context).valueBg,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        validate: _validateAmount,
+        validate: validateInlineAmount,
         onSubmit: (v) => save(tx.copyWith(amount: Money.tryEval(v))),
         display: Opacity(opacity: completed ? 1 : 0.8, child: money),
       ),
@@ -1251,46 +1252,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     );
   }
 
-  Future<void> _saveInline(
-    BuildContext context,
-    FinanceController fc,
-    FinTransaction t,
-  ) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await fc.saveInline(t);
-    } catch (e) {
-      final msg = e is ArgumentError ? '${e.message}' : '$e';
-      messenger.showSnackBar(
-        SnackBar(content: Text('Não foi possível salvar: $msg')),
-      );
-    }
-  }
-
-  static String? _validateAmount(String v) {
-    final m = Money.tryEval(v);
-    if (m == null) return 'Valor inválido';
-    if (m.cents <= 0) return 'O valor deve ser maior que zero';
-    return null;
-  }
-
-  Future<void> _pickDate(
-    BuildContext context,
-    FinanceController fc,
-    FinTransaction tx,
-  ) async {
-    final d = await showDatePicker(
-      context: context,
-      initialDate: tx.date,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(fc.today.year + 30),
-      locale: const Locale('pt', 'BR'),
-    );
-    if (d == null || !context.mounted) return;
-    if (Dates.dateOnly(d) == Dates.dateOnly(tx.date)) return;
-    await _saveInline(context, fc, tx.copyWith(date: d));
-  }
-
   /// Vencimento do lançamento. Sem vencimento, abre direto o calendário;
   /// com vencimento, oferece alterar ou remover (despesas em conta sempre
   /// têm vencimento: só alterar).
@@ -1306,7 +1267,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       ]);
       if (action == null || !cell.mounted) return;
       if (action == 'clear') {
-        await _saveInline(cell, fc, tx.copyWith(dueDate: null));
+        await saveTxInline(cell, fc, tx.copyWith(dueDate: null));
         return;
       }
     }
@@ -1324,77 +1285,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     if (current != null && due == Dates.dateOnly(current)) return;
     // Despesa com vencimento na própria data não grava: acompanha a data.
     final keep = !tx.hasOwnDueDate || due != Dates.dateOnly(tx.date);
-    await _saveInline(cell, fc, tx.copyWith(dueDate: keep ? due : null));
-  }
-
-  /// Categorias do tipo do lançamento. Com a coluna Subcategoria visível,
-  /// a coluna Categoria lista só as principais; sem ela, mostra a árvore.
-  Future<void> _pickCategory(
-    BuildContext cell,
-    FinanceController fc,
-    FinTransaction tx, {
-    required bool onlyRoots,
-  }) async {
-    final kind = tx.type == TransactionType.income
-        ? CategoryKind.income
-        : CategoryKind.expense;
-    List<FinCategory> sorted(bool Function(FinCategory) test) =>
-        fc.data.categories.where(test).toList()..sort(
-          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-        );
-    final current = fc.data.categoryById[tx.categoryId];
-    final rootId = current?.parentId ?? current?.id;
-    final picked = await showCellMenu(cell, [
-      for (final r in sorted((c) => c.kind == kind && c.parentId == null)) ...[
-        CellMenuOption(
-          r.id,
-          r.name,
-          color: Color(r.color),
-          selected: onlyRoots ? r.id == rootId : r.id == tx.categoryId,
-        ),
-        if (!onlyRoots)
-          for (final s in sorted((c) => c.parentId == r.id))
-            CellMenuOption(
-              s.id,
-              s.name,
-              indent: true,
-              selected: s.id == tx.categoryId,
-            ),
-      ],
-    ]);
-    if (picked == null || !cell.mounted) return;
-    // Mesma categoria principal: mantém a subcategoria escolhida.
-    if (picked == tx.categoryId || (onlyRoots && picked == rootId)) return;
-    await _saveInline(cell, fc, tx.copyWith(categoryId: picked));
-  }
-
-  Future<void> _pickSubcategory(
-    BuildContext cell,
-    FinanceController fc,
-    FinTransaction tx,
-  ) async {
-    final current = fc.data.categoryById[tx.categoryId];
-    final root = fc.data.categoryById[current?.parentId] ?? current;
-    if (root == null) return;
-    final subs = fc.data.categories.where((c) => c.parentId == root.id).toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    if (subs.isEmpty) {
-      ScaffoldMessenger.of(cell).showSnackBar(
-        SnackBar(content: Text('${root.name} não tem subcategorias')),
-      );
-      return;
-    }
-    final picked = await showCellMenu(cell, [
-      CellMenuOption(
-        root.id,
-        'Nenhuma (só ${root.name})',
-        selected: tx.categoryId == root.id,
-      ),
-      for (final s in subs)
-        CellMenuOption(s.id, s.name, selected: s.id == tx.categoryId),
-    ]);
-    if (picked == null || picked == tx.categoryId || !cell.mounted) return;
-    await _saveInline(cell, fc, tx.copyWith(categoryId: picked));
+    await saveTxInline(cell, fc, tx.copyWith(dueDate: keep ? due : null));
   }
 
   void _select(_InvoiceEntry it) => setState(() => selectedInvoice = it.key);
