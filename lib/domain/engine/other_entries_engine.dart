@@ -106,10 +106,11 @@ class OtherSync {
         ),
       );
     }
-    // Reembolsos: só de despesas e só de outras pessoas (a parte de "eu" não
-    // é cobrada). Receitas recebidas já estão na linha do mês.
+    // Reembolsos: só de despesas vinculadas ao orçamento e só de outras
+    // pessoas (a parte de "eu" não é cobrada). Receitas recebidas já estão
+    // na linha do mês. Despesa fora do orçamento não gera receita nenhuma.
     for (final e in entries) {
-      if (e.isIncome) continue;
+      if (e.isIncome || !e.linked) continue;
       for (final p in e.payments) {
         if (p.amount <= 0 || (people[p.personId]?.isMe ?? false)) continue;
         final name = people[p.personId]?.name ?? 'pessoa';

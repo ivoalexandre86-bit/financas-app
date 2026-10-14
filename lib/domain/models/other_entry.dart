@@ -282,6 +282,29 @@ class OtherEntry {
     ];
   }
 
+  /// Partes por pessoa, com o que não foi dividido atribuído ao responsável
+  /// pelo orçamento ([meId]; vazio quando não há "eu" cadastrado). Só vale
+  /// para despesas: em receitas a parte sem divisão segue sem pagador.
+  List<PersonShare> sharesWithOwner(String meId) {
+    final list = shares();
+    final rest = unallocated;
+    if (isIncome || rest <= 0 || allocations.isEmpty) return list;
+    final i = list.indexWhere((s) => s.personId == meId);
+    final owed = (i < 0 ? 0 : list[i].owed) + rest;
+    final share = PersonShare(
+      meId,
+      amount <= 0 ? null : owed * 100 / amount,
+      owed,
+      paidBy(meId),
+    );
+    if (i < 0) {
+      list.add(share);
+    } else {
+      list[i] = share;
+    }
+    return list;
+  }
+
   /// Partes de outras pessoas (exclui quem é "eu").
   List<PersonShare> othersShares(Set<String> meIds) =>
       shares().where((s) => !meIds.contains(s.personId)).toList();

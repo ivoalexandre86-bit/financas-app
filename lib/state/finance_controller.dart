@@ -131,14 +131,44 @@ class FinanceController extends ChangeNotifier {
     cloudSynced = cloud == null || (sync == null && cloud.online);
     loading = false;
     notifyListeners();
+    if (cloudSynced) await _realignOther();
     if (sync != null) {
       try {
         await sync;
         cloudSynced = cloud!.online;
         if (!_disposed) await _reloadAll();
+        if (cloudSynced && !_disposed) await _realignOther();
       } catch (_) {
         // Falha na nuvem: segue com a cópia local.
       }
+    }
+  }
+
+  /// Corrige no orçamento as linhas geradas por "Outras despesas" que não
+  /// batem com as regras atuais (ex.: reembolso de despesa não vinculada).
+  /// Só com os dados em dia, para um aparelho desatualizado não apagar nada.
+  Future<void> _realignOther() async {
+    final account = otherAccount;
+    if (account == null || error != null) return;
+    try {
+      final (puts, deletes) = OtherSync.diff(
+        existing: data.transactions,
+        desired: OtherSync.desired(
+          entries: otherEntries,
+          people: {for (final p in people) p.id: p},
+          accountId: account.id,
+        ),
+      );
+      if (puts.isEmpty && deletes.isEmpty) return;
+      await _commit([
+        if (puts.isNotEmpty)
+          for (final c in OtherSync.missingCategories(data.categories))
+            WriteOp.put(Coll.categories, c.id, c.toJson()),
+        ...puts.map(_putTx),
+        ...deletes.map((id) => WriteOp.delete(Coll.transactions, id)),
+      ]);
+    } catch (_) {
+      // Sem conexão: tenta de novo na próxima abertura.
     }
   }
 

@@ -117,7 +117,8 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
               : 'Despesas que você paga e divide com outras pessoas. As '
                     'vinculadas entram no orçamento como uma linha "Outras '
                     'despesas" por mês (como a fatura do cartão), e cada '
-                    'reembolso recebido vira uma receita na data do pagamento.',
+                    'reembolso recebido vira uma receita na data do pagamento. '
+                    'O que não for dividido fica com você.',
           style: context.text.bodySmall?.copyWith(color: context.fin.subtle),
         ),
         const SizedBox(height: 12),
@@ -494,8 +495,18 @@ class OtherSheet extends StatelessWidget {
           r.add(e.month, p.value, e.paidBy(p.key), e);
         }
         if (e.unallocated > 0) {
-          rows['~'] ??= _SheetRow('Sem divisão');
-          rows['~']!.add(e.month, e.unallocated, 0, e);
+          // Em despesas, o que ninguém assumiu é do responsável pelo
+          // orçamento.
+          if (e.isIncome || e.allocations.isEmpty) {
+            rows['~'] ??= _SheetRow('Sem divisão');
+            rows['~']!.add(e.month, e.unallocated, 0, e);
+          } else {
+            final meId = fc.meIds.firstOrNull ?? '~me';
+            final r = rows[meId] ??= _SheetRow(
+              fc.personById(meId)?.name ?? 'Você',
+            );
+            r.add(e.month, e.unallocated, 0, e);
+          }
         }
       }
     } else {
@@ -1589,7 +1600,8 @@ class OtherEntryScreen extends StatelessWidget {
       );
     }
     final me = fc.meIds;
-    final shares = e.shares();
+    final meId = me.firstOrNull ?? '';
+    final shares = e.sharesWithOwner(meId);
     final monthTx = fc.data.transactions
         .where((t) => t.id == OtherSync.monthTxId(e.type, e.month))
         .firstOrNull;
@@ -1662,7 +1674,14 @@ class OtherEntryScreen extends StatelessWidget {
                     '${fmtCents(e.received)} de ${fmtCents(e.amount)}',
                   ),
                 if (e.unallocated != 0 && e.allocations.isNotEmpty)
-                  InfoRow.text('Sem divisão', fmtCents(e.unallocated)),
+                  InfoRow.text(
+                    'Sem divisão',
+                    e.isIncome || e.unallocated < 0
+                        ? fmtCents(e.unallocated)
+                        : '${fmtCents(e.unallocated)} · fica com '
+                              '${fc.personById(meId)?.name ?? 'você'} '
+                              '(responsável)',
+                  ),
                 if (e.notes.isNotEmpty) InfoRow.text('Observações', e.notes),
               ],
             ),
@@ -1713,7 +1732,7 @@ class OtherEntryScreen extends StatelessWidget {
                         _ShareTile(
                           entry: e,
                           share: s,
-                          isMe: me.contains(s.personId),
+                          isMe: s.personId == meId || me.contains(s.personId),
                         ),
                     ],
                   ),
@@ -1745,6 +1764,7 @@ class OtherEntryScreen extends StatelessWidget {
                               p.method,
                               if (p.note.isNotEmpty) p.note,
                               if (!e.isIncome &&
+                                  e.linked &&
                                   !me.contains(p.personId) &&
                                   fc.otherAccount != null)
                                 'receita gerada no orçamento',
@@ -1873,17 +1893,20 @@ class _ShareTile extends StatelessWidget {
         radius: 14,
         backgroundColor: Color(p?.color ?? 0xFF9E9E9E),
         child: Text(
-          (p?.name.isNotEmpty ?? false) ? p!.name[0].toUpperCase() : '?',
+          (p?.name.isNotEmpty ?? false)
+              ? p!.name[0].toUpperCase()
+              : (isMe ? 'E' : '?'),
           style: const TextStyle(color: Colors.white, fontSize: 12),
         ),
       ),
       title: Text(
-        '${p?.name ?? '?'}${isMe ? ' (eu)' : ''}'
+        '${p?.name ?? (isMe ? 'Você' : '?')}${isMe && p != null ? ' (eu)' : ''}'
         '${s.percent == null ? '' : ' · ${_OtherEntryFormState._pct(s.percent!)}%'}',
       ),
       subtitle: Text(
         noCharge
-            ? 'Parte: ${fmtCents(s.owed)} · sua parte, não é cobrada'
+            ? 'Parte: ${fmtCents(s.owed)} · sua parte (inclui o que não foi '
+                  'dividido), não é cobrada'
             : 'Deve ${fmtCents(s.owed)} · pagou ${fmtCents(s.paid)} · '
                   'saldo ${fmtCents(s.balance)}',
       ),
