@@ -476,6 +476,22 @@ class FinancialEngine {
     return idx[card.id]?[m] ?? buildInvoice(card, m, [tx], const []);
   }
 
+  /// Vencimento real de um lançamento: compras no cartão vencem com a
+  /// fatura; os demais usam o próprio vencimento (ou a data).
+  DateTime dueDateOf(FinTransaction tx) {
+    if (tx.cardId != null) {
+      final inv = invoiceOf(tx);
+      if (inv != null) return inv.dueDate;
+    }
+    return tx.effectiveDueDate;
+  }
+
+  /// Em aberto (nem concluído nem cancelado) e com vencimento já passado.
+  bool isOverdue(FinTransaction tx) =>
+      tx.status != TransactionStatus.completed &&
+      tx.status != TransactionStatus.cancelled &&
+      dueDateOf(tx).isBefore(today);
+
   /// Partes de uma compra no cartão por mês de caixa (mês de pagamento da
   /// fatura; vencimento enquanto não paga). Vazio para outros lançamentos.
   List<TxShare> sharesOf(FinTransaction tx) {
