@@ -665,7 +665,7 @@ class _Header extends StatelessWidget {
 }
 
 /// Rótulo e cor do tipo da compra (à vista, parcela, recorrente...).
-(String, Color) _kindOf(BuildContext context, FinTransaction t) {
+(String, Color) purchaseKind(BuildContext context, FinTransaction t) {
   final p = GridPalette.of(context);
   if (t.type == TransactionType.income) {
     return ('Estorno', context.fin.positive);
@@ -712,7 +712,7 @@ class _GridRow extends StatelessWidget {
     );
     final key = '${tx.id}-${tx.date.toIso8601String()}';
     Future<void> save(FinTransaction t) => saveTxInline(context, fc, t);
-    final (kind, kindColor) = _kindOf(context, tx);
+    final (kind, kindColor) = purchaseKind(context, tx);
     final credit = tx.type == TransactionType.income;
     final cat = fc.data.categoryById[tx.categoryId];
 
@@ -729,7 +729,7 @@ class _GridRow extends StatelessWidget {
         onPick: (cell) => pickTxCategory(cell, fc, tx, onlyRoots: true),
         display: Row(
           children: [
-            _Dot(row.color),
+            GlowDot(row.color),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
@@ -850,7 +850,7 @@ class _CompactRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tx = row.tx;
-    final (kind, kindColor) = _kindOf(context, tx);
+    final (kind, kindColor) = purchaseKind(context, tx);
     final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
     final credit = tx.type == TransactionType.income;
     return GridRowShell(
@@ -877,7 +877,7 @@ class _CompactRow extends StatelessWidget {
                   const SizedBox(height: 2),
                   Row(
                     children: [
-                      _Dot(row.color),
+                      GlowDot(row.color),
                       const SizedBox(width: 5),
                       Flexible(
                         child: Text(
@@ -956,7 +956,7 @@ class _GroupHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _Dot(color),
+          GlowDot(color),
           const SizedBox(width: 8),
           Text(
             label,
@@ -1108,9 +1108,10 @@ class _CategoryBar extends StatelessWidget {
   }
 }
 
-class _Dot extends StatelessWidget {
+/// Ponto luminoso com a cor da categoria ou do cartão.
+class GlowDot extends StatelessWidget {
   final Color color;
-  const _Dot(this.color);
+  const GlowDot(this.color, {super.key});
 
   @override
   Widget build(BuildContext context) => Container(
