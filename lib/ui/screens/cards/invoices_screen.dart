@@ -83,15 +83,62 @@ class _Summary {
 }
 
 class _InvoicesScreenState extends State<InvoicesScreen> {
-  /// Meses exibidos por cartão: 3 (anterior, atual e próxima) ou 6.
-  int span = 3;
+  /// Filtros (vazio = todos). Mês é o mês de referência da fatura.
+  Set<String> cardFilter = {};
+  Set<YearMonth>? monthFilter; // null = padrão (mês anterior, atual, próximo)
+  Set<InvoiceStatus> statusFilter = {};
+  bool? filtersOpen; // null = aberto no computador, recolhido no celular
+  _Col sort = _Col.due;
+  bool ascending = true;
   final expanded = <String>{};
 
-  List<YearMonth> _months(CreditCard card, DateTime today) {
+  /// Faturas disponíveis de cada cartão: 6 meses para trás e 3 à frente.
+  static List<YearMonth> _window(CreditCard card, DateTime today) {
     final cur = BillingCycle.currentInvoice(card, today);
-    final from = span == 3 ? 1 : 3;
-    final to = span == 3 ? 1 : 2;
-    return [for (var i = -from; i <= to; i++) cur.add(i)];
+    return [for (var i = -6; i <= 3; i++) cur.add(i)];
+  }
+
+  Set<YearMonth> _defaultMonths(DateTime today) {
+    final m = YearMonth.of(today);
+    return {m.previous, m, m.next};
+  }
+
+  int get _activeFilters =>
+      (cardFilter.isEmpty ? 0 : 1) +
+      ((monthFilter?.isEmpty ?? false) ? 0 : 1) +
+      (statusFilter.isEmpty ? 0 : 1);
+
+  void _onSort(_Col c) => setState(() {
+    if (c == sort) {
+      ascending = !ascending;
+    } else {
+      sort = c;
+      ascending = c.right ? false : true;
+    }
+  });
+
+  int _cmp(_Summary a, _Summary b) {
+    int text(String x, String y) => x.toLowerCase().compareTo(y.toLowerCase());
+    int money(Money x, Money y) => x.cents.compareTo(y.cents);
+    final c = switch (sort) {
+      _Col.card => text(a.inv.card.name, b.inv.card.name),
+      _Col.invoice => a.inv.month.compareTo(b.inv.month),
+      _Col.closing => a.inv.closingDate.compareTo(b.inv.closingDate),
+      _Col.due => a.inv.dueDate.compareTo(b.inv.dueDate),
+      _Col.count => a.count.compareTo(b.count),
+      _Col.cash => money(a.cash, b.cash),
+      _Col.installments => money(a.installments, b.installments),
+      _Col.recurring => money(a.recurring, b.recurring),
+      _Col.top => text(a.top?.name ?? '', b.top?.name ?? ''),
+      _Col.total => money(a.inv.total, b.inv.total),
+      _Col.paid => money(a.inv.paid, b.inv.paid),
+      _Col.remaining => money(a.inv.remaining, b.inv.remaining),
+      _Col.status => a.inv.status.index.compareTo(b.inv.status.index),
+    };
+    final r = ascending ? c : -c;
+    if (r != 0) return r;
+    final d = a.inv.dueDate.compareTo(b.inv.dueDate);
+    return d != 0 ? d : text(a.inv.card.name, b.inv.card.name);
   }
 
   @override
@@ -110,79 +157,141 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
         ),
       );
     }
-    final byCard = {
-      for (final card in cards)
-        card: [
-          for (final m in _months(card, e.today))
-            _Summary.of(e, e.invoice(card, m)),
-        ],
-    };
-    final all = byCard.values.expand((l) => l).toList();
+    final months = monthFilter ?? _defaultMonths(e.today);
+    final allMonths = {for (final c in cards) ..._window(c, e.today)}.toList()
+      ..sort();
+    final shownCards = cards
+        .where((c) => cardFilter.isEmpty || cardFilter.contains(c.id))
+        .toList();
+    final rows =
+        [
+              for (final card in shownCards)
+                for (final m in _window(card, e.today))
+                  if (months.isEmpty || months.contains(m))
+                    _Summary.of(e, e.invoice(card, m)),
+            ]
+            .where(
+              (s) =>
+                  statusFilter.isEmpty || statusFilter.contains(s.inv.status),
+            )
+            .toList()
+          ..sort(_cmp);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Faturas'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: SegmentedButton<int>(
-              key: const ValueKey('invoices-span'),
-              showSelectedIcon: false,
-              style: const ButtonStyle(visualDensity: VisualDensity.compact),
-              segments: const [
-                ButtonSegment(value: 3, label: Text('3 meses')),
-                ButtonSegment(value: 6, label: Text('6 meses')),
-              ],
-              selected: {span},
-              onSelectionChanged: (s) => setState(() => span = s.first),
-            ),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Faturas')),
       body: LayoutBuilder(
         builder: (context, box) {
           final pad = box.maxWidth < 640 ? 8.0 : 16.0;
           final width = box.maxWidth - 2 * pad - 2;
           final compact = width < 760;
           final layout = compact ? null : _Layout.of(width);
+          final body = <Widget>[
+            for (final (i, s) in rows.indexed) ..._rows(context, s, i, layout),
+            if (rows.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Nenhuma fatura com esses filtros.',
+                  style: context.text.bodyMedium?.copyWith(
+                    color: context.fin.subtle,
+                  ),
+                ),
+              ),
+            _Footer(rows: rows, layout: layout),
+          ];
           return ListView(
             padding: EdgeInsets.fromLTRB(pad, 12, pad, 32),
             children: [
-              _Kpis(summaries: all, engine: e, cards: cards),
-              const SizedBox(height: 16),
-              for (final card in cards) ...[
-                _CardHeader(card: card, engine: e),
-                const SizedBox(height: 6),
-                GridPanel(
-                  child: compact
-                      ? Column(
-                          children: [
-                            for (final (i, s) in byCard[card]!.indexed)
-                              ..._rows(context, s, i, null),
-                          ],
-                        )
-                      : SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: SizedBox(
-                            width: layout!.totalWidth,
-                            child: Column(
-                              children: [
-                                _Header(layout: layout),
-                                for (final (i, s) in byCard[card]!.indexed)
-                                  ..._rows(context, s, i, layout),
-                              ],
-                            ),
+              _Kpis(summaries: rows, engine: e, cards: shownCards),
+              const SizedBox(height: 12),
+              _Filters(
+                open: filtersOpen ?? !compact,
+                active: _activeFilters,
+                onToggle: () =>
+                    setState(() => filtersOpen = !(filtersOpen ?? !compact)),
+                onClear: () => setState(() {
+                  cardFilter = {};
+                  monthFilter = {};
+                  statusFilter = {};
+                }),
+                groups: [
+                  (
+                    label: 'Cartões',
+                    options: [
+                      for (final c in cards)
+                        (
+                          key: 'card-${c.id}',
+                          label: c.name,
+                          color: Color(c.color),
+                          selected: cardFilter.contains(c.id),
+                          onTap: () => setState(
+                            () => cardFilter = _toggle(cardFilter, c.id),
                           ),
                         ),
-                ),
-                const SizedBox(height: 20),
-              ],
+                    ],
+                  ),
+                  (
+                    label: 'Mês',
+                    options: [
+                      for (final m in allMonths)
+                        (
+                          key: 'month-${m.key}',
+                          label: m.shortLabel,
+                          color: null,
+                          selected: months.contains(m),
+                          onTap: () =>
+                              setState(() => monthFilter = _toggle(months, m)),
+                        ),
+                    ],
+                  ),
+                  (
+                    label: 'Status',
+                    options: [
+                      for (final st in InvoiceStatus.values)
+                        (
+                          key: 'status-${st.name}',
+                          label: st.label,
+                          color: invoiceStatusColor(context, st),
+                          selected: statusFilter.contains(st),
+                          onTap: () => setState(
+                            () => statusFilter = _toggle(statusFilter, st),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              GridPanel(
+                child: compact
+                    ? Column(children: body)
+                    : SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: layout!.totalWidth,
+                          child: Column(
+                            children: [
+                              _Header(
+                                layout: layout,
+                                sort: sort,
+                                ascending: ascending,
+                                onSort: _onSort,
+                              ),
+                              ...body,
+                            ],
+                          ),
+                        ),
+                      ),
+              ),
             ],
           );
         },
       ),
     );
   }
+
+  static Set<T> _toggle<T>(Set<T> set, T v) =>
+      set.contains(v) ? ({...set}..remove(v)) : {...set, v};
 
   List<Widget> _rows(
     BuildContext context,
@@ -397,97 +506,20 @@ class _KpiTile extends StatelessWidget {
   );
 }
 
-/// Nome do cartão, limite disponível e atalho para todas as faturas.
-class _CardHeader extends StatelessWidget {
-  final CreditCard card;
-  final FinancialEngine engine;
-  const _CardHeader({required this.card, required this.engine});
-
-  @override
-  Widget build(BuildContext context) {
-    final hasLimit = card.limit.isPositive;
-    final available = hasLimit ? engine.availableLimit(card) : Money.zero;
-    final used = hasLimit
-        ? ((card.limit - available).cents / card.limit.cents).clamp(0.0, 1.0)
-        : 0.0;
-    final bar = Tooltip(
-      message: 'Limite usado: ${(used * 100).round()}%',
-      child: SizedBox(
-        width: 72,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: used,
-            minHeight: 6,
-            color: used > 0.9 ? context.fin.negative : Color(card.color),
-            backgroundColor: context.colors.outlineVariant,
-          ),
-        ),
-      ),
-    );
-    final name = Text(
-      card.name,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: context.text.titleMedium,
-    );
-    return LayoutBuilder(
-      builder: (context, box) {
-        final narrow = box.maxWidth < 560;
-        return Row(
-          children: [
-            Icon(Icons.credit_card, color: Color(card.color)),
-            const SizedBox(width: 8),
-            if (narrow)
-              Expanded(child: name)
-            else
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 320),
-                child: name,
-              ),
-            if (hasLimit) ...[
-              const SizedBox(width: 12),
-              bar,
-              if (!narrow) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'disponível ${available.format()} de ${card.limit.format()}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.text.bodySmall?.copyWith(
-                      color: context.fin.subtle,
-                    ),
-                  ),
-                ),
-              ],
-            ] else if (!narrow)
-              const Spacer(),
-            TextButton(
-              onPressed: () =>
-                  push(context, CardDetailsScreen(cardId: card.id)),
-              child: const Text('Todas'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
 enum _Col {
-  invoice('Fatura', 110, 96),
-  closing('Fechamento', 116, 108),
-  due('Vencimento', 104, 96),
-  count('Compras', 86, 80, right: true),
-  cash('À vista', 118, 104, right: true),
-  installments('Parcelado', 118, 104, right: true),
-  recurring('Recorrente', 118, 104, right: true),
-  top('Maior categoria', 200, 120, flexible: true),
-  total('Total', 128, 112, right: true),
-  paid('Pago', 118, 104, right: true),
-  remaining('Restante', 124, 108, right: true),
-  status('Status', 150, 132);
+  card('Cartão', 180, 130, flexible: true),
+  invoice('Fatura', 96, 88),
+  closing('Fechamento', 120, 116, flexible: true),
+  due('Vencimento', 120, 116, flexible: true),
+  count('Compras', 96, 88, right: true, flexible: true),
+  cash('À vista', 112, 108, right: true, flexible: true),
+  installments('Parcelado', 112, 108, right: true, flexible: true),
+  recurring('Recorrente', 116, 112, right: true, flexible: true),
+  top('Maior categoria', 180, 90, flexible: true),
+  total('Total', 120, 112, right: true),
+  paid('Pago', 110, 104, right: true, flexible: true),
+  remaining('Restante', 116, 112, right: true, flexible: true),
+  status('Status', 140, 132, flexible: true);
 
   final String label;
   final double width;
@@ -511,56 +543,96 @@ class _Layout {
   static const stripeW = GridLayout.stripeW;
   static const actionW = 84.0;
 
-  /// A sobra de espaço vai para "Maior categoria"; faltando espaço, ela
-  /// encolhe até o mínimo e depois a grade rola na horizontal.
+  /// A sobra de espaço vai para "Maior categoria"; faltando espaço, as
+  /// colunas de texto encolhem até o mínimo e depois a grade rola na
+  /// horizontal.
   factory _Layout.of(double width) {
     var sum = stripeW + actionW;
+    var slack = 0.0;
     for (final c in _Col.values) {
       sum += c.width;
+      if (c.flexible) slack += c.width - c.minWidth;
     }
-    final top = _Col.top;
-    final delta = width - sum;
-    final topW = (top.width + delta).clamp(top.minWidth, double.infinity);
+    final extra = width > sum ? width - sum : 0.0;
+    final shrink = width < sum && slack > 0
+        ? ((sum - width) / slack).clamp(0.0, 1.0)
+        : 0.0;
+    double sized(_Col c) {
+      if (c == _Col.top && extra > 0) return c.width + extra;
+      if (!c.flexible) return c.width;
+      return c.width - (c.width - c.minWidth) * shrink;
+    }
+
     return _Layout([
-      for (final c in _Col.values) (c, c == top ? topW : c.width),
-    ], sum - top.width + topW);
+      for (final c in _Col.values) (c, sized(c)),
+    ], sum + extra - slack * shrink);
   }
 }
 
 class _Header extends StatelessWidget {
   final _Layout layout;
-  const _Header({required this.layout});
+  final _Col sort;
+  final bool ascending;
+  final ValueChanged<_Col> onSort;
+  const _Header({
+    required this.layout,
+    required this.sort,
+    required this.ascending,
+    required this.onSort,
+  });
 
   @override
   Widget build(BuildContext context) {
     final p = GridPalette.of(context);
-    return Container(
-      height: 36,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: p.header),
-        border: Border(bottom: BorderSide(color: p.neon, width: 2)),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: _Layout.stripeW),
-          for (final (c, w) in layout.cells)
-            SizedBox(
-              width: w,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+    Widget cell(_Col c) {
+      final active = c == sort;
+      return InkWell(
+        key: ValueKey('invoices-sort-${c.name}'),
+        onTap: () => onSort(c),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(
+            mainAxisAlignment: c.right
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
+            children: [
+              Flexible(
                 child: Text(
                   c.label.toUpperCase(),
-                  textAlign: c.right ? TextAlign.right : TextAlign.left,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: context.text.labelSmall?.copyWith(
-                    color: p.headerText,
+                    color: active ? p.neon : p.headerText,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 1.2,
                   ),
                 ),
               ),
-            ),
+              const SizedBox(width: 2),
+              Icon(
+                active
+                    ? (ascending ? Icons.arrow_drop_up : Icons.arrow_drop_down)
+                    : Icons.unfold_more,
+                size: active ? 18 : 13,
+                color: active ? p.neon : p.headerText.withValues(alpha: 0.45),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: 38,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: p.header),
+        border: Border(bottom: BorderSide(color: p.neon, width: 2)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(width: _Layout.stripeW),
+          for (final (c, w) in layout.cells) SizedBox(width: w, child: cell(c)),
           const SizedBox(width: _Layout.actionW),
         ],
       ),
@@ -607,6 +679,24 @@ class _InvoiceRow extends StatelessWidget {
     final overdue = inv.status == InvoiceStatus.overdue;
 
     Widget cell(_Col c) => switch (c) {
+      _Col.card => GridCell(
+        child: Row(
+          children: [
+            GlowDot(Color(inv.card.color)),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                inv.card.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.text.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
       _Col.invoice => GridCell(
         child: Text(
           inv.month.shortLabel,
@@ -786,11 +876,21 @@ class _CompactInvoiceRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    'Fatura ${inv.month.shortLabel}',
-                    style: context.text.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                  Row(
+                    children: [
+                      GlowDot(Color(inv.card.color)),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '${inv.card.name} · ${inv.month.shortLabel}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.text.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   Text(
                     'vence ${Dates.format(inv.dueDate)}'
@@ -965,6 +1065,242 @@ class _Purchases extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+typedef _FilterOption = ({
+  String key,
+  String label,
+  Color? color,
+  bool selected,
+  VoidCallback onTap,
+});
+
+/// Painel de filtros recolhível: um grupo de opções por linha.
+class _Filters extends StatelessWidget {
+  final bool open;
+  final int active;
+  final VoidCallback onToggle;
+  final VoidCallback onClear;
+  final List<({String label, List<_FilterOption> options})> groups;
+  const _Filters({
+    required this.open,
+    required this.active,
+    required this.onToggle,
+    required this.onClear,
+    required this.groups,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = GridPalette.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: context.colors.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            key: const ValueKey('invoices-filters-toggle'),
+            borderRadius: BorderRadius.circular(16),
+            onTap: onToggle,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+              child: Row(
+                children: [
+                  Icon(Icons.filter_list, size: 18, color: p.neon),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            'Filtros',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: context.text.titleSmall,
+                          ),
+                        ),
+                        if (active > 0) ...[
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: p.neon.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                '$active ${active == 1 ? 'ativo' : 'ativos'}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: context.text.labelSmall?.copyWith(
+                                  color: p.neon,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (active > 0)
+                    TextButton(
+                      key: const ValueKey('invoices-filters-clear'),
+                      onPressed: onClear,
+                      child: const Text('Limpar'),
+                    ),
+                  IconButton(
+                    tooltip: open ? 'Recolher filtros' : 'Mostrar filtros',
+                    onPressed: onToggle,
+                    icon: Icon(open ? Icons.expand_less : Icons.expand_more),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (open)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final g in groups) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6, bottom: 4),
+                      child: Text(
+                        g.label,
+                        style: context.text.labelMedium?.copyWith(
+                          color: context.fin.subtle,
+                        ),
+                      ),
+                    ),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final o in g.options)
+                          FilterChip(
+                            key: ValueKey('invoices-filter-${o.key}'),
+                            visualDensity: VisualDensity.compact,
+                            avatar: o.color == null
+                                ? null
+                                : CircleAvatar(
+                                    radius: 5,
+                                    backgroundColor: o.color,
+                                  ),
+                            showCheckmark: o.color == null,
+                            label: Text(o.label),
+                            selected: o.selected,
+                            onSelected: (_) => o.onTap(),
+                          ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Totais das faturas exibidas.
+class _Footer extends StatelessWidget {
+  final List<_Summary> rows;
+  final _Layout? layout;
+  const _Footer({required this.rows, required this.layout});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = GridPalette.of(context);
+    Money sum(Money Function(_Summary) f) => rows.map(f).sum();
+    final total = sum((s) => s.inv.total);
+    final remaining = sum((s) => s.unpaid ? s.inv.remaining : Money.zero);
+    final small = context.text.bodySmall?.copyWith(fontWeight: FontWeight.w700);
+    final strong = context.text.bodyMedium?.copyWith(
+      fontWeight: FontWeight.w800,
+      color: p.neon,
+    );
+    final label = Text(
+      'Total · ${rows.length} ${rows.length == 1 ? 'fatura' : 'faturas'}',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: context.text.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+    );
+    final decoration = BoxDecoration(
+      color: p.neon.withValues(alpha: 0.06),
+      border: Border(
+        top: BorderSide(color: p.neon.withValues(alpha: 0.5), width: 1),
+      ),
+    );
+    final l = layout;
+    if (l == null) {
+      return Container(
+        key: const ValueKey('invoices-footer'),
+        decoration: decoration,
+        padding: const EdgeInsets.fromLTRB(13, 10, 16, 10),
+        child: Row(
+          children: [
+            Expanded(child: label),
+            if (remaining.isPositive) ...[
+              Text('falta ', style: context.text.bodySmall),
+              MoneyText(remaining, style: small),
+              const SizedBox(width: 10),
+            ],
+            MoneyText(total, style: strong),
+          ],
+        ),
+      );
+    }
+    Widget money(Money m, {TextStyle? style}) => m.isZero
+        ? const SizedBox.shrink()
+        : MoneyText(m, style: style ?? small);
+    Widget cell(_Col c) => switch (c) {
+      _Col.card => GridCell(child: label),
+      _Col.count => GridCell(
+        right: true,
+        child: Text('${rows.fold(0, (a, s) => a + s.count)}', style: small),
+      ),
+      _Col.cash => GridCell(right: true, child: money(sum((s) => s.cash))),
+      _Col.installments => GridCell(
+        right: true,
+        child: money(sum((s) => s.installments)),
+      ),
+      _Col.recurring => GridCell(
+        right: true,
+        child: money(sum((s) => s.recurring)),
+      ),
+      _Col.total => GridCell(
+        right: true,
+        background: p.valueBg,
+        child: MoneyText(total, style: strong),
+      ),
+      _Col.paid => GridCell(right: true, child: money(sum((s) => s.inv.paid))),
+      _Col.remaining => GridCell(right: true, child: money(remaining)),
+      _ => const SizedBox.shrink(),
+    };
+    return Container(
+      key: const ValueKey('invoices-footer'),
+      height: 42,
+      decoration: decoration,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(width: _Layout.stripeW),
+          for (final (c, w) in l.cells) SizedBox(width: w, child: cell(c)),
+          const SizedBox(width: _Layout.actionW),
+        ],
       ),
     );
   }

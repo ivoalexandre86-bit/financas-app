@@ -29,6 +29,9 @@ void main() {
         limit: const Money(500000),
       );
       await fc.saveCard(card);
+      await fc.saveCard(
+        CreditCard(id: 'nu', name: 'Nubank', closingDay: 3, dueDay: 10),
+      );
       final cur = BillingCycle.currentInvoice(card, fc.today);
       key = 'c6|${cur.key}';
       final start = BillingCycle.cycleStart(card, cur);
@@ -104,17 +107,32 @@ void main() {
     expect(find.text('Notebook'), findsOneWidget);
     expect(find.text('Parcela 1/12'), findsOneWidget);
 
-    // 6 meses por cartão.
-    await tester.tap(find.text('6 meses'));
-    await tester.pump();
-    expect(
-      find.byWidgetPredicate(
-        (w) =>
-            w.key is ValueKey<String> &&
-            (w.key! as ValueKey<String>).value.startsWith('invoices-row-'),
-      ),
-      findsNWidgets(6),
+    // Grade única: os dois cartões, 3 meses cada, com a coluna Cartão.
+    final rows = find.byWidgetPredicate(
+      (w) =>
+          w.key is ValueKey<String> &&
+          (w.key! as ValueKey<String>).value.startsWith('invoices-row-'),
     );
+    expect(rows, findsNWidgets(6));
+    expect(find.text('Nubank'), findsWidgets);
+    expect(find.byKey(const ValueKey('invoices-sort-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('invoices-footer')), findsOneWidget);
+
+    // Filtro por cartão.
+    await tester.tap(find.byKey(const ValueKey('invoices-filter-card-nu')));
+    await tester.pump();
+    expect(rows, findsNWidgets(3));
+    expect(find.byKey(ValueKey('invoices-row-$key')), findsNothing);
+
+    // Limpar mostra todos os cartões e todos os meses.
+    await tester.tap(find.byKey(const ValueKey('invoices-filters-clear')));
+    await tester.pump();
+    expect(rows, findsNWidgets(20));
+
+    // Filtros recolhem.
+    await tester.tap(find.byKey(const ValueKey('invoices-filters-toggle')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('invoices-filter-card-nu')), findsNothing);
   });
 
   testWidgets('celular usa linhas compactas', (tester) async {
