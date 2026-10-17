@@ -216,6 +216,7 @@ class SimKpi extends StatelessWidget {
   final String? detail;
   final Color? color;
   final IconData icon;
+  final double width;
   const SimKpi({
     super.key,
     required this.label,
@@ -223,11 +224,12 @@ class SimKpi extends StatelessWidget {
     required this.icon,
     this.detail,
     this.color,
+    this.width = 190,
   });
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: 190,
+    width: width,
     child: Card(
       margin: EdgeInsets.zero,
       child: Padding(
