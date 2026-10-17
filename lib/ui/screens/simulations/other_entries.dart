@@ -12,6 +12,7 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
+import '../../widgets/remembered_filters.dart';
 import 'sim_common.dart';
 import 'other_grid.dart';
 
@@ -38,11 +39,10 @@ class OtherEntriesView extends StatefulWidget {
   State<OtherEntriesView> createState() => _OtherEntriesViewState();
 }
 
-class _OtherEntriesViewState extends State<OtherEntriesView> {
-  /// 'all', 'y:2026' ou 'm:2026-10'.
-  late String period = widget.initialMonth == null
-      ? 'all'
-      : 'm:${widget.initialMonth!.key}';
+class _OtherEntriesViewState extends State<OtherEntriesView>
+    with RememberedFilters {
+  /// 'all', 'y:2026' ou 'm:2026-10'. Padrão: mês atual.
+  late String period = 'm:${(widget.initialMonth ?? YearMonth.now()).key}';
   String? personId;
   PayStatus? status;
   String query = '';
@@ -60,6 +60,38 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
   final searchCtrl = TextEditingController();
 
   @override
+  String get filterKey => 'other-${widget.type.name}';
+
+  @override
+  Map<String, Object?> filtersToJson() => {
+    'period': period,
+    'person': personId,
+    'status': status?.name,
+    'linked': linked,
+    'deleted': showDeleted,
+    'sheet': sheet,
+    'byPerson': sheetByPerson,
+  };
+
+  @override
+  void restoreFilters(Map<String, Object?> j, FinanceController fc) {
+    // Quem abriu a tela já num mês (drill-down) vê esse mês.
+    final p = j['period'];
+    if (widget.initialMonth == null &&
+        p is String &&
+        (p == 'all' || p.startsWith('y:') || p.startsWith('m:'))) {
+      if (p.startsWith('m:')) YearMonth.parse(p.substring(2)); // valida
+      period = p;
+    }
+    personId = FilterJson.id(j['person'], fc.people.map((p) => p.id));
+    status = FilterJson.enumOrNull(PayStatus.values, j['status']);
+    linked = j['linked'] as bool?;
+    showDeleted = j['deleted'] as bool? ?? false;
+    sheet = j['sheet'] as bool? ?? false;
+    sheetByPerson = j['byPerson'] as bool? ?? false;
+  }
+
+  @override
   void dispose() {
     searchCtrl.dispose();
     super.dispose();
@@ -74,7 +106,7 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
     showDeleted,
   ].where((b) => b).length;
 
-  void _clearFilters() => setState(() {
+  void _clearFilters() => setFilters(() {
     searchCtrl.clear();
     query = '';
     period = 'all';
@@ -129,7 +161,7 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
     if (!periodOptions.containsKey(period)) {
       periodOptions[period] = period.startsWith('m:')
           ? YearMonth.parse(period.substring(2)).shortLabel
-          : period;
+          : 'Ano ${period.substring(2)}';
     }
     final selMonth = period.startsWith('m:')
         ? YearMonth.parse(period.substring(2))
@@ -292,13 +324,13 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
                 label: 'Mês/ano',
                 value: period,
                 items: periodOptions,
-                onChanged: (v) => setState(() => period = v ?? 'all'),
+                onChanged: (v) => setFilters(() => period = v ?? 'all'),
               ),
               _Filter<String?>(
                 label: 'Pessoa',
                 value: personId,
                 items: {null: 'Todas', for (final p in fc.people) p.id: p.name},
-                onChanged: (v) => setState(() => personId = v),
+                onChanged: (v) => setFilters(() => personId = v),
               ),
               _Filter<PayStatus?>(
                 label: isIncome ? 'Recebimento' : 'Pagamento',
@@ -307,7 +339,7 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
                   null: 'Todos',
                   for (final s in PayStatus.values) s: s.label,
                 },
-                onChanged: (v) => setState(() => status = v),
+                onChanged: (v) => setFilters(() => status = v),
               ),
               _Filter<bool?>(
                 label: 'Orçamento',
@@ -317,12 +349,12 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
                   true: 'Vinculados',
                   false: 'Não vinculados',
                 },
-                onChanged: (v) => setState(() => linked = v),
+                onChanged: (v) => setFilters(() => linked = v),
               ),
               FilterChip(
                 label: const Text('Excluídos'),
                 selected: showDeleted,
-                onSelected: (v) => setState(() => showDeleted = v),
+                onSelected: (v) => setFilters(() => showDeleted = v),
               ),
             ],
           ),
@@ -347,7 +379,7 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
                 ),
               ],
               selected: {sheet},
-              onSelectionChanged: (v) => setState(() => sheet = v.first),
+              onSelectionChanged: (v) => setFilters(() => sheet = v.first),
             ),
             if (sheet)
               SegmentedButton<bool>(
@@ -357,7 +389,7 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
                 ],
                 selected: {sheetByPerson},
                 onSelectionChanged: (v) =>
-                    setState(() => sheetByPerson = v.first),
+                    setFilters(() => sheetByPerson = v.first),
               ),
           ],
         ),

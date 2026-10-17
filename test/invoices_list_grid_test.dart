@@ -14,7 +14,10 @@ import 'package:provider/provider.dart';
 import 'controller_test.dart' show MemoryRepo;
 
 void main() {
-  Future<(FinanceController, String)> setup(WidgetTester tester) async {
+  Future<(FinanceController, String)> setup(
+    WidgetTester tester, {
+    bool showDueMonth = true,
+  }) async {
     Intl.defaultLocale = 'pt_BR';
     await initializeDateFormatting('pt_BR');
     final fc = FinanceController(MemoryRepo());
@@ -35,6 +38,12 @@ void main() {
       );
       final cur = BillingCycle.currentInvoice(card, fc.today);
       key = 'c6|${cur.key}';
+      // A fatura atual vence no mês seguinte; a grade abre no mês atual.
+      if (showDueMonth) {
+        await fc.saveGridFilter('invoices', {
+          'months': [YearMonth.of(BillingCycle.dueDate(card, cur)).key],
+        });
+      }
       final start = BillingCycle.cycleStart(card, cur);
       final cats = fc.data.categories
           .where((c) => c.kind == CategoryKind.expense && c.parentId == null)
@@ -108,13 +117,13 @@ void main() {
     expect(find.text('Notebook'), findsOneWidget);
     expect(find.text('Parcela 1/12'), findsOneWidget);
 
-    // Grade única: os dois cartões, 3 meses cada, com a coluna Cartão.
+    // Grade única: os dois cartões no mês escolhido, com a coluna Cartão.
     final rows = find.byWidgetPredicate(
       (w) =>
           w.key is ValueKey<String> &&
           (w.key! as ValueKey<String>).value.startsWith('invoices-row-'),
     );
-    expect(rows, findsNWidgets(6));
+    expect(rows, findsNWidgets(2));
     expect(find.text('Nubank'), findsWidgets);
     expect(find.byKey(const ValueKey('invoices-sort-card')), findsOneWidget);
     expect(find.byKey(const ValueKey('invoices-footer')), findsOneWidget);
@@ -122,7 +131,7 @@ void main() {
     // Filtro por cartão.
     await tester.tap(find.byKey(const ValueKey('invoices-filter-card-nu')));
     await tester.pump();
-    expect(rows, findsNWidgets(3));
+    expect(rows, findsNWidgets(1));
     expect(find.byKey(ValueKey('invoices-row-$key')), findsNothing);
 
     // Limpar mostra todos os cartões e todos os meses.
@@ -166,5 +175,44 @@ void main() {
     await tester.pump();
     expect(find.text('Notebook'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('lembra o mês escolhido ao reabrir; padrão é o mês atual', (
+    tester,
+  ) async {
+    final (fc, key) = await setup(tester, showDueMonth: false);
+    await tester.binding.setSurfaceSize(const Size(1800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(app(fc));
+    await tester.pump();
+    final now = YearMonth.of(fc.today);
+    Finder chip(YearMonth m) =>
+        find.byKey(ValueKey('invoices-filter-month-${m.key}'));
+    bool selected(YearMonth m) => tester.widget<FilterChip>(chip(m)).selected;
+    expect(selected(now), isTrue);
+    expect(selected(now.next), isFalse);
+    expect(find.byKey(ValueKey('invoices-row-$key')), findsNothing);
+
+    await tester.tap(chip(now));
+    await tester.pump();
+    await tester.tap(chip(now.next));
+    await tester.pump();
+    expect(find.byKey(ValueKey('invoices-row-$key')), findsOneWidget);
+    expect(fc.repo is MemoryRepo, isTrue);
+    expect((fc.repo as MemoryRepo).settings.gridFilters?['invoices'], {
+      'cards': <String>[],
+      'months': [now.next.key],
+      'status': <String>[],
+      'sort': 'due',
+      'asc': true,
+    });
+
+    // Reabre a tela: continua no mês escolhido.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(app(fc));
+    await tester.pump();
+    expect(selected(now), isFalse);
+    expect(selected(now.next), isTrue);
+    expect(find.byKey(ValueKey('invoices-row-$key')), findsOneWidget);
   });
 }
