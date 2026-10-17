@@ -74,7 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       title: 'Comece cadastrando uma conta',
                       message: 'Seus saldos e projeções são calculados a partir das contas e lançamentos.',
                       actionLabel: 'Ir para Contas',
-                      onAction: () => AppShell.goToTab(context, 4),
+                      onAction: () => AppShell.goTo(context, 'accounts'),
                     ),
                   ),
                 ),
@@ -398,7 +398,7 @@ class _PendingKpis extends StatelessWidget {
         icon: Icons.warning_amber_rounded,
         color: p.overdue.count > 0 ? context.fin.negative : context.fin.subtle,
         highlight: p.overdue.count > 0,
-        onTap: () => AppShell.goToTab(context, 1),
+        onTap: () => AppShell.goTo(context, 'transactions'),
       ),
     ];
     return Column(
@@ -594,7 +594,7 @@ class _UpcomingCard extends StatelessWidget {
     return SectionCard(
       title: 'Próximos vencimentos',
       trailing: TextButton(
-        onPressed: () => AppShell.goToTab(context, 1),
+        onPressed: () => AppShell.goTo(context, 'transactions'),
         child: const Text('Ver todos'),
       ),
       padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
