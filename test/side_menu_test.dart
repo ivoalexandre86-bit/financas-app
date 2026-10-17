@@ -56,8 +56,9 @@ void main() {
     }
     expect(find.text('Mais'), findsNothing);
     expect(find.text('Transações'), findsOneWidget);
-    // Só Lançamentos começa aberta.
-    expect(find.text('Faturas'), findsNothing);
+    // Só Lançamentos começa aberta; Faturas fica nela.
+    expect(find.text('Faturas'), findsOneWidget);
+    expect(find.text('Importar planilha'), findsNothing);
     expect(find.text('Categorias'), findsNothing);
     // Usuários só para administradores.
     await tester.tap(
@@ -79,12 +80,12 @@ void main() {
     tester,
   ) async {
     final picked = await pumpMenu(tester, expanded: false);
-    expect(find.text('Faturas'), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('side-menu-group-wallet')));
+    expect(find.text('Importar planilha'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('side-menu-group-planning')));
     await tester.pumpAndSettle();
-    expect(find.text('Faturas'), findsOneWidget);
-    await tester.tap(find.text('Faturas'));
+    expect(find.text('Importar planilha'), findsOneWidget);
+    await tester.tap(find.text('Importar planilha'));
     await tester.pumpAndSettle();
-    expect(picked, ['invoices']);
+    expect(picked, ['import']);
   });
 }

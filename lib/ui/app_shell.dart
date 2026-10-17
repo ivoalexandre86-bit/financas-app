@@ -182,8 +182,8 @@ const _home = _Dest(
   HomeScreen(),
 );
 
-/// Hierarquia do menu, na ordem do uso: lançar → acompanhar contas e
-/// cartões → planejar → configurar.
+/// Hierarquia do menu, na ordem do uso: lançar (inclui faturas) → contas e
+/// cartões → planejar (inclui importar planilha) → configurar.
 const _groups = <_Group>[
   _Group('entries', Icons.receipt_long_outlined, 'Lançamentos', [
     _Dest(
@@ -199,6 +199,7 @@ const _groups = <_Group>[
       'Parcelamentos',
       InstallmentsScreen(),
     ),
+    _Dest('invoices', Icons.receipt_outlined, 'Faturas', InvoicesScreen()),
     _Dest(
       'other-entries',
       Icons.call_split,
@@ -206,12 +207,6 @@ const _groups = <_Group>[
       SimulationsScreen(initialTab: 1),
     ),
     _Dest('shared', Icons.groups_outlined, 'Compartilhadas', SharedScreen()),
-    _Dest(
-      'import',
-      Icons.upload_file,
-      'Importar planilha',
-      ExpenseImportScreen(),
-    ),
   ]),
   _Group('wallet', Icons.account_balance_wallet_outlined, 'Contas e cartões', [
     _Dest(
@@ -221,7 +216,6 @@ const _groups = <_Group>[
       AccountsScreen(),
     ),
     _Dest('cards', Icons.credit_card, 'Cartões', CardsScreen()),
-    _Dest('invoices', Icons.receipt_outlined, 'Faturas', InvoicesScreen()),
   ]),
   _Group('planning', Icons.insights_outlined, 'Planejamento', [
     _Dest(
@@ -238,6 +232,12 @@ const _groups = <_Group>[
       SimulationsScreen(),
     ),
     _Dest('dashboards', Icons.insights_outlined, 'Painéis', DashboardsScreen()),
+    _Dest(
+      'import',
+      Icons.upload_file,
+      'Importar planilha',
+      ExpenseImportScreen(),
+    ),
   ]),
   _Group('settings-group', Icons.settings_outlined, 'Configurações', [
     _Dest('settings', Icons.tune, 'Preferências', SettingsScreen()),
@@ -422,11 +422,14 @@ class _SideMenuState extends State<SideMenu> {
                         children: [
                           Icon(d.icon, size: 20),
                           const SizedBox(width: 12),
-                          Text(
-                            d.label,
-                            style: d.id == widget.selected
-                                ? const TextStyle(fontWeight: FontWeight.w600)
-                                : null,
+                          Flexible(
+                            child: Text(
+                              d.label,
+                              overflow: TextOverflow.ellipsis,
+                              style: d.id == widget.selected
+                                  ? const TextStyle(fontWeight: FontWeight.w600)
+                                  : null,
+                            ),
                           ),
                         ],
                       ),
