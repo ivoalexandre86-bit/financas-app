@@ -13,6 +13,7 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
 import 'sim_common.dart';
+import 'other_grid.dart';
 
 Color payStatusColor(BuildContext context, PayStatus? s) => switch (s) {
   PayStatus.paid => context.fin.positive,
@@ -53,6 +54,35 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
   /// Planilha (meses em colunas) em vez da lista agrupada por mês.
   bool sheet = false;
   bool sheetByPerson = false;
+
+  /// null = aberto no desktop e recolhido no celular.
+  bool? filtersOpen;
+  final searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    searchCtrl.dispose();
+    super.dispose();
+  }
+
+  int get _activeFilters => [
+    query.trim().isNotEmpty,
+    period != 'all',
+    personId != null,
+    status != null,
+    linked != null,
+    showDeleted,
+  ].where((b) => b).length;
+
+  void _clearFilters() => setState(() {
+    searchCtrl.clear();
+    query = '';
+    period = 'all';
+    personId = null;
+    status = null;
+    linked = null;
+    showDeleted = false;
+  });
 
   bool get isIncome => widget.type == TransactionType.income;
 
@@ -105,6 +135,9 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
         ? YearMonth.parse(period.substring(2))
         : null;
     final account = fc.otherAccount;
+    // No celular os indicadores ficam dois por linha.
+    final screenW = MediaQuery.sizeOf(context).width;
+    final kpiW = screenW < 760 ? (screenW - 42) / 2 : 190.0;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
@@ -177,105 +210,122 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
           children: isIncome
               ? [
                   SimKpi(
+                    width: kpiW,
                     label: 'Previsto',
                     value: fmtCents(sum.total),
                     icon: Icons.event_note_outlined,
                   ),
                   SimKpi(
+                    width: kpiW,
                     label: 'Recebido',
                     value: fmtCents(sum.received),
                     icon: Icons.check_circle_outline,
                     color: context.fin.positive,
                   ),
                   SimKpi(
+                    width: kpiW,
                     label: 'A receber',
                     value: fmtCents(sum.outstanding),
                     icon: Icons.schedule,
                     color: context.fin.negative,
                   ),
-                  _counts(context, sum),
+                  _counts(context, sum, kpiW),
                 ]
               : [
                   SimKpi(
+                    width: kpiW,
                     label: 'Total de despesas',
                     value: fmtCents(sum.total),
                     icon: Icons.receipt_long_outlined,
                   ),
                   SimKpi(
+                    width: kpiW,
                     label: 'Atribuído a outras pessoas',
                     value: fmtCents(sum.assigned),
                     icon: Icons.group_outlined,
                   ),
                   SimKpi(
+                    width: kpiW,
                     label: 'Recebido',
                     value: fmtCents(sum.received),
                     icon: Icons.check_circle_outline,
                     color: context.fin.positive,
                   ),
                   SimKpi(
+                    width: kpiW,
                     label: 'A receber',
                     value: fmtCents(sum.outstanding),
                     icon: Icons.schedule,
                     color: context.fin.negative,
                   ),
-                  _counts(context, sum),
+                  _counts(context, sum, kpiW),
                 ],
         ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            SizedBox(
-              width: 220,
-              child: TextField(
-                key: const ValueKey('oe-search'),
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  hintText: 'Buscar descrição',
-                  isDense: true,
+        OtherFiltersPanel(
+          open: filtersOpen ?? MediaQuery.sizeOf(context).width >= 760,
+          active: _activeFilters,
+          onToggle: () => setState(
+            () => filtersOpen =
+                !(filtersOpen ?? MediaQuery.sizeOf(context).width >= 760),
+          ),
+          onClear: _clearFilters,
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 220,
+                child: TextField(
+                  key: const ValueKey('oe-search'),
+                  controller: searchCtrl,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Buscar descrição',
+                    isDense: true,
+                  ),
+                  onChanged: (v) => setState(() => query = v),
                 ),
-                onChanged: (v) => setState(() => query = v),
               ),
-            ),
-            _Filter<String>(
-              label: 'Mês/ano',
-              value: period,
-              items: periodOptions,
-              onChanged: (v) => setState(() => period = v ?? 'all'),
-            ),
-            _Filter<String?>(
-              label: 'Pessoa',
-              value: personId,
-              items: {null: 'Todas', for (final p in fc.people) p.id: p.name},
-              onChanged: (v) => setState(() => personId = v),
-            ),
-            _Filter<PayStatus?>(
-              label: isIncome ? 'Recebimento' : 'Pagamento',
-              value: status,
-              items: {
-                null: 'Todos',
-                for (final s in PayStatus.values) s: s.label,
-              },
-              onChanged: (v) => setState(() => status = v),
-            ),
-            _Filter<bool?>(
-              label: 'Orçamento',
-              value: linked,
-              items: const {
-                null: 'Todos',
-                true: 'Vinculados',
-                false: 'Não vinculados',
-              },
-              onChanged: (v) => setState(() => linked = v),
-            ),
-            FilterChip(
-              label: const Text('Excluídos'),
-              selected: showDeleted,
-              onSelected: (v) => setState(() => showDeleted = v),
-            ),
-          ],
+              _Filter<String>(
+                label: 'Mês/ano',
+                value: period,
+                items: periodOptions,
+                onChanged: (v) => setState(() => period = v ?? 'all'),
+              ),
+              _Filter<String?>(
+                label: 'Pessoa',
+                value: personId,
+                items: {null: 'Todas', for (final p in fc.people) p.id: p.name},
+                onChanged: (v) => setState(() => personId = v),
+              ),
+              _Filter<PayStatus?>(
+                label: isIncome ? 'Recebimento' : 'Pagamento',
+                value: status,
+                items: {
+                  null: 'Todos',
+                  for (final s in PayStatus.values) s: s.label,
+                },
+                onChanged: (v) => setState(() => status = v),
+              ),
+              _Filter<bool?>(
+                label: 'Orçamento',
+                value: linked,
+                items: const {
+                  null: 'Todos',
+                  true: 'Vinculados',
+                  false: 'Não vinculados',
+                },
+                onChanged: (v) => setState(() => linked = v),
+              ),
+              FilterChip(
+                label: const Text('Excluídos'),
+                selected: showDeleted,
+                onSelected: (v) => setState(() => showDeleted = v),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 12),
         Wrap(
@@ -287,8 +337,8 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
               segments: const [
                 ButtonSegment(
                   value: false,
-                  icon: Icon(Icons.view_list_outlined),
-                  label: Text('Lista por mês'),
+                  icon: Icon(Icons.grid_on_outlined),
+                  label: Text('Grade'),
                 ),
                 ButtonSegment(
                   value: true,
@@ -331,45 +381,40 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
         else if (sheet)
           OtherSheet(entries: list, byPerson: sheetByPerson)
         else
-          for (final m in {for (final e in list) e.month}) ...[
-            _MonthHeader(
-              month: m,
-              entries: [
-                for (final e in list)
-                  if (e.month == m) e,
-              ],
-            ),
-            for (final e in list)
-              if (e.month == m) _EntryTile(entry: e),
-          ],
+          OtherGrid(
+            entries: list,
+            isIncome: isIncome,
+            onOpen: (e) => push(context, OtherEntryScreen(entryId: e.id)),
+          ),
       ],
     );
   }
 
-  Widget _counts(BuildContext context, OtherSummary s) => SizedBox(
-    width: 190,
-    child: Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Situação',
-              style: context.text.labelMedium?.copyWith(
-                color: context.fin.subtle,
-              ),
+  Widget _counts(BuildContext context, OtherSummary s, double width) =>
+      SizedBox(
+        width: width,
+        child: Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Situação',
+                  style: context.text.labelMedium?.copyWith(
+                    color: context.fin.subtle,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text('${s.pending} pendentes'),
+                Text('${s.partial} parciais'),
+                Text('${s.paid} pagos'),
+              ],
             ),
-            const SizedBox(height: 6),
-            Text('${s.pending} pendentes'),
-            Text('${s.partial} parciais'),
-            Text('${s.paid} pagos'),
-          ],
+          ),
         ),
-      ),
-    ),
-  );
+      );
 }
 
 class _Filter<T> extends StatelessWidget {
@@ -386,7 +431,7 @@ class _Filter<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: 170,
+    width: 190,
     child: DropdownButtonFormField<T>(
       initialValue: value,
       isExpanded: true,
@@ -437,33 +482,6 @@ class _MonthLine extends StatelessWidget {
         trailing: tx == null
             ? null
             : Text(fmtCents(tx.amount.cents), style: context.text.titleMedium),
-      ),
-    );
-  }
-}
-
-class _MonthHeader extends StatelessWidget {
-  final YearMonth month;
-  final List<OtherEntry> entries;
-  const _MonthHeader({required this.month, required this.entries});
-
-  @override
-  Widget build(BuildContext context) {
-    final total = entries
-        .where((e) => !e.isDeleted)
-        .fold(0, (a, e) => a + e.amount);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 12, 20, 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(month.longLabel, style: context.text.titleSmall),
-          ),
-          Text(
-            '${entries.length} · ${fmtCents(total)}',
-            style: context.text.titleSmall?.copyWith(color: context.fin.subtle),
-          ),
-        ],
       ),
     );
   }
@@ -656,56 +674,6 @@ class _SheetRow {
     values[m] = (values[m] ?? 0) + value;
     if (paidValue != null) paid[m] = (paid[m] ?? 0) + paidValue;
     entries[m] ??= e;
-  }
-}
-
-class _EntryTile extends StatelessWidget {
-  final OtherEntry entry;
-  const _EntryTile({required this.entry});
-
-  @override
-  Widget build(BuildContext context) {
-    final fc = context.watch<FinanceController>();
-    final e = entry;
-    final st = e.status(fc.meIds);
-    final names = [
-      for (final s in e.shares()) fc.personById(s.personId)?.name ?? '?',
-    ];
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        key: ValueKey('oe-tile-${e.id}'),
-        onTap: () => push(context, OtherEntryScreen(entryId: e.id)),
-        leading: Icon(
-          e.linked ? Icons.link : Icons.link_off,
-          color: e.linked ? context.fin.positive : context.fin.subtle,
-        ),
-        title: Text(
-          e.description,
-          style: e.isDeleted
-              ? const TextStyle(decoration: TextDecoration.lineThrough)
-              : null,
-        ),
-        subtitle: Text(
-          [
-            e.month.shortLabel,
-            if (e.inSeries) '${e.seriesKind!.label} ${e.seriesLabel}',
-            if (e.dueDate != null) 'vence ${Dates.format(e.dueDate!)}',
-            if (names.isNotEmpty) names.join(', '),
-            if (!e.isIncome && e.settled) 'conta paga',
-          ].join(' · '),
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(fmtCents(e.amount), style: context.text.titleSmall),
-            const SizedBox(height: 4),
-            payStatusPill(context, st),
-          ],
-        ),
-      ),
-    );
   }
 }
 

@@ -508,4 +508,90 @@ void main() {
     );
     expect(total.data, contains('1.000,00'));
   });
+
+  testWidgets('grade com ordenação, totais e filtros recolhíveis', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    late FinanceController fc;
+    await tester.runAsync(() async {
+      fc = await _setup();
+      for (final (id, desc, cents) in [
+        ('a', 'Água', 5000),
+        ('b', 'Bolo', 20000),
+      ]) {
+        await fc.saveOtherEntry(
+          OtherEntry(
+            id: id,
+            type: TransactionType.expense,
+            description: desc,
+            amount: cents,
+            month: _m,
+            allocations: const [Allocation('pai', AllocMode.percent, 50)],
+          ),
+        );
+      }
+    });
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: fc,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const SimulationsScreen(initialTab: 1),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('oe-row-a')), findsOneWidget);
+    expect(find.byKey(const ValueKey('oe-row-b')), findsOneWidget);
+    final footer = find.byKey(const ValueKey('oe-footer'));
+    expect(
+      find.descendant(of: footer, matching: find.textContaining('250,00')),
+      findsOneWidget,
+    );
+
+    // Valor decrescente: Bolo antes de Água.
+    await tester.tap(find.byKey(const ValueKey('oe-sort-amount')));
+    await tester.pumpAndSettle();
+    double y(String id) =>
+        tester.getTopLeft(find.byKey(ValueKey('oe-row-$id'))).dy;
+    expect(y('b'), lessThan(y('a')));
+    await tester.tap(find.byKey(const ValueKey('oe-sort-amount')));
+    await tester.pumpAndSettle();
+    expect(y('a'), lessThan(y('b')));
+
+    // Busca filtra, "Limpar" volta tudo e o painel recolhe.
+    await tester.enterText(find.byKey(const ValueKey('oe-search')), 'bolo');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('oe-row-a')), findsNothing);
+    expect(find.text('1 ativo'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('oe-filters-clear')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('oe-row-a')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('oe-filters-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('oe-search')), findsNothing);
+
+    // No celular os filtros começam recolhidos.
+    tester.view.physicalSize = const Size(400, 900);
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: fc,
+        child: MaterialApp(
+          key: UniqueKey(),
+          theme: AppTheme.light(),
+          home: const SimulationsScreen(initialTab: 1),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('oe-search')), findsNothing);
+    await tester.ensureVisible(find.byKey(const ValueKey('oe-filters-toggle')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('oe-filters-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('oe-search')), findsOneWidget);
+  });
 }
