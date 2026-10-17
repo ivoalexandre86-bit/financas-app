@@ -83,7 +83,7 @@ class _Summary {
 }
 
 class _InvoicesScreenState extends State<InvoicesScreen> {
-  /// Filtros (vazio = todos). Mês é o mês de referência da fatura.
+  /// Filtros (vazio = todos). Mês é o mês de vencimento da fatura.
   Set<String> cardFilter = {};
   Set<YearMonth>? monthFilter; // null = padrão (mês anterior, atual, próximo)
   Set<InvoiceStatus> statusFilter = {};
@@ -158,8 +158,12 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
       );
     }
     final months = monthFilter ?? _defaultMonths(e.today);
-    final allMonths = {for (final c in cards) ..._window(c, e.today)}.toList()
-      ..sort();
+    YearMonth dueMonth(CreditCard c, YearMonth m) =>
+        YearMonth.of(BillingCycle.dueDate(c, m));
+    final allMonths = {
+      for (final c in cards)
+        for (final m in _window(c, e.today)) dueMonth(c, m),
+    }.toList()..sort();
     final shownCards = cards
         .where((c) => cardFilter.isEmpty || cardFilter.contains(c.id))
         .toList();
@@ -167,7 +171,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
         [
               for (final card in shownCards)
                 for (final m in _window(card, e.today))
-                  if (months.isEmpty || months.contains(m))
+                  if (months.isEmpty || months.contains(dueMonth(card, m)))
                     _Summary.of(e, e.invoice(card, m)),
             ]
             .where(
@@ -231,7 +235,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                     ],
                   ),
                   (
-                    label: 'Mês',
+                    label: 'Mês de vencimento',
                     options: [
                       for (final m in allMonths)
                         (
