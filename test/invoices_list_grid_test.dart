@@ -1,3 +1,4 @@
+import 'package:financas_app/core/dates.dart';
 import 'package:financas_app/core/money.dart';
 import 'package:financas_app/domain/engine/billing_cycle.dart';
 import 'package:financas_app/domain/models/entities.dart';
@@ -128,6 +129,25 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('invoices-filters-clear')));
     await tester.pump();
     expect(rows, findsNWidgets(20));
+
+    // Mês filtra pelo vencimento: no C6 (fecha 25, vence 5) a fatura que
+    // vence neste mês é a de referência do mês anterior.
+    final now = YearMonth.of(fc.today);
+    await tester.tap(find.byKey(ValueKey('invoices-filter-month-${now.key}')));
+    await tester.pump();
+    final cur = BillingCycle.currentInvoice(fc.data.cardById['c6']!, fc.today);
+    final dueNow = [for (var i = -2; i <= 2; i++) cur.add(i)].firstWhere(
+      (m) =>
+          YearMonth.of(BillingCycle.dueDate(fc.data.cardById['c6']!, m)) == now,
+    );
+    expect(
+      find.byKey(ValueKey('invoices-row-c6|${dueNow.key}')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(ValueKey('invoices-row-c6|${dueNow.next.key}')),
+      findsNothing,
+    );
 
     // Filtros recolhem.
     await tester.tap(find.byKey(const ValueKey('invoices-filters-toggle')));
