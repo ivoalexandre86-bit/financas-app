@@ -6,6 +6,7 @@ import '../../../core/dates.dart';
 import '../../../data/spreadsheet_io.dart';
 import '../../../domain/import/expense_import.dart';
 import '../../../state/finance_controller.dart';
+import '../../app_shell.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 
@@ -146,7 +147,13 @@ class _ExpenseImportScreenState extends State<ExpenseImportScreen> {
     try {
       final batch = await fc.importExpenses(p);
       if (!mounted) return;
-      Navigator.of(context).pop();
+      // Aberta pelo menu lateral não há para onde voltar: vai às Transações.
+      final nav = Navigator.of(context);
+      if (nav.canPop()) {
+        nav.pop();
+      } else {
+        AppShell.goTo(context, 'transactions');
+      }
       messenger.showSnackBar(
         SnackBar(
           content: Text(
