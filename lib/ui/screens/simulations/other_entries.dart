@@ -11,7 +11,9 @@ import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/filters_panel.dart';
 import '../../widgets/form_fields.dart';
+import '../../widgets/sort_grid.dart';
 import 'sim_common.dart';
 import 'other_grid.dart';
 
@@ -135,9 +137,6 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
         ? YearMonth.parse(period.substring(2))
         : null;
     final account = fc.otherAccount;
-    // No celular os indicadores ficam dois por linha.
-    final screenW = MediaQuery.sizeOf(context).width;
-    final kpiW = screenW < 760 ? (screenW - 42) / 2 : 190.0;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
@@ -204,10 +203,10 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
             ),
           ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: isIncome
+        // No celular os indicadores ficam dois por linha.
+        KpiWrap(
+          width: 190,
+          children: (kpiW) => isIncome
               ? [
                   SimKpi(
                     width: kpiW,
@@ -262,7 +261,8 @@ class _OtherEntriesViewState extends State<OtherEntriesView> {
                 ],
         ),
         const SizedBox(height: 12),
-        OtherFiltersPanel(
+        FiltersPanel(
+          keyPrefix: 'oe',
           open: filtersOpen ?? MediaQuery.sizeOf(context).width >= 760,
           active: _activeFilters,
           onToggle: () => setState(
