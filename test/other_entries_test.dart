@@ -29,6 +29,8 @@ Future<FinanceController> _setup() async {
     Person(id: 'pai', name: 'Pai'),
     Person(id: 'mae', name: 'Mãe'),
   ]);
+  // A tela abre no mês atual; os testes usam lançamentos de vários meses.
+  await fc.saveGridFilter('other-expense', {'period': 'all'});
   return fc;
 }
 

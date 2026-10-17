@@ -11,6 +11,7 @@ import '../../theme.dart';
 import '../import/expense_import_screen.dart';
 import '../../widgets/common.dart';
 import '../../widgets/invoice_tile.dart';
+import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
 import '../../widgets/tx_inline_edit.dart';
 import '../cards/invoice_details_screen.dart';
@@ -73,7 +74,8 @@ class TransactionsScreen extends StatefulWidget {
   State<TransactionsScreen> createState() => _TransactionsScreenState();
 }
 
-class _TransactionsScreenState extends State<TransactionsScreen> {
+class _TransactionsScreenState extends State<TransactionsScreen>
+    with RememberedFilters {
   YearMonth month = YearMonth.now();
   bool allPeriods = false;
   bool showForecast = true;
@@ -99,6 +101,50 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   GridColumnsConfig _columns(FinanceController fc) =>
       _draftColumns ??
       GridColumnsConfig.fromJson(fc.data.settings.txGridColumns);
+
+  @override
+  String get filterKey => 'transactions';
+
+  @override
+  Map<String, Object?> filtersToJson() => {
+    'month': month.key,
+    'allPeriods': allPeriods,
+    'forecast': showForecast,
+    'types': FilterJson.enums(filter.types),
+    'statuses': FilterJson.enums(filter.statuses),
+    'location': filter.accountOrCard,
+    'category': filter.categoryId,
+    'project': filter.projectId,
+    'quickStatus': quickStatus.name,
+    'quickType': quickType.name,
+    'sort': sort.name,
+    'asc': ascending,
+  };
+
+  @override
+  void restoreFilters(Map<String, Object?> j, FinanceController fc) {
+    final d = fc.data;
+    month = FilterJson.month(j['month']) ?? month;
+    allPeriods = j['allPeriods'] as bool? ?? allPeriods;
+    showForecast = j['forecast'] as bool? ?? showForecast;
+    filter = TxListFilter(
+      types: FilterJson.enumSet(TransactionType.values, j['types']),
+      statuses: FilterJson.enumSet(TransactionStatus.values, j['statuses']),
+      accountOrCard: FilterJson.id(j['location'], [
+        for (final a in d.accounts) 'a:${a.id}',
+        for (final c in d.cards) 'c:${c.id}',
+      ]),
+      categoryId: FilterJson.id(j['category'], d.categories.map((c) => c.id)),
+      projectId: FilterJson.id(j['project'], d.projects.map((p) => p.id)),
+    );
+    quickStatus =
+        FilterJson.enumOrNull(QuickStatus.values, j['quickStatus']) ??
+        quickStatus;
+    quickType =
+        FilterJson.enumOrNull(QuickType.values, j['quickType']) ?? quickType;
+    sort = FilterJson.enumOrNull(GridColumn.values, j['sort']) ?? sort;
+    ascending = j['asc'] as bool? ?? ascending;
+  }
 
   @override
   void dispose() {
@@ -307,7 +353,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 showDragHandle: true,
                 builder: (_) => _FilterSheet(fc: fc, initial: filter),
               );
-              if (f != null) setState(() => filter = f);
+              if (f != null) setFilters(() => filter = f);
             },
           ),
         ],
@@ -327,7 +373,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 if (!allPeriods)
                   MonthSwitcher(
                     month: month,
-                    onChanged: (m) => setState(() => month = m),
+                    onChanged: (m) => setFilters(() => month = m),
                   )
                 else
                   Padding(
@@ -349,7 +395,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                       _configureColumns(fc);
                       return;
                     }
-                    setState(() {
+                    setFilters(() {
                       if (v == 'all') allPeriods = !allPeriods;
                       if (v == 'forecast') showForecast = !showForecast;
                     });
@@ -392,8 +438,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             child: _QuickFilters(
               type: quickType,
               status: quickStatus,
-              onType: (v) => setState(() => quickType = v),
-              onStatus: (v) => setState(() => quickStatus = v),
+              onType: (v) => setFilters(() => quickType = v),
+              onStatus: (v) => setFilters(() => quickStatus = v),
             ),
           ),
           Padding(
@@ -538,7 +584,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     if (cfg != null) await _saveColumns(fc, cfg);
   }
 
-  void _onSort(GridColumn s) => setState(() {
+  void _onSort(GridColumn s) => setFilters(() {
     if (s == sort) {
       ascending = !ascending;
     } else {

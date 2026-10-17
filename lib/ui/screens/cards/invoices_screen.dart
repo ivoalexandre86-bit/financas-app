@@ -10,6 +10,7 @@ import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
 import '../transactions/transaction_details_screen.dart';
 import 'card_details_screen.dart';
@@ -82,10 +83,11 @@ class _Summary {
       inv.remaining.isPositive && inv.status != InvoiceStatus.future;
 }
 
-class _InvoicesScreenState extends State<InvoicesScreen> {
+class _InvoicesScreenState extends State<InvoicesScreen>
+    with RememberedFilters {
   /// Filtros (vazio = todos). Mês é o mês de vencimento da fatura.
   Set<String> cardFilter = {};
-  Set<YearMonth>? monthFilter; // null = padrão (mês anterior, atual, próximo)
+  Set<YearMonth>? monthFilter; // null = padrão (mês atual)
   Set<InvoiceStatus> statusFilter = {};
   bool? filtersOpen; // null = aberto no computador, recolhido no celular
   _Col sort = _Col.due;
@@ -98,9 +100,27 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
     return [for (var i = -6; i <= 3; i++) cur.add(i)];
   }
 
-  Set<YearMonth> _defaultMonths(DateTime today) {
-    final m = YearMonth.of(today);
-    return {m.previous, m, m.next};
+  Set<YearMonth> _defaultMonths(DateTime today) => {YearMonth.of(today)};
+
+  @override
+  String get filterKey => 'invoices';
+
+  @override
+  Map<String, Object?> filtersToJson() => {
+    'cards': FilterJson.ids(cardFilter),
+    if (monthFilter != null) 'months': FilterJson.months(monthFilter!),
+    'status': FilterJson.enums(statusFilter),
+    'sort': sort.name,
+    'asc': ascending,
+  };
+
+  @override
+  void restoreFilters(Map<String, Object?> j, FinanceController fc) {
+    cardFilter = FilterJson.idSet(j['cards'], fc.data.cards.map((c) => c.id));
+    if (j.containsKey('months')) monthFilter = FilterJson.monthSet(j['months']);
+    statusFilter = FilterJson.enumSet(InvoiceStatus.values, j['status']);
+    sort = FilterJson.enumOrNull(_Col.values, j['sort']) ?? sort;
+    ascending = j['asc'] as bool? ?? ascending;
   }
 
   int get _activeFilters =>
@@ -108,7 +128,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
       ((monthFilter?.isEmpty ?? false) ? 0 : 1) +
       (statusFilter.isEmpty ? 0 : 1);
 
-  void _onSort(_Col c) => setState(() {
+  void _onSort(_Col c) => setFilters(() {
     if (c == sort) {
       ascending = !ascending;
     } else {
@@ -213,7 +233,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                 active: _activeFilters,
                 onToggle: () =>
                     setState(() => filtersOpen = !(filtersOpen ?? !compact)),
-                onClear: () => setState(() {
+                onClear: () => setFilters(() {
                   cardFilter = {};
                   monthFilter = {};
                   statusFilter = {};
@@ -228,7 +248,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                           label: c.name,
                           color: Color(c.color),
                           selected: cardFilter.contains(c.id),
-                          onTap: () => setState(
+                          onTap: () => setFilters(
                             () => cardFilter = _toggle(cardFilter, c.id),
                           ),
                         ),
@@ -243,8 +263,9 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                           label: m.shortLabel,
                           color: null,
                           selected: months.contains(m),
-                          onTap: () =>
-                              setState(() => monthFilter = _toggle(months, m)),
+                          onTap: () => setFilters(
+                            () => monthFilter = _toggle(months, m),
+                          ),
                         ),
                     ],
                   ),
@@ -257,7 +278,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                           label: st.label,
                           color: invoiceStatusColor(context, st),
                           selected: statusFilter.contains(st),
-                          onTap: () => setState(
+                          onTap: () => setFilters(
                             () => statusFilter = _toggle(statusFilter, st),
                           ),
                         ),
