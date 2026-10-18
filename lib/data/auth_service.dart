@@ -16,13 +16,64 @@ class AppUser {
 
   /// Administradores criam e gerenciam os demais usuários.
   final bool isAdmin;
+
+  /// Assinatura (só contas na nuvem; local e demonstração não têm).
+  final Access? access;
   const AppUser({
     required this.id,
     required this.name,
     required this.email,
     this.isDemo = false,
     this.isAdmin = false,
+    this.access,
   });
+}
+
+/// Situação da assinatura vinda do servidor.
+class Access {
+  /// admin, free (cortesia), active (paga), trial (teste grátis) ou expired.
+  final String status;
+  final DateTime? trialEndsAt;
+  final DateTime? paidUntil;
+
+  /// Plano Premium (Open Finance).
+  final bool premium;
+  const Access({
+    required this.status,
+    this.trialEndsAt,
+    this.paidUntil,
+    this.premium = false,
+  });
+
+  /// Vencida agora (o teste ou a assinatura podem ter acabado depois da
+  /// última consulta ao servidor).
+  bool get expired {
+    if (status == 'admin' || status == 'free') return false;
+    final now = DateTime.now();
+    bool future(DateTime? d) => d != null && d.isAfter(now);
+    return !future(trialEndsAt) && !future(paidUntil);
+  }
+
+  bool get trial => status == 'trial' && !expired;
+
+  /// Dias que faltam no teste grátis (0 no último dia).
+  int trialDaysLeft(DateTime now) {
+    final end = trialEndsAt;
+    if (end == null) return 0;
+    final left = end.difference(now);
+    return left.isNegative ? 0 : left.inDays;
+  }
+
+  static Access? fromJson(Object? json) {
+    if (json is! Map) return null;
+    DateTime? date(Object? v) => v is String ? DateTime.tryParse(v) : null;
+    return Access(
+      status: (json['status'] as String?) ?? 'trial',
+      trialEndsAt: date(json['trialEndsAt']),
+      paidUntil: date(json['paidUntil']),
+      premium: json['premium'] == true,
+    );
+  }
 }
 
 class AuthException implements Exception {
@@ -45,6 +96,9 @@ abstract class AuthService {
 
   /// Se a tela de login oferece "Criar conta".
   Future<bool> canRegister();
+
+  /// Confere a assinatura no servidor (depois de comprar ou restaurar).
+  Future<AppUser?> refreshSubscription();
 
   /// Cadastro aberto: só permitido no primeiro acesso, e cria um admin.
   Future<AppUser> register(String name, String email, String password);
@@ -151,6 +205,9 @@ class LocalAuthService implements AuthService {
 
   @override
   Future<bool> canRegister() async => !await hasUsers();
+
+  @override
+  Future<AppUser?> refreshSubscription() => restoreSession();
 
   @override
   Future<AppUser> register(String name, String email, String password) async {

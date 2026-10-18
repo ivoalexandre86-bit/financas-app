@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../data/auth_service.dart';
@@ -21,6 +23,8 @@ class AuthController extends ChangeNotifier {
       user = await service.restoreSession();
       // Só consulta o servidor quando vai mostrar o login.
       if (user == null) canRegister = await service.canRegister();
+      // Renovações e compras feitas em outro aparelho.
+      if (user?.access != null) unawaited(_refreshQuietly());
     } catch (e) {
       error = 'Não foi possível restaurar a sessão';
     }
@@ -60,6 +64,26 @@ class AuthController extends ChangeNotifier {
   Future<bool> enterDemo() => _run(service.demoUser);
 
   bool get isAdmin => user?.isAdmin ?? false;
+
+  /// Assinatura vencida: o app mostra a tela de assinar.
+  bool get locked => user?.access?.expired ?? false;
+
+  Future<void> _refreshQuietly() async {
+    try {
+      await refreshSubscription();
+    } catch (_) {
+      // Sem internet: vale a situação guardada.
+    }
+  }
+
+  /// Confere a assinatura no servidor (após compra/restauração).
+  Future<void> refreshSubscription() async {
+    final u = await service.refreshSubscription();
+    if (u != null) {
+      user = u;
+      notifyListeners();
+    }
+  }
 
   /// O servidor recusou a sessão (expirada ou conta removida).
   Future<void> sessionExpired() async {

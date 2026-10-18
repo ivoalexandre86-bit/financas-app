@@ -11,6 +11,7 @@ import '../../widgets/common.dart';
 import '../users/users_screen.dart';
 import 'cloud_import.dart';
 import 'menu_editor_screen.dart';
+import '../subscription/subscription_screen.dart';
 import 'whatsapp_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -19,7 +20,7 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fc = context.watch<FinanceController>();
-    final auth = context.read<AuthController>();
+    final auth = context.watch<AuthController>();
     final s = fc.data.settings;
     return Scaffold(
       appBar: AppBar(title: const Text('Configurações')),
@@ -98,6 +99,17 @@ class SettingsScreen extends StatelessWidget {
           ),
           if (fc.isCloud) ...[
             _h(context, 'Nuvem'),
+            if (auth.user?.access case final access?)
+              ListTile(
+                key: const ValueKey('subscription'),
+                leading: const Icon(Icons.workspace_premium_outlined),
+                title: const Text('Assinatura'),
+                subtitle: Text(accessSummary(access)),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
+                ),
+              ),
             ListTile(
               key: const ValueKey('cloud-refresh'),
               leading: const Icon(Icons.cloud_sync_outlined),

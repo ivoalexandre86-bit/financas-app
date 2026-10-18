@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken');
 const { toAppTransaction, toAppAccount, PluggyError } = require('./pluggy');
 const { mountWhatsApp } = require('./whatsapp/routes');
 const { mountShared } = require('./shared/routes');
+const { accessOf, mountBilling } = require('./billing');
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const TOKEN_DAYS = 30;
@@ -51,6 +52,7 @@ const toUser = (r) => ({
   name: r.name,
   email: r.email,
   isAdmin: r.is_admin,
+  access: accessOf(r),
 });
 
 /// Limita tentativas de login por IP + e-mail (proteção contra força bruta).
@@ -73,7 +75,9 @@ function loginLimiter({ max = 10, windowMs = 15 * 60 * 1000 } = {}) {
 /**
  * @param {{pool: import('pg').Pool, jwtSecret: string, allowedOrigins?: string[],
  *   pluggy?: ReturnType<typeof import('./pluggy').createPluggy> | null,
- *   whatsapp?: object, openSignup?: boolean}} opts  `whatsapp`: ver
+ *   whatsapp?: object, openSignup?: boolean,
+ *   revenuecat?: ReturnType<typeof import('./billing').createRevenueCat>|null,
+ *   revenuecatWebhookAuth?: string}} opts  `whatsapp`: ver
  *   whatsapp/routes.js (opcional). `openSignup`: qualquer pessoa cria a
  *   própria conta; sem ele, só a 1ª conta (administradora).
  */
@@ -84,6 +88,8 @@ function createApp({
   pluggy = null,
   whatsapp,
   openSignup = false,
+  revenuecat = null,
+  revenuecatWebhookAuth,
 }) {
   if (!jwtSecret || jwtSecret.length < 32) {
     throw new Error('JWT_SECRET ausente ou curto demais (mínimo 32 caracteres)');
@@ -149,7 +155,16 @@ function createApp({
       next();
     });
 
-  async function insertUser(client, { name, email, password, isAdmin }) {
+  const billing = mountBilling(app, {
+    pool,
+    authed,
+    wrap,
+    HttpError,
+    revenuecat,
+    webhookAuth: revenuecatWebhookAuth,
+  });
+
+  async function insertUser(client, { name, email, password, isAdmin, freeAccess = false }) {
     checkName(name);
     const e = normEmail(email);
     checkEmail(e);
@@ -157,9 +172,9 @@ function createApp({
     const hash = await bcrypt.hash(String(password), 10);
     try {
       const { rows } = await client.query(
-        `insert into users (name, email, password_hash, is_admin)
-         values ($1, $2, $3, $4) returning *`,
-        [String(name).trim(), e, hash, !!isAdmin],
+        `insert into users (name, email, password_hash, is_admin, free_access)
+         values ($1, $2, $3, $4, $5) returning *`,
+        [String(name).trim(), e, hash, !!isAdmin, !!freeAccess],
       );
       return rows[0];
     } catch (err) {
@@ -228,7 +243,7 @@ function createApp({
       if (rows[0].e && !openSignup) {
         throw new HttpError(403, 'Novas contas são criadas pelo administrador, em Usuários.');
       }
-      return insertUser(c, { ...req.body, isAdmin: !rows[0].e });
+      return insertUser(c, { ...req.body, isAdmin: !rows[0].e, freeAccess: false });
     });
     res.status(201).json({ token: sign(user), user: toUser(user) });
   }));
@@ -278,7 +293,8 @@ function createApp({
   }));
 
   app.post('/users', admin, wrap(async (req, res) => {
-    const u = await inTx((c) => insertUser(c, req.body ?? {}));
+    // Contas criadas pelo administrador (família, convidados) não pagam.
+    const u = await inTx((c) => insertUser(c, { ...(req.body ?? {}), freeAccess: true }));
     res.status(201).json({ user: toUser(u) });
   }));
 
@@ -341,7 +357,7 @@ function createApp({
   }));
 
   /// Grava um lote (upsert). `data: null` ou `deleted: true` exclui.
-  app.post('/docs/batch', authed, wrap(async (req, res) => {
+  app.post('/docs/batch', billing.active, wrap(async (req, res) => {
     const docs = req.body?.docs;
     if (!Array.isArray(docs) || docs.length > MAX_BATCH) {
       throw new HttpError(400, `Envie de 1 a ${MAX_BATCH} documentos`);
@@ -412,7 +428,7 @@ function createApp({
   /// Token para a janela Pluggy Connect: o usuário escolhe o banco (ou o
   /// Meu Pluggy) ali mesmo, sem copiar IDs. A conexão criada fica marcada
   /// com o id do usuário.
-  app.post('/openfinance/connect-token', authed, wrap(async (req, res) => {
+  app.post('/openfinance/connect-token', billing.premium, wrap(async (req, res) => {
     const p = needPluggy();
     const token = await fromPluggy(() => p.createConnectToken(req.user.id));
     res.json({ connectToken: token });
@@ -420,7 +436,7 @@ function createApp({
 
   /// Registra uma conexão (item) da Pluggy para o usuário e devolve as
   /// contas dela.
-  app.post('/openfinance/items', authed, wrap(async (req, res) => {
+  app.post('/openfinance/items', billing.premium, wrap(async (req, res) => {
     const p = needPluggy();
     const itemId = String(req.body?.itemId ?? '').trim();
     if (!ITEM_ID_RE.test(itemId)) {

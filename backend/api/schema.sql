@@ -12,6 +12,18 @@ create table if not exists users (
   created_at    timestamptz not null default now()
 );
 
+-- Assinatura: teste grátis contado do cadastro, validade do plano pago
+-- (RevenueCat) e cortesia para contas criadas pelo administrador. Quem já
+-- existia antes do cadastro aberto foi criado pelo administrador.
+alter table users add column if not exists trial_ends_at timestamptz not null
+  default (now() + interval '30 days');
+alter table users add column if not exists paid_until timestamptz;
+alter table users add column if not exists plan text;
+alter table users add column if not exists free_access boolean;
+update users set free_access = true where free_access is null;
+alter table users alter column free_access set default false;
+alter table users alter column free_access set not null;
+
 -- Dados do app: um documento JSON por registro (coleção + id), isolado por
 -- usuário. Exclusões ficam marcadas (deleted) para propagar aos aparelhos.
 create table if not exists app_docs (

@@ -23,6 +23,7 @@ const {
 } = require('./summary');
 const { brl } = require('./ledger');
 const { allocate: allocateLine } = require('../shared/allocation');
+const { accessOf } = require('../billing');
 
 const CODE_MINUTES = 10;
 /** Leituras da IA por mês por usuário (administradores não têm limite). */
@@ -219,7 +220,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
     }
 
     const { rows } = await pool.query(
-      `select u.id, u.name, u.is_admin from whatsapp_links l join users u on u.id = l.user_id
+      `select u.* from whatsapp_links l join users u on u.id = l.user_id
        where l.wa_id = $1`,
       [from],
     );
@@ -343,6 +344,13 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
   }
 
   async function newOrCorrection(from, user, input) {
+    if (accessOf(user).status === 'expired') {
+      return meta.sendText(
+        from,
+        'Sua assinatura do Finanças venceu. Assine pelo app para voltar a lançar por aqui; ' +
+          'o *resumo* continua funcionando.',
+      );
+    }
     if (!(await withinLimit(user))) {
       const limit = whatsapp?.monthlyLimit ?? MONTHLY_LIMIT;
       return meta.sendText(
