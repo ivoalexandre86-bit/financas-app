@@ -10,6 +10,7 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/filters_panel.dart';
+import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
 import '../../widgets/tx_grid.dart';
 import '../simulations/sim_common.dart' show SimKpi;
@@ -126,7 +127,8 @@ class InstallmentsScreen extends StatefulWidget {
   State<InstallmentsScreen> createState() => _InstallmentsScreenState();
 }
 
-class _InstallmentsScreenState extends State<InstallmentsScreen> {
+class _InstallmentsScreenState extends State<InstallmentsScreen>
+    with RememberedFilters {
   String query = '';
   String? where;
   String? categoryId;
@@ -135,6 +137,23 @@ class _InstallmentsScreenState extends State<InstallmentsScreen> {
   /// null = aberto no desktop e recolhido no celular.
   bool? filtersOpen;
   final searchCtrl = TextEditingController();
+
+  @override
+  String get filterKey => 'installments';
+
+  @override
+  Map<String, Object?> filtersToJson() => {
+    'where': where,
+    'category': categoryId,
+    'situation': situation?.name,
+  };
+
+  @override
+  void restoreFilters(Map<String, Object?> j, FinanceController fc) {
+    where = j['where'] as String?;
+    categoryId = j['category'] as String?;
+    situation = FilterJson.enumOrNull(_Situation.values, j['situation']);
+  }
 
   @override
   void dispose() {
@@ -149,7 +168,7 @@ class _InstallmentsScreenState extends State<InstallmentsScreen> {
     situation != null,
   ].where((b) => b).length;
 
-  void _clearFilters() => setState(() {
+  void _clearFilters() => setFilters(() {
     searchCtrl.clear();
     query = '';
     where = null;
@@ -180,10 +199,13 @@ class _InstallmentsScreenState extends State<InstallmentsScreen> {
       int Function(InstallmentSummary) f,
     ) => l.fold(0, (a, s) => a + f(s));
     final wheres = <String, String>{for (final s in all) s.whereKey: s.where};
+    // Filtro salvo que deixou de existir volta para "Todos".
+    if (!wheres.containsKey(where)) where = null;
     final cats = <String, String>{
       for (final s in all)
         if (s.group.categoryId != null) s.group.categoryId!: s.category,
     };
+    if (!cats.containsKey(categoryId)) categoryId = null;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Parcelamentos')),
@@ -266,13 +288,13 @@ class _InstallmentsScreenState extends State<InstallmentsScreen> {
                         label: 'Cartão/conta',
                         value: where,
                         items: {null: 'Todos', ...wheres},
-                        onChanged: (v) => setState(() => where = v),
+                        onChanged: (v) => setFilters(() => where = v),
                       ),
                       FilterDropdown<String?>(
                         label: 'Categoria',
                         value: categoryId,
                         items: {null: 'Todas', ...cats},
-                        onChanged: (v) => setState(() => categoryId = v),
+                        onChanged: (v) => setFilters(() => categoryId = v),
                       ),
                       FilterDropdown<_Situation?>(
                         label: 'Situação',
@@ -281,7 +303,7 @@ class _InstallmentsScreenState extends State<InstallmentsScreen> {
                           null: 'Todas',
                           for (final s in _Situation.values) s: s.label,
                         },
-                        onChanged: (v) => setState(() => situation = v),
+                        onChanged: (v) => setFilters(() => situation = v),
                       ),
                     ],
                   ),

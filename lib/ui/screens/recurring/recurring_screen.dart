@@ -9,6 +9,7 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/filters_panel.dart';
+import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
 import '../../widgets/tx_grid.dart';
 import '../installments/installments_screen.dart' show fmtMoney;
@@ -111,7 +112,8 @@ class RecurringScreen extends StatefulWidget {
   State<RecurringScreen> createState() => _RecurringScreenState();
 }
 
-class _RecurringScreenState extends State<RecurringScreen> {
+class _RecurringScreenState extends State<RecurringScreen>
+    with RememberedFilters {
   String query = '';
   TransactionType? type;
   String? categoryId;
@@ -121,6 +123,25 @@ class _RecurringScreenState extends State<RecurringScreen> {
   /// null = aberto no desktop e recolhido no celular.
   bool? filtersOpen;
   final searchCtrl = TextEditingController();
+
+  @override
+  String get filterKey => 'recurring';
+
+  @override
+  Map<String, Object?> filtersToJson() => {
+    'type': type?.name,
+    'category': categoryId,
+    'where': where,
+    'state': state.name,
+  };
+
+  @override
+  void restoreFilters(Map<String, Object?> j, FinanceController fc) {
+    type = FilterJson.enumOrNull(TransactionType.values, j['type']);
+    categoryId = j['category'] as String?;
+    where = j['where'] as String?;
+    state = FilterJson.enumOrNull(_StateFilter.values, j['state']) ?? state;
+  }
 
   @override
   void dispose() {
@@ -136,7 +157,7 @@ class _RecurringScreenState extends State<RecurringScreen> {
     state != _StateFilter.current,
   ].where((b) => b).length;
 
-  void _clearFilters() => setState(() {
+  void _clearFilters() => setFilters(() {
     searchCtrl.clear();
     query = '';
     type = null;
@@ -171,10 +192,13 @@ class _RecurringScreenState extends State<RecurringScreen> {
     int count(RecurringState st) => list.where((s) => s.state == st).length;
     final narrow = MediaQuery.sizeOf(context).width < 760;
     final wheres = <String, String>{for (final s in all) s.whereKey: s.where};
+    // Filtro salvo que deixou de existir volta para "Todos".
+    if (!wheres.containsKey(where)) where = null;
     final cats = <String, String>{
       for (final s in all)
         if (s.rule.categoryId != null) s.rule.categoryId!: s.category,
     };
+    if (!cats.containsKey(categoryId)) categoryId = null;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Recorrências')),
@@ -266,19 +290,19 @@ class _RecurringScreenState extends State<RecurringScreen> {
                           TransactionType.income: 'Receitas',
                           TransactionType.expense: 'Despesas',
                         },
-                        onChanged: (v) => setState(() => type = v),
+                        onChanged: (v) => setFilters(() => type = v),
                       ),
                       FilterDropdown<String?>(
                         label: 'Categoria',
                         value: categoryId,
                         items: {null: 'Todas', ...cats},
-                        onChanged: (v) => setState(() => categoryId = v),
+                        onChanged: (v) => setFilters(() => categoryId = v),
                       ),
                       FilterDropdown<String?>(
                         label: 'Conta/cartão',
                         value: where,
                         items: {null: 'Todos', ...wheres},
-                        onChanged: (v) => setState(() => where = v),
+                        onChanged: (v) => setFilters(() => where = v),
                       ),
                       FilterDropdown<_StateFilter>(
                         key: const ValueKey('rec-state'),
@@ -288,7 +312,7 @@ class _RecurringScreenState extends State<RecurringScreen> {
                           for (final f in _StateFilter.values) f: f.label,
                         },
                         onChanged: (v) =>
-                            setState(() => state = v ?? _StateFilter.current),
+                            setFilters(() => state = v ?? _StateFilter.current),
                       ),
                     ],
                   ),
