@@ -10,6 +10,7 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
+import '../../widgets/plan_upsell.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
 import 'drilldown_screen.dart';
@@ -19,6 +20,22 @@ import 'projection_filters_screen.dart';
 /// nas linhas, primeira coluna fixa e rolagem horizontal.
 class ProjectionScreen extends StatefulWidget {
   const ProjectionScreen({super.key});
+
+  /// Meses que o plano Grátis mostra, a partir do mês atual.
+  static const freeMonths = 3;
+
+  /// No plano Grátis, no máximo [freeMonths] meses e nada além do 3º mês a
+  /// partir de agora (o passado continua disponível).
+  static MonthRange limitRange(MonthRange r, {required bool gratis}) {
+    if (!gratis) return r;
+    final last = YearMonth.now().add(freeMonths - 1);
+    final to = r.to.compareTo(last) > 0 ? last : r.to;
+    var from = r.from.compareTo(to) > 0 ? to : r.from;
+    final first = to.add(-(freeMonths - 1));
+    if (from.compareTo(first) < 0) from = first;
+    return from == r.from && to == r.to ? r : MonthRange(from, to);
+  }
+
   @override
   State<ProjectionScreen> createState() => _ProjectionScreenState();
 }
@@ -34,6 +51,13 @@ class _ProjectionScreenState extends State<ProjectionScreen>
   static const _rowH = 40.0;
   static const _headerH = 42.0;
   static const _minCellW = 112.0;
+
+  void _upsell() => showPlanUpsell(
+    context,
+    feature:
+        'No plano Grátis a projeção mostra 3 meses a partir do mês atual. '
+        'Assine para ver 12 meses à frente.',
+  );
 
   @override
   String get filterKey => 'projection';
@@ -83,14 +107,27 @@ class _ProjectionScreenState extends State<ProjectionScreen>
     super.dispose();
   }
 
-  void _setPreset(int months) => setFilters(() {
-    preset = months;
-    range = MonthRange.starting(range.from, months);
-  });
+  void _setPreset(int months) {
+    if (months > ProjectionScreen.freeMonths &&
+        isGratisPlan(context, listen: false)) {
+      return _upsell();
+    }
+    setFilters(() {
+      preset = months;
+      range = MonthRange.starting(range.from, months);
+    });
+  }
 
-  void _shift(int months) => setFilters(
-    () => range = MonthRange(range.from.add(months), range.to.add(months)),
-  );
+  void _shift(int months) {
+    final gratis = isGratisPlan(context, listen: false);
+    final base = ProjectionScreen.limitRange(range, gratis: gratis);
+    final next = MonthRange(base.from.add(months), base.to.add(months));
+    if (gratis &&
+        !identical(ProjectionScreen.limitRange(next, gratis: true), next)) {
+      return _upsell();
+    }
+    setFilters(() => range = next);
+  }
 
   Future<void> _customRange() async {
     final r = await showDialog<MonthRange>(
@@ -153,8 +190,15 @@ class _ProjectionScreenState extends State<ProjectionScreen>
   Widget build(BuildContext context) {
     final fc = context.watch<FinanceController>();
     final e = fc.engine;
+    final gratis = isGratisPlan(context);
+    final shown = ProjectionScreen.limitRange(range, gratis: gratis);
+    final shownPreset = identical(shown, range)
+        ? preset
+        : shown.length == ProjectionScreen.freeMonths
+        ? ProjectionScreen.freeMonths
+        : null;
     final result = e.projection(
-      range,
+      shown,
       filter: filter,
       openingOverride: openingOverride,
     );
@@ -205,14 +249,14 @@ class _ProjectionScreenState extends State<ProjectionScreen>
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
                       label: Text('$m meses'),
-                      selected: preset == m,
+                      selected: shownPreset == m,
                       onSelected: (_) => _setPreset(m),
                     ),
                   ),
                 ChoiceChip(
                   avatar: const Icon(Icons.date_range, size: 16),
                   label: const Text('Personalizado'),
-                  selected: preset == null,
+                  selected: shownPreset == null,
                   onSelected: (_) => _customRange(),
                 ),
               ],
@@ -234,7 +278,7 @@ class _ProjectionScreenState extends State<ProjectionScreen>
                 ),
                 Expanded(
                   child: Text(
-                    '${range.from.shortLabel} – ${range.to.shortLabel}',
+                    '${shown.from.shortLabel} – ${shown.to.shortLabel}',
                     textAlign: TextAlign.center,
                     style: context.text.titleMedium,
                   ),
@@ -252,11 +296,18 @@ class _ProjectionScreenState extends State<ProjectionScreen>
               ],
             ),
           ),
+          if (gratis)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: PlanBanner(
+                'No plano Grátis a projeção mostra 3 meses. Assine para ver 12.',
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: _ProjectionKpis(result: result),
           ),
-          if (range.from != YearMonth.now())
+          if (shown.from != YearMonth.now())
             Center(
               child: TextButton.icon(
                 icon: const Icon(Icons.today, size: 16),
@@ -264,7 +315,7 @@ class _ProjectionScreenState extends State<ProjectionScreen>
                 onPressed: () => setFilters(
                   () => range = MonthRange.starting(
                     YearMonth.now(),
-                    range.length,
+                    shown.length,
                   ),
                 ),
               ),

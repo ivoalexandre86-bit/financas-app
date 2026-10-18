@@ -357,7 +357,7 @@ function createApp({
   }));
 
   /// Grava um lote (upsert). `data: null` ou `deleted: true` exclui.
-  app.post('/docs/batch', billing.active, wrap(async (req, res) => {
+  app.post('/docs/batch', authed, wrap(async (req, res) => {
     const docs = req.body?.docs;
     if (!Array.isArray(docs) || docs.length > MAX_BATCH) {
       throw new HttpError(400, `Envie de 1 a ${MAX_BATCH} documentos`);
@@ -424,6 +424,16 @@ function createApp({
 
   app.get('/openfinance/status', authed, (req, res) =>
     res.json({ provider: 'pluggy', configured: !!pluggy }));
+
+  /// "Me avise quando lançar": quem viu a demonstração (fora do Premium) e
+  /// quer saber quando o Open Finance estiver disponível.
+  app.post('/openfinance/interest', authed, wrap(async (req, res) => {
+    await pool.query(
+      'insert into openfinance_interest (user_id) values ($1) on conflict do nothing',
+      [req.user.id],
+    );
+    res.status(204).end();
+  }));
 
   /// Token para a janela Pluggy Connect: o usuário escolhe o banco (ou o
   /// Meu Pluggy) ali mesmo, sem copiar IDs. A conexão criada fica marcada
@@ -492,7 +502,7 @@ function createApp({
     res.json({ transactions: txs.map(toAppTransaction) });
   }));
 
-  const shared = mountShared(app, { pool, authed, wrap, HttpError });
+  const shared = mountShared(app, { pool, authed, wrap, HttpError, accessOf });
   mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared });
 
   // Erros -------------------------------------------------------------------

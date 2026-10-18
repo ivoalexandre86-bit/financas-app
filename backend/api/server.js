@@ -58,6 +58,7 @@ function whatsAppFromEnv(env) {
       mediaModel: env.ANTHROPIC_MEDIA_MODEL || undefined,
     }),
     monthlyLimit: Number(env.WHATSAPP_MONTHLY_LIMIT) || undefined,
+    freeMonthlyLimit: Number(env.WHATSAPP_FREE_MONTHLY_LIMIT) || undefined,
     transcribe: env.OPENAI_API_KEY
       ? createTranscriber({ apiKey: env.OPENAI_API_KEY })
       : undefined,

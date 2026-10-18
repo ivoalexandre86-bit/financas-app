@@ -15,6 +15,10 @@ const iso = (d) => (d ? new Date(d).toISOString() : null);
  * Situação de acesso de um usuário (linha de `users`).
  * admin: dono do servidor · free: cortesia (conta criada pelo administrador)
  * · active: assinatura paga em dia · trial: teste grátis · expired: vencido.
+ *
+ * `plan` é o que o usuário pode usar: premium (admin, cortesia, teste grátis
+ * e assinatura Premium), basico (assinatura Básico) ou gratis (sem
+ * assinatura: o app continua funcionando, com limites).
  */
 function accessOf(u, now = new Date()) {
   const paid = !!u.paid_until && new Date(u.paid_until) > now;
@@ -28,11 +32,17 @@ function accessOf(u, now = new Date()) {
         : trial
           ? 'trial'
           : 'expired';
+  const plan = status === 'expired'
+    ? 'gratis'
+    : status === 'active' && u.plan !== PREMIUM
+      ? 'basico'
+      : PREMIUM;
   return {
     status,
+    plan,
     trialEndsAt: iso(u.trial_ends_at),
     paidUntil: iso(u.paid_until),
-    premium: status === 'admin' || status === 'free' || (paid && u.plan === PREMIUM),
+    premium: plan === PREMIUM,
   };
 }
 
@@ -122,16 +132,6 @@ function mountBilling(app, { pool, authed, wrap, HttpError, revenuecat, webhookA
     res.json({ ok: true });
   }));
 
-  /// Bloqueia gravações de quem está com a assinatura vencida.
-  const active = (req, res, next) =>
-    authed(req, res, (err) => {
-      if (err) return next(err);
-      if (accessOf(req.user).status === 'expired') {
-        return next(new HttpError(402, 'Sua assinatura venceu. Assine para voltar a lançar.'));
-      }
-      next();
-    });
-
   /// Recursos do plano Premium (Open Finance).
   const premium = (req, res, next) =>
     authed(req, res, (err) => {
@@ -142,7 +142,7 @@ function mountBilling(app, { pool, authed, wrap, HttpError, revenuecat, webhookA
       next();
     });
 
-  return { active, premium };
+  return { premium };
 }
 
 module.exports = { accessOf, fromEntitlements, createRevenueCat, mountBilling, PREMIUM };

@@ -16,7 +16,6 @@ import 'state/shared_controller.dart';
 import 'ui/app_shell.dart';
 import 'ui/screens/auth/login_screen.dart';
 import 'ui/screens/settings/cloud_import.dart';
-import 'ui/screens/subscription/subscription_screen.dart';
 import 'ui/theme.dart';
 
 /// Preferência de tema compartilhada acima do [MaterialApp].
@@ -116,7 +115,6 @@ class AuthGate extends StatelessWidget {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (auth.user == null) return const LoginScreen();
-    if (auth.locked) return const SubscriptionScreen(gate: true);
     return const CloudImportPrompt(child: AppShell());
   }
 }

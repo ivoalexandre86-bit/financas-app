@@ -28,6 +28,8 @@ const { accessOf } = require('../billing');
 const CODE_MINUTES = 10;
 /** Leituras da IA por mês por usuário (administradores não têm limite). */
 const MONTHLY_LIMIT = 300;
+/** No plano Grátis: poucas leituras e só por texto. */
+const FREE_MONTHLY_LIMIT = 5;
 const EDIT_WINDOW = "interval '1 hour'";
 
 const HELP =
@@ -245,6 +247,16 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
       return sendSummary(from, user, text);
     }
 
+    // Grátis: só texto. Recusa antes de baixar ou transcrever (sem custo) e
+    // sem contar no limite do mês.
+    if (['image', 'document', 'audio'].includes(m.type) && accessOf(user).plan === 'gratis') {
+      return meta.sendText(
+        from,
+        'No plano Grátis eu leio só mensagens de texto. Fotos, PDFs e áudios fazem parte do ' +
+          'plano Básico; assine pelo app. Por enquanto, me mande o gasto por escrito.',
+      );
+    }
+
     let input;
     switch (m.type) {
       case 'text':
@@ -330,10 +342,15 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
     return buildContext(rows);
   }
 
+  const limitOf = (user) =>
+    accessOf(user).plan === 'gratis'
+      ? whatsapp?.freeMonthlyLimit ?? FREE_MONTHLY_LIMIT
+      : whatsapp?.monthlyLimit ?? MONTHLY_LIMIT;
+
   /// Conta a leitura do mês; false quando o usuário passou do limite.
   async function withinLimit(user) {
     if (user.is_admin) return true;
-    const limit = whatsapp?.monthlyLimit ?? MONTHLY_LIMIT;
+    const limit = limitOf(user);
     const { rows } = await pool.query(
       `insert into whatsapp_usage (user_id, month, reads) values ($1, $2, 1)
        on conflict (user_id, month) do update set reads = whatsapp_usage.reads + 1
@@ -344,15 +361,15 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
   }
 
   async function newOrCorrection(from, user, input) {
-    if (accessOf(user).status === 'expired') {
-      return meta.sendText(
-        from,
-        'Sua assinatura do Finanças venceu. Assine pelo app para voltar a lançar por aqui; ' +
-          'o *resumo* continua funcionando.',
-      );
-    }
     if (!(await withinLimit(user))) {
-      const limit = whatsapp?.monthlyLimit ?? MONTHLY_LIMIT;
+      const limit = limitOf(user);
+      if (accessOf(user).plan === 'gratis') {
+        return meta.sendText(
+          from,
+          `Você usou seus ${limit} lançamentos do mês pelo WhatsApp. ` +
+            'Assine o Básico pelo app para lançar à vontade; o limite volta no dia 1º.',
+        );
+      }
       return meta.sendText(
         from,
         `Você chegou ao limite de ${limit} lançamentos pelo WhatsApp neste mês. ` +

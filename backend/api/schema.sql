@@ -45,6 +45,12 @@ create table if not exists of_items (
 );
 create index if not exists of_items_user_idx on of_items (user_id);
 
+-- Quem pediu aviso do lançamento do Open Finance (viu a demonstração).
+create table if not exists openfinance_interest (
+  user_id    uuid primary key references users (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
 -- WhatsApp ------------------------------------------------------------------
 
 -- Número do WhatsApp (wa_id, só dígitos) ligado a uma conta do app.

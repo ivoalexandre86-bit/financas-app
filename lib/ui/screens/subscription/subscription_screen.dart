@@ -14,12 +14,10 @@ import '../../widgets/common.dart';
 String accessSummary(Access a) {
   final now = DateTime.now();
   if (a.status == 'admin' || a.status == 'free') return 'Conta sem cobrança';
-  if (a.expired) {
-    return 'Teste grátis encerrado. Assine para continuar lançando.';
-  }
+  if (a.isGratis) return 'Plano Grátis';
   if (a.trial) {
     final days = a.trialDaysLeft(now);
-    return 'Teste grátis: ${days == 1 ? 'falta 1 dia' : 'faltam $days dias'} '
+    return 'Teste do Premium: ${days == 1 ? 'falta 1 dia' : 'faltam $days dias'} '
         '(até ${Dates.format(a.trialEndsAt!.toLocal())})';
   }
   final until = a.paidUntil;
@@ -27,11 +25,10 @@ String accessSummary(Access a) {
       '${until == null || until.year > 9000 ? '' : ' até ${Dates.format(until.toLocal())}'}';
 }
 
-/// Assinar, restaurar e gerenciar a assinatura. Com [gate], é a tela que
-/// aparece no lugar do app quando o teste ou a assinatura vencem.
+/// Assinar, restaurar e gerenciar a assinatura. Sem assinatura o app segue
+/// no plano Grátis (nunca bloqueia).
 class SubscriptionScreen extends StatefulWidget {
-  final bool gate;
-  const SubscriptionScreen({super.key, this.gate = false});
+  const SubscriptionScreen({super.key});
   @override
   State<SubscriptionScreen> createState() => _SubscriptionScreenState();
 }
@@ -63,7 +60,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     final auth = context.read<AuthController>();
     if (Billing.available) await Billing.restore(auth.user!.id);
     await auth.refreshSubscription();
-    if (auth.locked) {
+    if (auth.isGratis) {
       throw StateError('Não encontramos uma assinatura ativa nesta conta.');
     }
   }, success: 'Assinatura encontrada');
@@ -73,39 +70,56 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     final auth = context.watch<AuthController>();
     final access = auth.user?.access;
     final subtle = context.text.bodyMedium?.copyWith(color: context.fin.subtle);
+    // Durante o teste vale o Premium; o cartão destacado é o plano em vigor.
+    final current = auth.plan;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Assinatura'),
-        automaticallyImplyLeading: !widget.gate,
-      ),
+      appBar: AppBar(title: const Text('Assinatura')),
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          if (widget.gate) ...[
-            Text('Seu teste grátis acabou', style: context.text.headlineSmall),
+          if (access != null)
+            Text(accessSummary(access), style: context.text.titleMedium),
+          if (access?.isGratis ?? false) ...[
             const SizedBox(height: 8),
             Text(
-              'Assine para continuar usando o Finanças. Seus dados continuam '
-              'guardados e voltam assim que a assinatura for confirmada.',
+              'Você continua usando o Finanças de graça, com alguns limites. '
+              'Assine para liberar tudo; seus dados continuam os mesmos.',
               style: subtle,
             ),
-          ] else if (access != null)
-            Text(accessSummary(access), style: context.text.titleMedium),
+          ],
           const SizedBox(height: 20),
-          const _PlanCard(
-            title: 'Básico',
-            price: 'R\$ 9,99 por mês',
-            items: [
-              'Contas, cartões, faturas e projeções',
-              'Mesmos dados no celular e no computador',
-              'Lançamentos pelo WhatsApp (até 300 por mês)',
+          _PlanCard(
+            title: 'Grátis',
+            price: 'R\$ 0',
+            current: current == 'gratis',
+            items: const [
+              'Contas, cartões e lançamentos ilimitados, sincronizados',
+              'Projeção de 3 meses',
+              'WhatsApp: 5 lançamentos por mês, só por texto',
+              '1 grupo de despesas compartilhadas',
+              'Open Finance: demonstração',
             ],
           ),
           const SizedBox(height: 12),
-          const _PlanCard(
+          _PlanCard(
+            title: 'Básico',
+            price: 'R\$ 9,99 por mês',
+            current: current == 'basico',
+            items: const [
+              'Contas, cartões e lançamentos ilimitados, sincronizados',
+              'Projeção de 12 meses',
+              'WhatsApp: 300 lançamentos por mês, com fotos, PDFs e áudios',
+              'Grupos de despesas compartilhadas ilimitados',
+              'Importar planilha',
+              'Open Finance: demonstração',
+            ],
+          ),
+          const SizedBox(height: 12),
+          _PlanCard(
             title: 'Premium',
             price: 'R\$ 19,99 por mês',
-            items: [
+            current: current == 'premium',
+            items: const [
               'Tudo do Básico',
               'Open Finance: importa contas e cartões do seu banco',
             ],
@@ -159,18 +173,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             onPressed: _busy ? null : _restore,
             child: Text(Billing.available ? 'Restaurar compras' : 'Já assinei'),
           ),
-          if (Billing.available && !widget.gate)
+          if (Billing.available)
             TextButton(
               onPressed: () => launchUrl(
                 Billing.manageUrl,
                 mode: LaunchMode.externalApplication,
               ),
               child: const Text('Gerenciar ou cancelar na loja'),
-            ),
-          if (widget.gate)
-            TextButton(
-              onPressed: _busy ? null : auth.logout,
-              child: const Text('Sair da conta'),
             ),
           const SizedBox(height: 16),
           Text(
@@ -202,15 +211,26 @@ class _PlanCard extends StatelessWidget {
   final String title;
   final String price;
   final List<String> items;
+
+  /// Plano em vigor: borda destacada e o selo "Seu plano".
+  final bool current;
   const _PlanCard({
     required this.title,
     required this.price,
     required this.items,
+    this.current = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
     return Card(
+      shape: current
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: primary, width: 2),
+            )
+          : null,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -219,6 +239,10 @@ class _PlanCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(child: Text(title, style: context.text.titleMedium)),
+                if (current) ...[
+                  Pill('Seu plano', color: primary),
+                  const SizedBox(width: 8),
+                ],
                 Text(price, style: context.text.titleSmall),
               ],
             ),
