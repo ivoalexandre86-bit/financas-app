@@ -54,7 +54,9 @@ function whatsAppFromEnv(env) {
     extract: createExtractor({
       apiKey: env.ANTHROPIC_API_KEY,
       model: env.ANTHROPIC_MODEL || undefined,
+      mediaModel: env.ANTHROPIC_MEDIA_MODEL || undefined,
     }),
+    monthlyLimit: Number(env.WHATSAPP_MONTHLY_LIMIT) || undefined,
     transcribe: env.OPENAI_API_KEY
       ? createTranscriber({ apiKey: env.OPENAI_API_KEY })
       : undefined,
