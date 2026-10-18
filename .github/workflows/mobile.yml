@@ -1,0 +1,83 @@
+# Gera os apps Android (AAB para a Play Store + APK para teste) e iOS.
+#
+# Configuração no GitHub (Settings › Secrets and variables › Actions):
+#   Variáveis: RC_ANDROID_KEY, RC_IOS_KEY (chaves públicas do RevenueCat)
+#   Segredos (assinatura Android): ANDROID_KEYSTORE_BASE64,
+#     ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+# Sem os segredos, o Android sai assinado com a chave de debug (só para
+# teste). O iOS sai sem assinatura; o envio ao TestFlight pede o
+# certificado da Apple.
+name: Apps Android e iOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['lib/**', 'android/**', 'ios/**', 'pubspec.*', '.github/workflows/mobile.yml']
+
+env:
+  API_URL: https://financas-api-wfx8.onrender.com
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Chave de assinatura
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        if: env.HAS_KEYSTORE == 'true'
+        run: |
+          echo "$KEYSTORE" | base64 -d > android/app/upload-keystore.jks
+          cat > android/key.properties <<PROPS
+          storeFile=upload-keystore.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          PROPS
+      - name: Build
+        run: |
+          DEFINES="--dart-define=API_URL=$API_URL --dart-define=RC_ANDROID_KEY=${{ vars.RC_ANDROID_KEY }}"
+          flutter build appbundle --release --build-number=${{ github.run_number }} $DEFINES
+          flutter build apk --release --build-number=${{ github.run_number }} $DEFINES
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: |
+            build/app/outputs/bundle/release/app-release.aab
+            build/app/outputs/flutter-apk/app-release.apk
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build (sem assinatura)
+        run: >
+          flutter build ios --release --no-codesign
+          --build-number=${{ github.run_number }}
+          --dart-define=API_URL=$API_URL
+          --dart-define=RC_IOS_KEY=${{ vars.RC_IOS_KEY }}
+      - run: cd build/ios/iphoneos && zip -qr Runner.app.zip Runner.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: build/ios/iphoneos/Runner.app.zip
