@@ -88,6 +88,32 @@ test('API', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
     assert.equal(again.status, 403);
   });
 
+  await t.test('cadastro aberto: qualquer pessoa cria conta comum', async () => {
+    const open = createApp({ pool, jwtSecret: 'x'.repeat(40), openSignup: true });
+    const srv = open.listen(0);
+    try {
+      const url = `http://127.0.0.1:${srv.address().port}`;
+      const has = await (await fetch(`${url}/auth/has-users`)).json();
+      assert.deepEqual(has, { hasUsers: true, openSignup: true });
+      const res = await fetch(`${url}/auth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Eva', email: 'eva@x.com', password: 'Senha1234' }),
+      });
+      assert.equal(res.status, 201);
+      const body = await res.json();
+      assert.equal(body.user.isAdmin, false);
+      // Remove a Eva para não mexer nos testes seguintes.
+      const del = await fetch(`${url}/me`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${body.token}` },
+      });
+      assert.equal(del.status, 204);
+    } finally {
+      srv.close();
+    }
+  });
+
   await t.test('login', async () => {
     const bad = await call('POST', '/auth/login', {
       body: { email: 'ivo@x.com', password: 'errada123' },

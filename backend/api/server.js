@@ -78,6 +78,8 @@ migrate(pool)
             })
           : null,
       whatsapp: whatsAppFromEnv(process.env),
+      // Cadastro aberto para o app nas lojas; OPEN_SIGNUP=false fecha.
+      openSignup: process.env.OPEN_SIGNUP !== 'false',
     });
     app.set('trust proxy', 1);
     const port = Number(process.env.PORT ?? 3000);

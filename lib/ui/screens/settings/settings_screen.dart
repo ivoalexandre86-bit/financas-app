@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app.dart';
+import '../../../core/legal_links.dart';
 import '../../../data/cloud/api_client.dart';
 import '../../../state/auth_controller.dart';
 import '../../../state/finance_controller.dart';
@@ -136,20 +137,14 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),
             title: const Text('Política de privacidade'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('Política de privacidade'),
-                content: const SingleChildScrollView(child: Text(_privacy)),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Fechar'),
-                  ),
-                ],
-              ),
-            ),
+            trailing: const Icon(Icons.open_in_new),
+            onTap: () => LegalLinks.open(LegalLinks.privacy),
+          ),
+          ListTile(
+            leading: const Icon(Icons.description_outlined),
+            title: const Text('Termos de uso'),
+            trailing: const Icon(Icons.open_in_new),
+            onTap: () => LegalLinks.open(LegalLinks.terms),
           ),
           if (!fc.isDemo)
             ListTile(
@@ -216,17 +211,3 @@ class SettingsScreen extends StatelessWidget {
     ),
   );
 }
-
-const _privacy = '''
-Seus dados financeiros são armazenados de forma isolada por usuário e usados exclusivamente para calcular saldos, faturas e projeções.
-
-• Não vendemos nem compartilhamos dados com terceiros.
-• Senhas são protegidas com hash e salt (bcrypt no servidor; PBKDF2-HMAC-SHA256 nas contas locais); nunca são armazenadas em texto.
-• Com a conta na nuvem, os dados trafegam criptografados (HTTPS) e ficam em um banco de dados acessível apenas pela sua conta.
-• O app nunca solicita ou armazena senhas bancárias. Conexões Open Finance usam o consentimento oficial da instituição e podem ser revogadas a qualquer momento.
-• Lançamentos pelo WhatsApp (opcional): as mensagens, fotos e áudios enviados ao bot são lidos por serviços de IA (Anthropic e, para áudio, OpenAI) apenas para montar o lançamento; o app guarda só o lançamento confirmado.
-• Você pode excluir sua conta e todos os dados a qualquer momento em Configurações.
-• Base legal (LGPD, art. 7º): execução de contrato e consentimento para integrações Open Finance.
-
-Texto provisório — revisar com assessoria jurídica antes da publicação.
-''';

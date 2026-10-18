@@ -20,7 +20,7 @@ class AuthController extends ChangeNotifier {
     try {
       user = await service.restoreSession();
       // Só consulta o servidor quando vai mostrar o login.
-      if (user == null) canRegister = !await service.hasUsers();
+      if (user == null) canRegister = await service.canRegister();
     } catch (e) {
       error = 'Não foi possível restaurar a sessão';
     }
@@ -67,7 +67,7 @@ class AuthController extends ChangeNotifier {
     await service.logout();
     user = null;
     error = 'Sua sessão expirou. Entre novamente.';
-    canRegister = !await service.hasUsers();
+    canRegister = await service.canRegister();
     notifyListeners();
   }
 
@@ -75,7 +75,7 @@ class AuthController extends ChangeNotifier {
     await service.logout();
     user = null;
     error = null;
-    canRegister = !await service.hasUsers();
+    canRegister = await service.canRegister();
     notifyListeners();
   }
 
@@ -86,7 +86,7 @@ class AuthController extends ChangeNotifier {
     if (u == null) return;
     await service.deleteAccount(u.id);
     user = null;
-    canRegister = !await service.hasUsers();
+    canRegister = await service.canRegister();
     notifyListeners();
   }
 

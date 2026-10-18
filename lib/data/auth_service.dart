@@ -43,6 +43,9 @@ abstract class AuthService {
   /// Se ainda não há nenhum usuário real (primeiro acesso no dispositivo).
   Future<bool> hasUsers();
 
+  /// Se a tela de login oferece "Criar conta".
+  Future<bool> canRegister();
+
   /// Cadastro aberto: só permitido no primeiro acesso, e cria um admin.
   Future<AppUser> register(String name, String email, String password);
   Future<AppUser> login(String email, String password);
@@ -145,6 +148,9 @@ class LocalAuthService implements AuthService {
 
   @override
   Future<bool> hasUsers() async => (await _realUsers(await db)).isNotEmpty;
+
+  @override
+  Future<bool> canRegister() async => !await hasUsers();
 
   @override
   Future<AppUser> register(String name, String email, String password) async {

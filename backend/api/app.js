@@ -73,9 +73,18 @@ function loginLimiter({ max = 10, windowMs = 15 * 60 * 1000 } = {}) {
 /**
  * @param {{pool: import('pg').Pool, jwtSecret: string, allowedOrigins?: string[],
  *   pluggy?: ReturnType<typeof import('./pluggy').createPluggy> | null,
- *   whatsapp?: object}} opts  `whatsapp`: ver whatsapp/routes.js (opcional)
+ *   whatsapp?: object, openSignup?: boolean}} opts  `whatsapp`: ver
+ *   whatsapp/routes.js (opcional). `openSignup`: qualquer pessoa cria a
+ *   própria conta; sem ele, só a 1ª conta (administradora).
  */
-function createApp({ pool, jwtSecret, allowedOrigins = [], pluggy = null, whatsapp }) {
+function createApp({
+  pool,
+  jwtSecret,
+  allowedOrigins = [],
+  pluggy = null,
+  whatsapp,
+  openSignup = false,
+}) {
   if (!jwtSecret || jwtSecret.length < 32) {
     throw new Error('JWT_SECRET ausente ou curto demais (mínimo 32 caracteres)');
   }
@@ -207,17 +216,19 @@ function createApp({ pool, jwtSecret, allowedOrigins = [], pluggy = null, whatsa
 
   app.get('/auth/has-users', wrap(async (req, res) => {
     const { rows } = await pool.query('select exists (select 1 from users) as e');
-    res.json({ hasUsers: rows[0].e });
+    res.json({ hasUsers: rows[0].e, openSignup });
   }));
 
-  /// Cadastro aberto: só na 1ª conta do servidor, que vira administradora.
+  /// A 1ª conta do servidor vira administradora. Depois, com `openSignup`,
+  /// cada pessoa cria a sua; sem ele, quem cria é o administrador.
   app.post('/auth/register', wrap(async (req, res) => {
+    limit(`register|${req.ip}`);
     const user = await inTx(async (c) => {
       const { rows } = await c.query('select exists (select 1 from users) as e');
-      if (rows[0].e) {
+      if (rows[0].e && !openSignup) {
         throw new HttpError(403, 'Novas contas são criadas pelo administrador, em Usuários.');
       }
-      return insertUser(c, { ...req.body, isAdmin: true });
+      return insertUser(c, { ...req.body, isAdmin: !rows[0].e });
     });
     res.status(201).json({ token: sign(user), user: toUser(user) });
   }));
