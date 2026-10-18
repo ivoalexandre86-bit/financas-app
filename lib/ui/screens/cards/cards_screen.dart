@@ -11,10 +11,31 @@ import '../../theme.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
+import '../../widgets/remembered_filters.dart';
+import '../../widgets/sort_grid.dart';
+import '../../widgets/tx_grid.dart';
+import '../../widgets/view_mode.dart';
 import 'card_details_screen.dart';
 
-class CardsScreen extends StatelessWidget {
+class CardsScreen extends StatefulWidget {
   const CardsScreen({super.key});
+
+  @override
+  State<CardsScreen> createState() => _CardsScreenState();
+}
+
+class _CardsScreenState extends State<CardsScreen> with RememberedFilters {
+  ViewMode view = ViewMode.cards;
+
+  @override
+  String get filterKey => 'cards';
+
+  @override
+  Map<String, Object?> filtersToJson() => {'view': view.name};
+
+  @override
+  void restoreFilters(Map<String, Object?> saved, FinanceController fc) =>
+      view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +47,16 @@ class CardsScreen extends StatelessWidget {
             : (a.active ? -1 : 1),
       );
     return Scaffold(
-      appBar: AppBar(title: const Text('Cartões de crédito')),
+      appBar: AppBar(
+        title: const Text('Cartões de crédito'),
+        actions: [
+          ViewModeToggle(
+            keyPrefix: 'cards',
+            mode: view,
+            onChanged: (v) => setFilters(() => view = v),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab-card',
         onPressed: () => push(context, const CardFormScreen()),
@@ -41,12 +71,265 @@ class CardsScreen extends StatelessWidget {
               actionLabel: 'Novo cartão',
               onAction: () => push(context, const CardFormScreen()),
             )
+          : view == ViewMode.grid
+          ? ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+              children: [CardsGrid(cards: cards)],
+            )
           : ListView.separated(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
               itemCount: cards.length,
               separatorBuilder: (_, _) => const SizedBox(height: 12),
               itemBuilder: (context, i) => CreditCardVisual(card: cards[i]),
             ),
+    );
+  }
+}
+
+/// Cartões no padrão de grade de Faturas: ordenável, com totais de fatura
+/// atual, limite e disponível.
+class CardsGrid extends StatelessWidget {
+  final List<CreditCard> cards;
+  const CardsGrid({super.key, required this.cards});
+
+  @override
+  Widget build(BuildContext context) {
+    final e = context.watch<FinanceController>().engine;
+    final p = GridPalette.of(context);
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    final tab = context.text.bodySmall?.copyWith(
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    final small = context.text.bodySmall?.copyWith(fontWeight: FontWeight.w700);
+    final strong = context.text.bodyMedium?.copyWith(
+      fontWeight: FontWeight.w800,
+    );
+    int text(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
+    final invoice = {
+      for (final c in cards)
+        c.id: e.invoice(c, BillingCycle.currentInvoice(c, e.today)),
+    };
+    final available = {for (final c in cards) c.id: e.availableLimit(c)};
+    String bank(CreditCard c) => c.bank.isEmpty && c.bankCode.isEmpty
+        ? ''
+        : institutionLabel(c.bankCode, c.bank);
+    Money current(CreditCard c) => invoice[c.id]!.total;
+    Money free(CreditCard c) => available[c.id]!;
+    double usage(CreditCard c) => c.limit.cents <= 0
+        ? 0.0
+        : ((c.limit - free(c)).cents / c.limit.cents).clamp(0.0, 1.0);
+    Money total(List<CreditCard> l, Money Function(CreditCard) f) =>
+        l.where((c) => c.active).map(f).sum();
+    Widget usageBar(CreditCard c) => Row(
+      children: [
+        SizedBox(
+          width: 34,
+          child: Text(
+            '${(usage(c) * 100).round()}%',
+            style: tab?.copyWith(color: p.neon, fontWeight: FontWeight.w800),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: usage(c),
+              minHeight: 5,
+              backgroundColor: context.fin.gridLine,
+              color: Color(c.color),
+            ),
+          ),
+        ),
+      ],
+    );
+    Widget status(CreditCard c) => NeonStatus(
+      label: c.active ? 'Ativo' : 'Inativo',
+      color: c.active ? context.fin.positive : context.fin.subtle,
+      done: !c.active,
+    );
+
+    return SortGrid<CreditCard>(
+      keyPrefix: 'card',
+      rows: cards,
+      rowId: (c) => c.id,
+      accent: (context, c) => Color(c.color),
+      dimmed: (c) => !c.active,
+      onOpen: (c) => push(context, CardDetailsScreen(cardId: c.id)),
+      initialSort: 'name',
+      tieBreak: (a, b) => text(a.name, b.name),
+      columns: [
+        SortCol(
+          id: 'name',
+          label: 'Cartão',
+          width: 170,
+          minWidth: 120,
+          flexible: true,
+          fill: true,
+          compare: (a, b) =>
+              a.active == b.active ? text(a.name, b.name) : (a.active ? -1 : 1),
+          cell: (context, c) => GridCell(
+            child: Text(
+              c.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'bank',
+          label: 'Banco',
+          width: 150,
+          minWidth: 100,
+          flexible: true,
+          compare: (a, b) => text(bank(a), bank(b)),
+          cell: (context, c) => GridCell(
+            child: Text(
+              bank(c).isEmpty ? '—' : bank(c),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: subtle,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'brand',
+          label: 'Bandeira',
+          width: 110,
+          minWidth: 90,
+          flexible: true,
+          compare: (a, b) => text(a.brand, b.brand),
+          cell: (context, c) => GridCell(
+            child: Text(
+              '${c.brand} •••• ${c.lastFour}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.bodySmall,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'days',
+          label: 'Fecha/vence',
+          width: 100,
+          compare: (a, b) => a.dueDay.compareTo(b.dueDay),
+          cell: (context, c) => GridCell(
+            child: Text('${c.closingDay} / ${c.dueDay}', style: tab),
+          ),
+        ),
+        SortCol(
+          id: 'invoice',
+          label: 'Fatura atual',
+          width: 124,
+          right: true,
+          highlight: true,
+          compare: (a, b) => current(a).compareTo(current(b)),
+          cell: (context, c) => GridCell(
+            right: true,
+            child: Text(current(c).format(), style: strong),
+          ),
+          footer: (context, l) =>
+              Text(total(l, current).format(), style: strong),
+        ),
+        SortCol(
+          id: 'limit',
+          label: 'Limite',
+          width: 116,
+          right: true,
+          compare: (a, b) => a.limit.compareTo(b.limit),
+          cell: (context, c) => GridCell(
+            right: true,
+            child: Text(c.limit.format(), style: context.text.bodySmall),
+          ),
+          footer: (context, l) =>
+              Text(total(l, (c) => c.limit).format(), style: small),
+        ),
+        SortCol(
+          id: 'available',
+          label: 'Disponível',
+          width: 116,
+          right: true,
+          compare: (a, b) => free(a).compareTo(free(b)),
+          cell: (context, c) => GridCell(
+            right: true,
+            child: Text(
+              free(c).format(),
+              style: context.text.bodySmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: free(c).cents < 0 ? context.fin.negative : null,
+              ),
+            ),
+          ),
+          footer: (context, l) => Text(total(l, free).format(), style: small),
+        ),
+        SortCol(
+          id: 'usage',
+          label: 'Uso',
+          width: 110,
+          compare: (a, b) => usage(a).compareTo(usage(b)),
+          cell: (context, c) => GridCell(child: usageBar(c)),
+        ),
+        SortCol(
+          id: 'status',
+          label: 'Situação',
+          width: 104,
+          compare: (a, b) => (a.active ? 0 : 1).compareTo(b.active ? 0 : 1),
+          cell: (context, c) => GridCell(child: status(c)),
+        ),
+      ],
+      compactRow: (context, c) => Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  c.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  [
+                    if (bank(c).isNotEmpty) bank(c),
+                    '•••• ${c.lastFour}',
+                    'fecha ${c.closingDay} · vence ${c.dueDay}',
+                    if (!c.active) 'Inativo',
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: subtle,
+                ),
+                const SizedBox(height: 4),
+                SizedBox(width: 160, child: usageBar(c)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(current(c).format(), style: strong),
+              Text('disp. ${free(c).format()}', style: subtle),
+            ],
+          ),
+        ],
+      ),
+      footerLabel: (context, l) => Text(
+        'Total dos ativos · ${l.length} ${l.length == 1 ? 'cartão' : 'cartões'}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: gridFooterLabelStyle(context),
+      ),
+      compactFooter: (context, l) =>
+          Text(total(l, current).format(), style: strong),
     );
   }
 }

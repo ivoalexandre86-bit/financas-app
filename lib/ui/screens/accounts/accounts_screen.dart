@@ -10,7 +10,11 @@ import '../../theme.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
+import '../../widgets/remembered_filters.dart';
+import '../../widgets/sort_grid.dart';
 import '../../widgets/transaction_tile.dart';
+import '../../widgets/tx_grid.dart';
+import '../../widgets/view_mode.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transaction_form_screen.dart';
 
@@ -22,8 +26,26 @@ IconData accountIcon(AccountType t) => switch (t) {
   AccountType.investment => Icons.trending_up,
 };
 
-class AccountsScreen extends StatelessWidget {
+class AccountsScreen extends StatefulWidget {
   const AccountsScreen({super.key});
+
+  @override
+  State<AccountsScreen> createState() => _AccountsScreenState();
+}
+
+class _AccountsScreenState extends State<AccountsScreen>
+    with RememberedFilters {
+  ViewMode view = ViewMode.cards;
+
+  @override
+  String get filterKey => 'accounts';
+
+  @override
+  Map<String, Object?> filtersToJson() => {'view': view.name};
+
+  @override
+  void restoreFilters(Map<String, Object?> saved, FinanceController fc) =>
+      view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +57,16 @@ class AccountsScreen extends StatelessWidget {
             : (a.active ? -1 : 1),
       );
     return Scaffold(
-      appBar: AppBar(title: const Text('Contas')),
+      appBar: AppBar(
+        title: const Text('Contas'),
+        actions: [
+          ViewModeToggle(
+            keyPrefix: 'accounts',
+            mode: view,
+            onChanged: (v) => setFilters(() => view = v),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab-acc',
         onPressed: () => push(context, const AccountFormScreen()),
@@ -71,49 +102,226 @@ class AccountsScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Card(
-                  child: Column(
-                    children: [
-                      for (final a in accounts)
-                        ListTile(
-                          onTap: () => push(
-                            context,
-                            AccountDetailsScreen(accountId: a.id),
-                          ),
-                          leading: CircleAvatar(
-                            backgroundColor: Color(a.color)
-                                .withValues(alpha: 0.12),
-                            child: Icon(
-                              accountIcon(a.type),
-                              color: Color(a.color),
+                if (view == ViewMode.grid)
+                  AccountsGrid(accounts: accounts)
+                else
+                  Card(
+                    child: Column(
+                      children: [
+                        for (final a in accounts)
+                          ListTile(
+                            onTap: () => push(
+                              context,
+                              AccountDetailsScreen(accountId: a.id),
+                            ),
+                            leading: CircleAvatar(
+                              backgroundColor: Color(a.color)
+                                  .withValues(alpha: 0.12),
+                              child: Icon(
+                                accountIcon(a.type),
+                                color: Color(a.color),
+                              ),
+                            ),
+                            title: Text(a.name),
+                            subtitle: Text(
+                              [
+                                a.type.label,
+                                if (a.institution.isNotEmpty ||
+                                    a.institutionCode.isNotEmpty)
+                                  institutionLabel(
+                                    a.institutionCode,
+                                    a.institution,
+                                  ),
+                                if (!a.active) 'Inativa',
+                              ].join(' · '),
+                            ),
+                            trailing: MoneyText(
+                              fc.engine.accountBalance(a.id),
+                              colorize: true,
+                              style: context.text.bodyLarge?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                          title: Text(a.name),
-                          subtitle: Text(
-                            [
-                              a.type.label,
-                              if (a.institution.isNotEmpty ||
-                                  a.institutionCode.isNotEmpty)
-                                institutionLabel(
-                                  a.institutionCode,
-                                  a.institution,
-                                ),
-                              if (!a.active) 'Inativa',
-                            ].join(' · '),
-                          ),
-                          trailing: MoneyText(
-                            fc.engine.accountBalance(a.id),
-                            colorize: true,
-                            style: context.text.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                    ],
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+/// Contas no padrão de grade de Faturas: ordenável, com saldo total.
+class AccountsGrid extends StatelessWidget {
+  final List<Account> accounts;
+  const AccountsGrid({super.key, required this.accounts});
+
+  @override
+  Widget build(BuildContext context) {
+    final e = context.watch<FinanceController>().engine;
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    final strong = context.text.bodyMedium?.copyWith(
+      fontWeight: FontWeight.w800,
+    );
+    int text(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
+    String inst(Account a) => a.institution.isEmpty && a.institutionCode.isEmpty
+        ? ''
+        : institutionLabel(a.institutionCode, a.institution);
+    Money balance(Account a) => e.accountBalance(a.id);
+    Widget money(Money v, {TextStyle? style}) => Text(
+      v.format(),
+      style: style?.copyWith(color: v.cents < 0 ? context.fin.negative : null),
+    );
+    Widget status(Account a) => NeonStatus(
+      label: a.active ? 'Ativa' : 'Inativa',
+      color: a.active ? context.fin.positive : context.fin.subtle,
+      done: !a.active,
+    );
+    Money activeTotal(List<Account> l) =>
+        l.where((a) => a.active).map(balance).sum();
+
+    return SortGrid<Account>(
+      keyPrefix: 'acc',
+      rows: accounts,
+      rowId: (a) => a.id,
+      accent: (context, a) => Color(a.color),
+      dimmed: (a) => !a.active,
+      onOpen: (a) => push(context, AccountDetailsScreen(accountId: a.id)),
+      initialSort: 'name',
+      tieBreak: (a, b) => text(a.name, b.name),
+      columns: [
+        SortCol(
+          id: 'name',
+          label: 'Conta',
+          width: 200,
+          minWidth: 130,
+          flexible: true,
+          fill: true,
+          compare: (a, b) =>
+              a.active == b.active ? text(a.name, b.name) : (a.active ? -1 : 1),
+          cell: (context, a) => GridCell(
+            child: Row(
+              children: [
+                Icon(accountIcon(a.type), size: 18, color: Color(a.color)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    a.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
             ),
+          ),
+        ),
+        SortCol(
+          id: 'type',
+          label: 'Tipo',
+          width: 130,
+          minWidth: 100,
+          flexible: true,
+          compare: (a, b) => text(a.type.label, b.type.label),
+          cell: (context, a) => GridCell(
+            child: Text(
+              a.type.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.bodySmall,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'institution',
+          label: 'Instituição',
+          width: 180,
+          minWidth: 110,
+          flexible: true,
+          compare: (a, b) => text(inst(a), inst(b)),
+          cell: (context, a) => GridCell(
+            child: Text(
+              inst(a).isEmpty ? '—' : inst(a),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: subtle,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'initial',
+          label: 'Saldo inicial',
+          width: 124,
+          right: true,
+          compare: (a, b) => a.initialBalance.compareTo(b.initialBalance),
+          cell: (context, a) => GridCell(
+            right: true,
+            child: money(a.initialBalance, style: context.text.bodySmall),
+          ),
+        ),
+        SortCol(
+          id: 'balance',
+          label: 'Saldo atual',
+          width: 132,
+          right: true,
+          highlight: true,
+          compare: (a, b) => balance(a).compareTo(balance(b)),
+          cell: (context, a) =>
+              GridCell(right: true, child: money(balance(a), style: strong)),
+          footer: (context, l) => money(activeTotal(l), style: strong),
+        ),
+        SortCol(
+          id: 'status',
+          label: 'Situação',
+          width: 112,
+          compare: (a, b) => (a.active ? 0 : 1).compareTo(b.active ? 0 : 1),
+          cell: (context, a) => GridCell(child: status(a)),
+        ),
+      ],
+      compactRow: (context, a) => Row(
+        children: [
+          Icon(accountIcon(a.type), size: 20, color: Color(a.color)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  a.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  [
+                    a.type.label,
+                    if (inst(a).isNotEmpty) inst(a),
+                    if (!a.active) 'Inativa',
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: subtle,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          money(balance(a), style: strong),
+        ],
+      ),
+      footerLabel: (context, l) => Text(
+        'Saldo das ativas · ${l.length} ${l.length == 1 ? 'conta' : 'contas'}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: gridFooterLabelStyle(context),
+      ),
+      compactFooter: (context, l) => money(activeTotal(l), style: strong),
     );
   }
 }
