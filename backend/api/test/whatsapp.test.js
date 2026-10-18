@@ -147,7 +147,7 @@ const url = process.env.TEST_DATABASE_URL;
 test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
   const pool = new Pool({ connectionString: url });
   await pool.query(
-    'drop table if exists share_audit, share_payments, share_settlements, share_allocations, share_expenses, share_recurrences, share_categories, share_members, share_groups, whatsapp_config, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, app_docs, users cascade',
+    'drop table if exists share_audit, share_payments, share_settlements, share_allocations, share_expenses, share_recurrences, share_categories, share_members, share_groups, whatsapp_config, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, whatsapp_usage, app_docs, users cascade',
   );
   await migrate(pool);
 
@@ -429,6 +429,28 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
     await deliver('5511999990000', text('café 12'));
     await deliver('5511999990000', button(sent[0].buttons[0].id));
     assert.match(sent[0].text, /^Lançado ✅/);
+  });
+
+  await t.test('limite mensal de leituras para quem não é administrador', async () => {
+    const bia = (await call('POST', '/auth/login', { body: { email: 'bia@x.com', password: 'Senha1234' } })).body;
+    const code = await call('POST', '/whatsapp/link-code', { token: bia.token });
+    await deliver('5511777770000', text(`VINCULAR ${code.body.code}`));
+    whatsapp.monthlyLimit = 2;
+    try {
+      nextRaw = raw({ amount: 10 });
+      await deliver('5511777770000', text('pão 10'));
+      await deliver('5511777770000', text('pão 10'));
+      const before = extracted.length;
+      await deliver('5511777770000', text('pão 10'));
+      assert.equal(extracted.length, before);
+      assert.match(sent[0].text, /limite de 2 lançamentos/);
+      // O administrador segue sem limite.
+      await deliver('5511999990000', text('café 12'));
+      assert.equal(extracted.length, before + 1);
+      await deliver('5511999990000', text('cancelar'));
+    } finally {
+      delete whatsapp.monthlyLimit;
+    }
   });
 
   await t.test('desvincular', async () => {

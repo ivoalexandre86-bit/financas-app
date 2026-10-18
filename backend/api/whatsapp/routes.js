@@ -25,6 +25,8 @@ const { brl } = require('./ledger');
 const { allocate: allocateLine } = require('../shared/allocation');
 
 const CODE_MINUTES = 10;
+/** Leituras da IA por mês por usuário (administradores não têm limite). */
+const MONTHLY_LIMIT = 300;
 const EDIT_WINDOW = "interval '1 hour'";
 
 const HELP =
@@ -217,7 +219,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
     }
 
     const { rows } = await pool.query(
-      `select u.id, u.name from whatsapp_links l join users u on u.id = l.user_id
+      `select u.id, u.name, u.is_admin from whatsapp_links l join users u on u.id = l.user_id
        where l.wa_id = $1`,
       [from],
     );
@@ -327,7 +329,28 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
     return buildContext(rows);
   }
 
+  /// Conta a leitura do mês; false quando o usuário passou do limite.
+  async function withinLimit(user) {
+    if (user.is_admin) return true;
+    const limit = whatsapp?.monthlyLimit ?? MONTHLY_LIMIT;
+    const { rows } = await pool.query(
+      `insert into whatsapp_usage (user_id, month, reads) values ($1, $2, 1)
+       on conflict (user_id, month) do update set reads = whatsapp_usage.reads + 1
+       returning reads`,
+      [user.id, todayIso().slice(0, 7)],
+    );
+    return rows[0].reads <= limit;
+  }
+
   async function newOrCorrection(from, user, input) {
+    if (!(await withinLimit(user))) {
+      const limit = whatsapp?.monthlyLimit ?? MONTHLY_LIMIT;
+      return meta.sendText(
+        from,
+        `Você chegou ao limite de ${limit} lançamentos pelo WhatsApp neste mês. ` +
+          'Pelo app você continua lançando normalmente, e o limite volta no dia 1º.',
+      );
+    }
     const ctx = await loadContext(user.id);
     const { rows } = await pool.query(
       `select id, draft from whatsapp_drafts

@@ -62,6 +62,14 @@ create table if not exists whatsapp_drafts (
 create index if not exists whatsapp_drafts_user_state
   on whatsapp_drafts (user_id, state, updated_at desc);
 
+-- Leituras da IA pelo WhatsApp por usuário e mês (limite mensal).
+create table if not exists whatsapp_usage (
+  user_id uuid not null references users (id) on delete cascade,
+  month   text not null,
+  reads   int not null default 0,
+  primary key (user_id, month)
+);
+
 -- Mensagens já processadas (a Meta pode reenviar o mesmo webhook).
 create table if not exists whatsapp_seen (
   message_id text primary key,

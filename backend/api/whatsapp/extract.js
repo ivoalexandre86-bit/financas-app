@@ -73,10 +73,24 @@ function contextText(ctx) {
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
+// Texto vai para o Haiku (barato); fotos e PDFs, para o Sonnet, que lê
+// cupons e comprovantes com mais segurança.
+const TEXT_MODEL = 'claude-haiku-5-5';
+const MEDIA_MODEL = 'claude-sonnet-5-5';
+
+/** O Haiku não tem fallback no servidor para recusas. */
+const supportsFallback = (model) => !model.startsWith('claude-haiku');
+
 /**
- * @param {{apiKey: string, model?: string}} opts
+ * @param {{apiKey: string, model?: string, mediaModel?: string,
+ *   log?: (line: string) => void}} opts
  */
-function createExtractor({ apiKey, model = 'claude-opus-5-5' }) {
+function createExtractor({
+  apiKey,
+  model = TEXT_MODEL,
+  mediaModel = MEDIA_MODEL,
+  log = console.log,
+}) {
   const client = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 });
 
   /**
@@ -114,11 +128,13 @@ function createExtractor({ apiKey, model = 'claude-opus-5-5' }) {
       text: `Mensagem do usuário:\n${text?.trim() || '(sem texto)'}`,
     });
 
+    const chosen = media ? mediaModel : model;
     const res = await client.beta.messages.create({
-      model,
+      model: chosen,
       max_tokens: 4000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
+      ...(supportsFallback(chosen)
+        ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }
+        : {}),
       output_config: {
         effort: 'low',
         format: { type: 'json_schema', schema: SCHEMA },
@@ -126,6 +142,11 @@ function createExtractor({ apiKey, model = 'claude-opus-5-5' }) {
       system: SYSTEM,
       messages: [{ role: 'user', content }],
     });
+    // Uma linha por leitura: dá para medir o custo real nos logs do Render.
+    log(
+      `WhatsApp IA: ${res.model ?? chosen} ${media ? media.mimeType : 'texto'} ` +
+        `in=${res.usage?.input_tokens ?? 0} out=${res.usage?.output_tokens ?? 0}`,
+    );
     if (res.stop_reason === 'refusal' || res.stop_reason === 'max_tokens') {
       return null;
     }
@@ -134,4 +155,4 @@ function createExtractor({ apiKey, model = 'claude-opus-5-5' }) {
   };
 }
 
-module.exports = { createExtractor, SCHEMA, contextText };
+module.exports = { createExtractor, SCHEMA, contextText, TEXT_MODEL, MEDIA_MODEL };
