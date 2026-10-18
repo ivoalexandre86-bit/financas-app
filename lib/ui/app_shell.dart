@@ -5,6 +5,7 @@ import '../app.dart';
 import '../state/auth_controller.dart';
 import '../state/finance_controller.dart';
 import '../state/shared_controller.dart';
+import 'menu_layout.dart';
 import 'screens/accounts/accounts_screen.dart';
 import 'screens/cards/cards_screen.dart';
 import 'screens/cards/invoices_screen.dart';
@@ -115,6 +116,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             selected: selected,
             onSelect: select,
             expanded: expanded ?? wideScreen,
+            layout: fc.data.settings.menuLayout,
             onToggle: () =>
                 setState(() => expanded = !(expanded ?? wideScreen)),
           ),
@@ -151,13 +153,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 }
 
 /// Destino do menu: abre a tela na área de conteúdo, ao lado do menu.
-class _Dest {
+class MenuDest {
   final String id;
   final IconData icon;
   final String label;
   final Widget page;
   final bool adminOnly;
-  const _Dest(
+  const MenuDest(
     this.id,
     this.icon,
     this.label,
@@ -167,15 +169,15 @@ class _Dest {
 }
 
 /// Seção recolhível do menu.
-class _Group {
+class MenuGroup {
   final String id;
   final IconData icon;
   final String label;
-  final List<_Dest> items;
-  const _Group(this.id, this.icon, this.label, this.items);
+  final List<MenuDest> items;
+  const MenuGroup(this.id, this.icon, this.label, this.items);
 }
 
-const _home = _Dest(
+const menuHome = MenuDest(
   'home',
   Icons.space_dashboard_outlined,
   'Início',
@@ -184,76 +186,86 @@ const _home = _Dest(
 
 /// Hierarquia do menu, na ordem do uso: lançar (inclui faturas) → contas e
 /// cartões → planejar (inclui importar planilha) → configurar.
-const _groups = <_Group>[
-  _Group('entries', Icons.receipt_long_outlined, 'Lançamentos', [
-    _Dest(
+const menuGroups = <MenuGroup>[
+  MenuGroup('entries', Icons.receipt_long_outlined, 'Lançamentos', [
+    MenuDest(
       'transactions',
       Icons.receipt_long_outlined,
       'Transações',
       TransactionsScreen(),
     ),
-    _Dest('recurring', Icons.autorenew, 'Recorrências', RecurringScreen()),
-    _Dest(
+    MenuDest('recurring', Icons.autorenew, 'Recorrências', RecurringScreen()),
+    MenuDest(
       'installments',
       Icons.view_week_outlined,
       'Parcelamentos',
       InstallmentsScreen(),
     ),
-    _Dest('invoices', Icons.receipt_outlined, 'Faturas', InvoicesScreen()),
-    _Dest(
+    MenuDest('invoices', Icons.receipt_outlined, 'Faturas', InvoicesScreen()),
+    MenuDest(
       'other-entries',
       Icons.call_split,
       'Outras despesas',
       SimulationsScreen(initialTab: 1),
     ),
-    _Dest('shared', Icons.groups_outlined, 'Compartilhadas', SharedScreen()),
+    MenuDest('shared', Icons.groups_outlined, 'Compartilhadas', SharedScreen()),
   ]),
-  _Group('wallet', Icons.account_balance_wallet_outlined, 'Contas e cartões', [
-    _Dest(
-      'accounts',
-      Icons.account_balance_outlined,
-      'Contas',
-      AccountsScreen(),
-    ),
-    _Dest('cards', Icons.credit_card, 'Cartões', CardsScreen()),
-  ]),
-  _Group('planning', Icons.insights_outlined, 'Planejamento', [
-    _Dest(
+  MenuGroup(
+    'wallet',
+    Icons.account_balance_wallet_outlined,
+    'Contas e cartões',
+    [
+      MenuDest(
+        'accounts',
+        Icons.account_balance_outlined,
+        'Contas',
+        AccountsScreen(),
+      ),
+      MenuDest('cards', Icons.credit_card, 'Cartões', CardsScreen()),
+    ],
+  ),
+  MenuGroup('planning', Icons.insights_outlined, 'Planejamento', [
+    MenuDest(
       'projection',
       Icons.table_chart_outlined,
       'Projeção',
       ProjectionScreen(),
     ),
-    _Dest('projects', Icons.flag_outlined, 'Projetos', ProjectsScreen()),
-    _Dest(
+    MenuDest('projects', Icons.flag_outlined, 'Projetos', ProjectsScreen()),
+    MenuDest(
       'simulations',
       Icons.science_outlined,
       'Simulações',
       SimulationsScreen(),
     ),
-    _Dest('dashboards', Icons.insights_outlined, 'Painéis', DashboardsScreen()),
-    _Dest(
+    MenuDest(
+      'dashboards',
+      Icons.insights_outlined,
+      'Painéis',
+      DashboardsScreen(),
+    ),
+    MenuDest(
       'import',
       Icons.upload_file,
       'Importar planilha',
       ExpenseImportScreen(),
     ),
   ]),
-  _Group('settings-group', Icons.settings_outlined, 'Configurações', [
-    _Dest('settings', Icons.tune, 'Preferências', SettingsScreen()),
-    _Dest(
+  MenuGroup('settings-group', Icons.settings_outlined, 'Configurações', [
+    MenuDest('settings', Icons.tune, 'Preferências', SettingsScreen()),
+    MenuDest(
       'categories',
       Icons.category_outlined,
       'Categorias',
       CategoriesScreen(),
     ),
-    _Dest(
+    MenuDest(
       'open-finance',
       Icons.hub_outlined,
       'Open Finance',
       OpenFinanceScreen(),
     ),
-    _Dest(
+    MenuDest(
       'users',
       Icons.manage_accounts_outlined,
       'Usuários',
@@ -263,7 +275,45 @@ const _groups = <_Group>[
   ]),
 ];
 
-final _destinations = <_Dest>[_home, for (final g in _groups) ...g.items];
+final _destinations = <MenuDest>[
+  menuHome,
+  for (final g in menuGroups) ...g.items,
+];
+
+/// Destino do menu pelo id (nulo = desconhecido).
+MenuDest? menuDest(String id) {
+  for (final d in _destinations) {
+    if (d.id == id) return d;
+  }
+  return null;
+}
+
+/// Organização padrão do menu (sem Início, que fica sempre no topo).
+final defaultMenuSections = <MenuSection>[
+  for (final g in menuGroups)
+    MenuSection(g.id, [for (final d in g.items) d.id]),
+];
+
+/// Seções do menu na organização escolhida pelo usuário ([layout], em JSON;
+/// nulo = padrão).
+List<MenuGroup> resolveMenuGroups(List<Object?>? layout) {
+  if (layout == null) return menuGroups;
+  return [
+    for (final s in MenuLayout.resolve(defaultMenuSections, layout))
+      menuGroupFor(s),
+  ];
+}
+
+/// Seção do menu com o ícone e o nome (padrão ou do usuário) de [s].
+MenuGroup menuGroupFor(MenuSection s) {
+  final base = menuGroups.where((g) => g.id == s.id).firstOrNull;
+  return MenuGroup(
+    s.id,
+    base?.icon ?? Icons.folder_outlined,
+    s.label ?? base?.label ?? 'Nova seção',
+    [for (final id in s.items) ?menuDest(id)],
+  );
+}
 
 /// Menu lateral escuro (estilo painel administrativo), com ícone e texto,
 /// organizado em seções recolhíveis. O botão ☰ recolhe o menu para só os
@@ -273,12 +323,16 @@ class SideMenu extends StatefulWidget {
   final ValueChanged<String> onSelect;
   final bool expanded;
   final VoidCallback onToggle;
+
+  /// Organização escolhida pelo usuário ([AppSettings.menuLayout]).
+  final List<Object?>? layout;
   const SideMenu({
     super.key,
     required this.selected,
     required this.onSelect,
     required this.expanded,
     required this.onToggle,
+    this.layout,
   });
 
   static const bg = Color(0xFF343A40);
@@ -292,15 +346,20 @@ class SideMenu extends StatefulWidget {
 }
 
 class _SideMenuState extends State<SideMenu> {
-  /// Seções abertas. Só Lançamentos (o mais usado) começa aberta, para o
-  /// menu caber sem rolar; ao abrir um destino, a seção dele é aberta.
-  final _open = <String>{'entries'};
+  /// Seções abertas. Só a primeira (Lançamentos, no padrão) começa aberta,
+  /// para o menu caber sem rolar; ao abrir um destino, a seção dele é aberta.
+  late final _open = <String>{if (_groups.isNotEmpty) _groups.first.id};
 
-  bool _contains(_Group g, String id) => g.items.any((d) => d.id == id);
+  bool _contains(MenuGroup g, String id) => g.items.any((d) => d.id == id);
+
+  late var _groups = resolveMenuGroups(widget.layout);
 
   @override
   void didUpdateWidget(SideMenu old) {
     super.didUpdateWidget(old);
+    if (!identical(old.layout, widget.layout)) {
+      _groups = resolveMenuGroups(widget.layout);
+    }
     if (old.selected != widget.selected) {
       for (final g in _groups) {
         if (_contains(g, widget.selected)) _open.add(g.id);
@@ -398,7 +457,7 @@ class _SideMenuState extends State<SideMenu> {
               );
             }
 
-            Widget dest(_Dest d, {bool child = false}) => entry(
+            Widget dest(MenuDest d, {bool child = false}) => entry(
               key: ValueKey('side-menu-${d.id}'),
               icon: d.icon,
               label: d.label,
@@ -408,7 +467,10 @@ class _SideMenuState extends State<SideMenu> {
             );
 
             // Recolhido: a seção vira um ícone que abre a lista dos itens.
-            Future<void> popup(BuildContext anchor, List<_Dest> items) async {
+            Future<void> popup(
+              BuildContext anchor,
+              List<MenuDest> items,
+            ) async {
               final box = anchor.findRenderObject()! as RenderBox;
               final at = box.localToGlobal(Offset(box.size.width, 0));
               final id = await showMenu<String>(
@@ -439,11 +501,13 @@ class _SideMenuState extends State<SideMenu> {
               if (id != null) widget.onSelect(id);
             }
 
-            Widget group(_Group g) {
+            Widget group(MenuGroup g) {
               final items = [
                 for (final d in g.items)
                   if (!d.adminOnly || isAdmin) d,
               ];
+              // Seção vazia (tudo movido para outras) não aparece.
+              if (items.isEmpty) return const SizedBox.shrink();
               final hasSelected = items.any((d) => d.id == widget.selected);
               final open = _open.contains(g.id);
               return Column(
@@ -545,7 +609,10 @@ class _SideMenuState extends State<SideMenu> {
                 Expanded(
                   child: ListView(
                     padding: EdgeInsets.zero,
-                    children: [dest(_home), for (final g in _groups) group(g)],
+                    children: [
+                      dest(menuHome),
+                      for (final g in _groups) group(g),
+                    ],
                   ),
                 ),
                 const Divider(height: 1, color: line),
