@@ -1061,6 +1061,10 @@ class AppSettings {
   /// tela como o usuário deixou. Ver `RememberedFilters`.
   final Map<String, Object?>? gridFilters;
 
+  /// Organização do menu lateral escolhida pelo usuário (seções, ordem e
+  /// itens de cada uma), no formato JSON de `MenuLayout`. Nulo = padrão.
+  final List<Object?>? menuLayout;
+
   const AppSettings({
     this.themeMode = 'system',
     this.cardExpenseBasis = CardExpenseBasis.invoiceDue,
@@ -1069,8 +1073,10 @@ class AppSettings {
     this.txGridColumns,
     this.otherAccountId,
     this.gridFilters,
+    this.menuLayout,
   });
 
+  /// [resetMenuLayout] volta o menu lateral ao padrão.
   AppSettings copyWith({
     String? themeMode,
     CardExpenseBasis? cardExpenseBasis,
@@ -1079,6 +1085,8 @@ class AppSettings {
     List<Object?>? txGridColumns,
     String? otherAccountId,
     Map<String, Object?>? gridFilters,
+    List<Object?>? menuLayout,
+    bool resetMenuLayout = false,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     cardExpenseBasis: cardExpenseBasis ?? this.cardExpenseBasis,
@@ -1087,6 +1095,7 @@ class AppSettings {
     txGridColumns: txGridColumns ?? this.txGridColumns,
     otherAccountId: otherAccountId ?? this.otherAccountId,
     gridFilters: gridFilters ?? this.gridFilters,
+    menuLayout: resetMenuLayout ? null : menuLayout ?? this.menuLayout,
   );
 
   Map<String, Object?> toJson() => {
@@ -1097,6 +1106,7 @@ class AppSettings {
     'txGridColumns': txGridColumns,
     'otherAccountId': otherAccountId,
     'gridFilters': gridFilters,
+    'menuLayout': menuLayout,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> j) => AppSettings(
@@ -1112,6 +1122,9 @@ class AppSettings {
     otherAccountId: j['otherAccountId'] as String?,
     gridFilters: j['gridFilters'] is Map
         ? Map<String, Object?>.from(j['gridFilters'] as Map)
+        : null,
+    menuLayout: j['menuLayout'] is List
+        ? List<Object?>.from(j['menuLayout'] as List)
         : null,
   );
 }

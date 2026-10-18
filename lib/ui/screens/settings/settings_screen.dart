@@ -9,6 +9,7 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../users/users_screen.dart';
 import 'cloud_import.dart';
+import 'menu_editor_screen.dart';
 import 'whatsapp_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -38,6 +39,21 @@ class SettingsScreen extends StatelessWidget {
                 fc.saveSettings(s.copyWith(themeMode: v.first));
               },
             ),
+          ),
+          _h(context, 'Menu lateral'),
+          ListTile(
+            key: const ValueKey('menu-editor'),
+            leading: const Icon(Icons.reorder),
+            title: const Text('Organizar menu'),
+            subtitle: Text(
+              s.menuLayout == null
+                  ? 'Mude a ordem dos itens e das seções, ou leve itens para outra seção.'
+                  : 'Organização personalizada. Toque para mudar ou voltar ao padrão.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const MenuEditorScreen())),
           ),
           _h(context, 'Lista de transações'),
           for (final group in [true, false])

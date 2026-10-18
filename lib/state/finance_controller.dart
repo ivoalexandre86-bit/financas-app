@@ -922,6 +922,18 @@ class FinanceController extends ChangeNotifier {
     return repo.saveSettings(s);
   }
 
+  /// Salva a organização do menu lateral (nula = padrão). Atualiza o menu na
+  /// hora, sem recarregar os dados.
+  Future<void> saveMenuLayout(List<Object?>? layout) {
+    final s = data.settings.copyWith(
+      menuLayout: layout,
+      resetMenuLayout: layout == null,
+    );
+    data = data.copyWith(settings: s);
+    notifyListeners();
+    return repo.saveSettings(s);
+  }
+
   Future<void> saveSettings(AppSettings s) async {
     await repo.saveSettings(s);
     _set(await repo.load());
