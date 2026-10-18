@@ -134,6 +134,33 @@ void main() {
     expect(s[2].items, isNot(contains('invoices')));
   });
 
+  testWidgets('setas sobem e descem a tela, passando entre seções', (
+    tester,
+  ) async {
+    final fc = await pumpEditor(tester);
+    await tester.tap(find.byKey(const ValueKey('menu-item-up-recurring')));
+    await tester.pumpAndSettle();
+    expect(saved(fc)[0].items.take(2), ['recurring', 'transactions']);
+
+    // Primeira tela da primeira seção não sobe.
+    final up = tester.widget<IconButton>(
+      find.byKey(const ValueKey('menu-item-up-recurring')),
+    );
+    expect(up.onPressed, isNull);
+
+    // Última de Lançamentos desce para o topo de Contas e cartões.
+    final lastId = saved(fc)[0].items.last;
+    await tester.tap(find.byKey(ValueKey('menu-item-down-$lastId')));
+    await tester.pumpAndSettle();
+    expect(saved(fc)[0].items, isNot(contains(lastId)));
+    expect(saved(fc)[1].items.first, lastId);
+
+    // E sobe de volta.
+    await tester.tap(find.byKey(ValueKey('menu-item-up-$lastId')));
+    await tester.pumpAndSettle();
+    expect(saved(fc)[0].items.last, lastId);
+  });
+
   testWidgets('cria, renomeia, exclui seção e volta ao padrão', (tester) async {
     final fc = await pumpEditor(tester);
     await tester.tap(find.byKey(const ValueKey('menu-add-section')));

@@ -78,6 +78,18 @@ class _MenuEditorScreenState extends State<MenuEditorScreen> {
     _fromRows(rows, isAdmin);
   }
 
+  /// Sobe ([delta] = -1) ou desce (+1) a tela uma posição. Na ponta da
+  /// seção, passa para a seção vizinha.
+  void _step(int index, int delta, bool isAdmin) {
+    final rows = _rows(isAdmin);
+    final to = index + delta;
+    if (to < 1 || to >= rows.length) return;
+    final r = rows[index];
+    rows[index] = rows[to];
+    rows[to] = r;
+    _fromRows(rows, isAdmin);
+  }
+
   void _moveTo(String item, String section) => _save([
     for (final s in sections)
       s.copyWith(
@@ -203,9 +215,10 @@ class _MenuEditorScreenState extends State<MenuEditorScreen> {
             header: Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Text(
-                'Arraste pela alça ≡ para mudar a ordem ou levar um item para '
-                'outra seção. Use as setas para mover seções. Início fica '
-                'sempre no topo; seções vazias não aparecem no menu.',
+                'Use as setas ↑ ↓ de cada tela para mudar a ordem (na ponta, '
+                'ela passa para a seção vizinha), ou arraste pela alça ≡. As '
+                'setas das seções movem a seção inteira. Início fica sempre '
+                'no topo; seções vazias não aparecem no menu.',
                 style: context.text.bodySmall?.copyWith(
                   color: context.fin.subtle,
                 ),
@@ -219,7 +232,15 @@ class _MenuEditorScreenState extends State<MenuEditorScreen> {
                 final at = sections.indexWhere((s) => s.id == r.section);
                 return _header(context, sections[at], at);
               }
-              return _item(context, r.item!, r.section, i);
+              return _item(
+                context,
+                r.item!,
+                r.section,
+                i,
+                first: i == 1,
+                last: i == rows.length - 1,
+                isAdmin: isAdmin,
+              );
             },
           ),
         ),
@@ -278,7 +299,15 @@ class _MenuEditorScreenState extends State<MenuEditorScreen> {
     );
   }
 
-  Widget _item(BuildContext context, String id, String section, int index) {
+  Widget _item(
+    BuildContext context,
+    String id,
+    String section,
+    int index, {
+    required bool first,
+    required bool last,
+    required bool isAdmin,
+  }) {
     final d = menuDest(id)!;
     return ListTile(
       key: ValueKey('menu-edit-item-$id'),
@@ -288,6 +317,18 @@ class _MenuEditorScreenState extends State<MenuEditorScreen> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          IconButton(
+            key: ValueKey('menu-item-up-$id'),
+            tooltip: 'Subir',
+            icon: const Icon(Icons.arrow_upward),
+            onPressed: first ? null : () => _step(index, -1, isAdmin),
+          ),
+          IconButton(
+            key: ValueKey('menu-item-down-$id'),
+            tooltip: 'Descer',
+            icon: const Icon(Icons.arrow_downward),
+            onPressed: last ? null : () => _step(index, 1, isAdmin),
+          ),
           PopupMenuButton<String>(
             key: ValueKey('menu-move-$id'),
             tooltip: 'Mover para outra seção',
