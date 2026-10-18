@@ -4,11 +4,13 @@ import 'package:provider/provider.dart';
 import '../../../core/dates.dart';
 import '../../../core/money.dart';
 import '../../../domain/engine/financial_engine.dart';
+import '../../../domain/models/entities.dart';
 import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
+import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
 import 'drilldown_screen.dart';
 import 'projection_filters_screen.dart';
@@ -21,7 +23,8 @@ class ProjectionScreen extends StatefulWidget {
   State<ProjectionScreen> createState() => _ProjectionScreenState();
 }
 
-class _ProjectionScreenState extends State<ProjectionScreen> {
+class _ProjectionScreenState extends State<ProjectionScreen>
+    with RememberedFilters {
   MonthRange range = MonthRange.starting(YearMonth.now(), 6);
   int? preset = 6; // null = personalizado
   ProjectionFilter filter = ProjectionFilter.none;
@@ -33,17 +36,59 @@ class _ProjectionScreenState extends State<ProjectionScreen> {
   static const _minCellW = 112.0;
 
   @override
+  String get filterKey => 'projection';
+
+  @override
+  Map<String, Object?> filtersToJson() => {
+    'from': range.from.key,
+    'to': range.to.key,
+    'preset': preset,
+    'accounts': FilterJson.ids(filter.accountIds),
+    'cards': FilterJson.ids(filter.cardIds),
+    'categories': FilterJson.ids(filter.categoryIds),
+    'projects': FilterJson.ids(filter.projectIds),
+    'types': FilterJson.enums(filter.types),
+    'statuses': FilterJson.enums(filter.statuses),
+    'sources': FilterJson.enums(filter.sources),
+  };
+
+  @override
+  void restoreFilters(Map<String, Object?> j, FinanceController fc) {
+    final d = fc.data;
+    final from = FilterJson.month(j['from']);
+    final to = FilterJson.month(j['to']);
+    if (from != null && to != null && from.compareTo(to) <= 0) {
+      range = MonthRange(from, to);
+      preset = j['preset'] as int?;
+    }
+    filter = ProjectionFilter(
+      accountIds: FilterJson.idSet(j['accounts'], d.accounts.map((a) => a.id)),
+      cardIds: FilterJson.idSet(j['cards'], d.cards.map((c) => c.id)),
+      categoryIds: FilterJson.idSet(
+        j['categories'],
+        d.categories.map((c) => c.id),
+      ),
+      projectIds: FilterJson.idSet(j['projects'], d.projects.map((p) => p.id)),
+      types: FilterJson.enumSet(TransactionType.values, j['types']),
+      statuses: j['statuses'] is List
+          ? FilterJson.enumSet(TransactionStatus.values, j['statuses'])
+          : ProjectionFilter.defaultStatuses,
+      sources: FilterJson.enumSet(EventSource.values, j['sources']),
+    );
+  }
+
+  @override
   void dispose() {
     hScroll.dispose();
     super.dispose();
   }
 
-  void _setPreset(int months) => setState(() {
+  void _setPreset(int months) => setFilters(() {
     preset = months;
     range = MonthRange.starting(range.from, months);
   });
 
-  void _shift(int months) => setState(
+  void _shift(int months) => setFilters(
     () => range = MonthRange(range.from.add(months), range.to.add(months)),
   );
 
@@ -53,7 +98,7 @@ class _ProjectionScreenState extends State<ProjectionScreen> {
       builder: (_) => _RangeDialog(initial: range),
     );
     if (r != null) {
-      setState(() {
+      setFilters(() {
         range = r;
         preset = null;
       });
@@ -132,7 +177,7 @@ class _ProjectionScreenState extends State<ProjectionScreen> {
                 ProjectionFiltersScreen(initial: filter, range: range),
               );
               if (r != null) {
-                setState(() {
+                setFilters(() {
                   filter = r.filter;
                   if (r.range != range) {
                     range = r.range;
@@ -216,7 +261,7 @@ class _ProjectionScreenState extends State<ProjectionScreen> {
               child: TextButton.icon(
                 icon: const Icon(Icons.today, size: 16),
                 label: const Text('Começar no mês atual'),
-                onPressed: () => setState(
+                onPressed: () => setFilters(
                   () => range = MonthRange.starting(
                     YearMonth.now(),
                     range.length,
@@ -230,7 +275,7 @@ class _ProjectionScreenState extends State<ProjectionScreen> {
               child: _ActiveFilters(
                 filter: filter,
                 fc: fc,
-                onClear: () => setState(() => filter = ProjectionFilter.none),
+                onClear: () => setFilters(() => filter = ProjectionFilter.none),
               ),
             ),
           // Saldo inicial

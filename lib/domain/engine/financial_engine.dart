@@ -50,7 +50,10 @@ class FinanceData {
     this.settings = const AppSettings(),
   });
 
-  FinanceData copyWith({List<FinTransaction>? transactions}) => FinanceData(
+  FinanceData copyWith({
+    List<FinTransaction>? transactions,
+    AppSettings? settings,
+  }) => FinanceData(
     accounts: accounts,
     cards: cards,
     categories: categories,
@@ -59,7 +62,7 @@ class FinanceData {
     recurringRules: recurringRules,
     installmentGroups: installmentGroups,
     invoicePayments: invoicePayments,
-    settings: settings,
+    settings: settings ?? this.settings,
   );
 }
 

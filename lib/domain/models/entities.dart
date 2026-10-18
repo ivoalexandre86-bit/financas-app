@@ -1057,6 +1057,10 @@ class AppSettings {
   /// nos reembolsos. Nulo = primeira conta ativa.
   final String? otherAccountId;
 
+  /// Últimos filtros usados em cada grade (chave = grade), para reabrir a
+  /// tela como o usuário deixou. Ver `RememberedFilters`.
+  final Map<String, Object?>? gridFilters;
+
   const AppSettings({
     this.themeMode = 'system',
     this.cardExpenseBasis = CardExpenseBasis.invoiceDue,
@@ -1064,6 +1068,7 @@ class AppSettings {
     this.groupCardInvoices = true,
     this.txGridColumns,
     this.otherAccountId,
+    this.gridFilters,
   });
 
   AppSettings copyWith({
@@ -1073,6 +1078,7 @@ class AppSettings {
     bool? groupCardInvoices,
     List<Object?>? txGridColumns,
     String? otherAccountId,
+    Map<String, Object?>? gridFilters,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     cardExpenseBasis: cardExpenseBasis ?? this.cardExpenseBasis,
@@ -1080,6 +1086,7 @@ class AppSettings {
     groupCardInvoices: groupCardInvoices ?? this.groupCardInvoices,
     txGridColumns: txGridColumns ?? this.txGridColumns,
     otherAccountId: otherAccountId ?? this.otherAccountId,
+    gridFilters: gridFilters ?? this.gridFilters,
   );
 
   Map<String, Object?> toJson() => {
@@ -1089,6 +1096,7 @@ class AppSettings {
     'groupCardInvoices': groupCardInvoices,
     'txGridColumns': txGridColumns,
     'otherAccountId': otherAccountId,
+    'gridFilters': gridFilters,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> j) => AppSettings(
@@ -1102,5 +1110,8 @@ class AppSettings {
     groupCardInvoices: (j['groupCardInvoices'] as bool?) ?? true,
     txGridColumns: j['txGridColumns'] as List<Object?>?,
     otherAccountId: j['otherAccountId'] as String?,
+    gridFilters: j['gridFilters'] is Map
+        ? Map<String, Object?>.from(j['gridFilters'] as Map)
+        : null,
   );
 }

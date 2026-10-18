@@ -906,6 +906,22 @@ class FinanceController extends ChangeNotifier {
       ),
   ]);
 
+  /// Últimos filtros salvos da grade [key] (nulo = nunca alterados).
+  Map<String, Object?>? gridFilter(String key) {
+    final v = data.settings.gridFilters?[key];
+    return v is Map ? Map<String, Object?>.from(v) : null;
+  }
+
+  /// Guarda os filtros da grade [key] nas preferências (sincronizadas com a
+  /// nuvem). Não recarrega os dados nem notifica: só a própria tela muda.
+  Future<void> saveGridFilter(String key, Map<String, Object?> filters) {
+    final s = data.settings.copyWith(
+      gridFilters: {...?data.settings.gridFilters, key: filters},
+    );
+    data = data.copyWith(settings: s);
+    return repo.saveSettings(s);
+  }
+
   Future<void> saveSettings(AppSettings s) async {
     await repo.saveSettings(s);
     _set(await repo.load());
