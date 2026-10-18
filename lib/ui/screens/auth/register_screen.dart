@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/cloud_config.dart';
+import '../../../core/legal_links.dart';
 import '../../../data/auth_service.dart';
 import '../../../state/auth_controller.dart';
 import '../../theme.dart';
@@ -31,9 +32,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
           padding: const EdgeInsets.all(24),
           children: [
             Text(
-              '${CloudConfig.enabled ? 'Esta é a primeira conta do app' : 'Esta é a primeira conta deste dispositivo'} '
-              'e será a de administrador. '
-              'Depois, novos usuários são criados em Mais › Usuários.',
+              CloudConfig.enabled
+                  ? 'Crie sua conta: seus dados ficam na nuvem e aparecem '
+                        'em todos os seus aparelhos.'
+                  : 'Esta é a primeira conta deste dispositivo e será a de '
+                        'administrador. Depois, novos usuários são criados em '
+                        'Mais › Usuários.',
               style: context.text.bodyMedium?.copyWith(
                 color: context.fin.subtle,
               ),
@@ -78,8 +82,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
               value: accepted,
               onChanged: (v) => setState(() => accepted = v ?? false),
               title: const Text(
-                'Li e aceito a política de privacidade e o tratamento dos meus dados conforme a LGPD.',
+                'Li e aceito os termos de uso, a política de privacidade e o '
+                'tratamento dos meus dados conforme a LGPD.',
               ),
+            ),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton(
+                  onPressed: () => LegalLinks.open(LegalLinks.terms),
+                  child: const Text('Ler os termos de uso'),
+                ),
+                TextButton(
+                  onPressed: () => LegalLinks.open(LegalLinks.privacy),
+                  child: const Text('Ler a política de privacidade'),
+                ),
+              ],
             ),
             if (auth.error != null)
               Padding(

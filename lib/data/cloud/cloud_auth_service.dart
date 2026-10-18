@@ -101,6 +101,17 @@ class CloudAuthService implements AuthService {
     }
   }
 
+  /// Na nuvem o cadastro é aberto (app nas lojas); sem servidor, fechado.
+  @override
+  Future<bool> canRegister() async {
+    try {
+      final r = await api.get('auth/has-users');
+      return r['openSignup'] == true || r['hasUsers'] != true;
+    } on OfflineException {
+      return false;
+    }
+  }
+
   @override
   Future<AppUser> register(String name, String email, String password) async =>
       _start(

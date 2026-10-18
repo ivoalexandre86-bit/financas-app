@@ -101,7 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           minimumSize: const Size.fromHeight(52),
                         ),
                         onPressed: () => push(context, const RegisterScreen()),
-                        child: const Text('Criar conta de administrador'),
+                        child: const Text('Criar conta'),
                       )
                     else
                       Text(
