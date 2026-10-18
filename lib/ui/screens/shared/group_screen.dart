@@ -8,15 +8,26 @@ import '../../../state/shared_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/plan_upsell.dart';
 import 'payment_dialogs.dart';
 import 'shared_simulation_screen.dart';
 import 'shared_widgets.dart';
 
+const _groupUpsell =
+    'O plano Grátis tem 1 grupo de despesas compartilhadas. Assine o Básico '
+    'para criar mais.';
+
 /// Cria um grupo e abre a tela dele.
 Future<void> createGroupFlow(BuildContext context) async {
+  final sc = context.read<SharedController>();
+  // Grátis: 1 grupo como dono (o servidor confere; aqui evita o formulário).
+  if (isGratisPlan(context, listen: false) &&
+      sc.state.groups.any((g) => g.ownerId == sc.me)) {
+    return showPlanUpsell(context, feature: _groupUpsell);
+  }
   final name = TextEditingController();
   var kind = GroupKind.household;
-  final sc = context.read<SharedController>();
+  var upsell = false;
   final id = await showDialog<String>(
     context: context,
     builder: (ctx) => StatefulBuilder(
@@ -66,7 +77,14 @@ Future<void> createGroupFlow(BuildContext context) async {
                 final id = await sc.createGroup(name.text.trim(), kind);
                 if (ctx.mounted) Navigator.pop(ctx, id);
               } catch (e) {
-                if (ctx.mounted) showMessage(ctx, '$e', error: true);
+                if (!ctx.mounted) return;
+                // Limite do plano (402 do servidor): explica e oferece assinar.
+                if ('$e'.contains('plano Grátis')) {
+                  upsell = true;
+                  Navigator.pop(ctx);
+                } else {
+                  showMessage(ctx, '$e', error: true);
+                }
               }
             },
             child: const Text('Criar'),
@@ -75,6 +93,9 @@ Future<void> createGroupFlow(BuildContext context) async {
       ),
     ),
   );
+  if (upsell && context.mounted) {
+    return showPlanUpsell(context, feature: _groupUpsell);
+  }
   if (id != null && context.mounted) {
     await push(context, GroupScreen(groupId: id));
   }

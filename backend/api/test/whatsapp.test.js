@@ -147,12 +147,13 @@ const url = process.env.TEST_DATABASE_URL;
 test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
   const pool = new Pool({ connectionString: url });
   await pool.query(
-    'drop table if exists share_audit, share_payments, share_settlements, share_allocations, share_expenses, share_recurrences, share_categories, share_members, share_groups, whatsapp_config, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, whatsapp_usage, app_docs, users cascade',
+    'drop table if exists openfinance_interest, share_audit, share_payments, share_settlements, share_allocations, share_expenses, share_recurrences, share_categories, share_members, share_groups, whatsapp_config, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, whatsapp_usage, app_docs, users cascade',
   );
   await migrate(pool);
 
   const sent = [];
   const extracted = [];
+  const downloads = [];
   let nextRaw = raw();
   let processed = Promise.resolve();
   const fakeMeta = (via) => ({
@@ -160,7 +161,10 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
     sendButtons: async (to, text, buttons) => sent.push({ to, text, buttons, via }),
     sendList: async (to, text, button, rows) => sent.push({ to, text, rows, via }),
     markRead: () => {},
-    downloadMedia: async () => ({ data: Buffer.from('img'), mimeType: 'image/jpeg' }),
+    downloadMedia: async (id) => {
+      downloads.push(id);
+      return { data: Buffer.from('img'), mimeType: 'image/jpeg' };
+    },
   });
   const signups = [];
   const whatsapp = {
@@ -450,6 +454,47 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
       await deliver('5511999990000', text('cancelar'));
     } finally {
       delete whatsapp.monthlyLimit;
+    }
+  });
+
+  await t.test('plano Grátis: 5 leituras por mês, só texto', async () => {
+    const bia = (await call('POST', '/auth/login', { body: { email: 'bia@x.com', password: 'Senha1234' } })).body;
+    await pool.query(
+      "update users set free_access = false, trial_ends_at = now() - interval '1 day' where id = $1",
+      [bia.user.id],
+    );
+    await pool.query('delete from whatsapp_usage where user_id = $1', [bia.user.id]);
+    // No Grátis o app continua sincronizando.
+    const acc = { docs: [{ coll: 'accounts', id: 'acc_b', data: { id: 'acc_b', name: 'Inter' } }] };
+    assert.equal((await call('POST', '/docs/batch', { token: bia.token, body: acc })).status, 200);
+    {
+      // Foto, PDF e áudio: recusa sem baixar, transcrever nem contar.
+      const before = { extracted: extracted.length, downloads: downloads.length };
+      await deliver('5511777770000', { type: 'image', image: { id: 'f1' } });
+      assert.match(sent[0].text, /plano Básico/);
+      await deliver('5511777770000', { type: 'document', document: { id: 'f2' } });
+      assert.match(sent[0].text, /Fotos, PDFs e áudios/);
+      await deliver('5511777770000', { type: 'audio', audio: { id: 'f3' } });
+      assert.match(sent[0].text, /só mensagens de texto/);
+      assert.equal(downloads.length, before.downloads);
+      assert.equal(extracted.length, before.extracted);
+      const used = await pool.query('select reads from whatsapp_usage where user_id = $1', [bia.user.id]);
+      assert.equal(used.rows.length, 0);
+
+      nextRaw = raw({ amount: 10 });
+      for (let i = 0; i < 5; i++) {
+        await deliver('5511777770000', text('pão 10'));
+        assert.ok(sent[0].buttons, `leitura ${i + 1} deveria passar`);
+      }
+      await deliver('5511777770000', text('pão 10'));
+      assert.equal(extracted.length, before.extracted + 5);
+      assert.equal(
+        sent[0].text,
+        'Você usou seus 5 lançamentos do mês pelo WhatsApp. Assine o Básico pelo app para lançar à vontade; o limite volta no dia 1º.',
+      );
+      // O resumo continua de graça.
+      await deliver('5511777770000', text('resumo'));
+      assert.match(sent[0].text, /Resumo de /);
     }
   });
 

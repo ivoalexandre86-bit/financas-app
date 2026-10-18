@@ -8,6 +8,7 @@ import '../../../data/cloud/cloud_auth_service.dart';
 import '../../../state/auth_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/plan_upsell.dart';
 
 /// Situação do WhatsApp para o usuário logado (GET /whatsapp/status).
 class WhatsAppStatus {
@@ -138,6 +139,12 @@ class _WhatsAppScreenState extends State<WhatsAppScreen> {
                     'O bot mostra um resumo e só grava depois que você tocar em Confirmar.',
                     style: context.text.bodyMedium,
                   ),
+                  if (isGratisPlan(context)) ...[
+                    const SizedBox(height: 12),
+                    const PlanBanner(
+                      'Plano Grátis: 5 lançamentos por mês, só por texto.',
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   if (!s.enabled)
                     const _Note(

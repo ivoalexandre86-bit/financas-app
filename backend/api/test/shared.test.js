@@ -38,7 +38,7 @@ const url = process.env.TEST_DATABASE_URL;
 test('API de despesas compartilhadas', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
   const pool = new Pool({ connectionString: url });
   await pool.query(
-    'drop table if exists share_audit, share_payments, share_settlements, share_allocations, share_expenses, share_recurrences, share_categories, share_members, share_groups, of_items, whatsapp_config, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, app_docs, users cascade',
+    'drop table if exists openfinance_interest, share_audit, share_payments, share_settlements, share_allocations, share_expenses, share_recurrences, share_categories, share_members, share_groups, of_items, whatsapp_config, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, app_docs, users cascade',
   );
   await migrate(pool);
   const app = createApp({ pool, jwtSecret: 'x'.repeat(40) });
@@ -352,5 +352,28 @@ test('API de despesas compartilhadas', { skip: !url && 'TEST_DATABASE_URL não d
     assert.deepEqual(s.groups[0].categories.find((c) => c.id === luz.id).percentages, { [ana.id]: 10000 });
     const after = s.groups[0].expenses.find((x) => x.id === r.body.id);
     assert.deepEqual(after.allocations, [{ userId: ana.id, bp: 10000, amount: 10000 }]);
+  });
+
+  await t.test('plano Grátis cria no máximo 1 grupo como dono', async () => {
+    const dani = await newUser('Dani');
+    // Sem cortesia e com o teste acabado: plano Grátis.
+    await pool.query(
+      "update users set free_access = false, trial_ends_at = now() - interval '1 day' where id = $1",
+      [dani.id],
+    );
+    assert.equal((await call('POST', '/shared/groups', dani.token, { name: 'Casa' })).status, 201);
+    const second = await call('POST', '/shared/groups', dani.token, { name: 'Viagem' });
+    assert.equal(second.status, 402);
+    assert.match(second.body.error, /plano Grátis tem 1 grupo/);
+    assert.equal((await state(dani)).groups.length, 1);
+    // Participar de grupos de outras pessoas não conta.
+    assert.equal((await call('POST', `/shared/groups/${gid}/members`, ana.token, { email: 'dani@x.com' })).status, 201);
+    assert.equal((await call('POST', `/shared/groups/${gid}/accept`, dani.token)).status, 204);
+    // Assinando o Básico, cria à vontade.
+    await pool.query(
+      "update users set paid_until = now() + interval '30 days', plan = 'basico' where id = $1",
+      [dani.id],
+    );
+    assert.equal((await call('POST', '/shared/groups', dani.token, { name: 'Viagem' })).status, 201);
   });
 });

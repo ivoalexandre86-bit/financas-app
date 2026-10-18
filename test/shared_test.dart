@@ -1,10 +1,12 @@
 import 'package:financas_app/core/dates.dart';
 import 'package:financas_app/core/money.dart';
+import 'package:financas_app/data/auth_service.dart';
 import 'package:financas_app/data/cloud/shared_api.dart';
 import 'package:financas_app/domain/engine/financial_engine.dart';
 import 'package:financas_app/domain/engine/shared_engine.dart';
 import 'package:financas_app/domain/models/entities.dart';
 import 'package:financas_app/domain/models/shared.dart';
+import 'package:financas_app/state/auth_controller.dart';
 import 'package:financas_app/state/finance_controller.dart';
 import 'package:financas_app/state/shared_controller.dart';
 import 'package:financas_app/ui/screens/shared/shared_expense_screen.dart';
@@ -101,6 +103,16 @@ class FakeSharedApi implements SharedApi {
 
   @override
   dynamic noSuchMethod(Invocation i) => Future.value();
+}
+
+/// Servidor recusando o 2º grupo do plano Grátis (402).
+class _LimitedSharedApi extends FakeSharedApi {
+  _LimitedSharedApi(super.current);
+  @override
+  Future<String> createGroup(String name, GroupKind kind) async =>
+      throw const AuthException(
+        'O plano Grátis tem 1 grupo de despesas compartilhadas. Assine o Básico para criar mais.',
+      );
 }
 
 void main() {
@@ -671,6 +683,72 @@ void main() {
     expect(find.text('Divisão'), findsOneWidget);
     expect(find.textContaining('em aberto'), findsOneWidget);
     expect(find.text('Pendente'), findsWidgets);
+  });
+
+  group('plano Grátis: 1 grupo como dono', () {
+    Future<void> openNewGroup(WidgetTester tester, SharedApi api) async {
+      tester.view.physicalSize = const Size(1200, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final fc = FinanceController(MemoryRepo());
+      await tester.runAsync(fc.load);
+      final sc = SharedController(api, fc);
+      await tester.runAsync(sc.refresh);
+      final auth = AuthController(LocalAuthService())
+        ..user = AppUser(
+          id: 'u',
+          name: 'Ana',
+          email: 'ana@x.com',
+          access: const Access(status: 'expired', plan: 'gratis'),
+        );
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: fc),
+            ChangeNotifierProvider.value(value: sc),
+            ChangeNotifierProvider.value(value: auth),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(),
+            home: const SharedScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Grupos'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Novo grupo'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('dono de um grupo vê o plano Básico sem o formulário', (
+      tester,
+    ) async {
+      await openNewGroup(
+        tester,
+        FakeSharedApi(SharedState(userId: ana, groups: [_group()])),
+      );
+      expect(find.text('Recurso do plano Básico'), findsOneWidget);
+      expect(find.text('Criar'), findsNothing);
+    });
+
+    testWidgets('recusa do servidor (402) também mostra o plano', (
+      tester,
+    ) async {
+      await openNewGroup(
+        tester,
+        _LimitedSharedApi(
+          SharedState(
+            userId: bia,
+            groups: [_group(role: ShareRole.member)],
+          ),
+        ),
+      );
+      await tester.enterText(find.byType(TextField), 'Viagem');
+      await tester.tap(find.text('Criar'));
+      await tester.pumpAndSettle();
+      expect(find.text('Recurso do plano Básico'), findsOneWidget);
+    });
   });
 
   testWidgets('divisão por pessoa: adicionar, editar % e R\$', (tester) async {

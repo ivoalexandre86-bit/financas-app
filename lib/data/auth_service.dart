@@ -33,6 +33,10 @@ class AppUser {
 class Access {
   /// admin, free (cortesia), active (paga), trial (teste grátis) ou expired.
   final String status;
+
+  /// Plano liberado pelo servidor: premium (admin, cortesia, teste grátis e
+  /// assinatura Premium), basico ou gratis (sem assinatura, com limites).
+  final String plan;
   final DateTime? trialEndsAt;
   final DateTime? paidUntil;
 
@@ -40,6 +44,7 @@ class Access {
   final bool premium;
   const Access({
     required this.status,
+    this.plan = 'basico',
     this.trialEndsAt,
     this.paidUntil,
     this.premium = false,
@@ -56,6 +61,12 @@ class Access {
 
   bool get trial => status == 'trial' && !expired;
 
+  /// Plano em vigor agora: vencido vira Grátis mesmo antes de o servidor
+  /// confirmar.
+  String get currentPlan => expired ? 'gratis' : plan;
+  bool get isGratis => currentPlan == 'gratis';
+  bool get isPremium => currentPlan == 'premium';
+
   /// Dias que faltam no teste grátis (0 no último dia).
   int trialDaysLeft(DateTime now) {
     final end = trialEndsAt;
@@ -64,14 +75,27 @@ class Access {
     return left.isNegative ? 0 : left.inDays;
   }
 
+  static const plans = ['gratis', 'basico', 'premium'];
+
   static Access? fromJson(Object? json) {
     if (json is! Map) return null;
     DateTime? date(Object? v) => v is String ? DateTime.tryParse(v) : null;
+    final status = (json['status'] as String?) ?? 'trial';
+    final premium = json['premium'] == true;
+    final plan = json['plan'];
     return Access(
-      status: (json['status'] as String?) ?? 'trial',
+      status: status,
+      // Servidor antigo (sem `plan`): deduz pela situação.
+      plan: plan is String && plans.contains(plan)
+          ? plan
+          : status == 'expired'
+          ? 'gratis'
+          : premium || status != 'active'
+          ? 'premium'
+          : 'basico',
       trialEndsAt: date(json['trialEndsAt']),
       paidUntil: date(json['paidUntil']),
-      premium: json['premium'] == true,
+      premium: premium,
     );
   }
 }

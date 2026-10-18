@@ -19,8 +19,26 @@ test('situação de acesso', () => {
   assert.equal(accessOf({ ...base, trial_ends_at: before, paid_until: later, plan: 'premium' }, now).premium, true);
   assert.equal(accessOf({ ...base, trial_ends_at: before, free_access: true }, now).status, 'free');
   assert.equal(accessOf({ ...base, trial_ends_at: before, is_admin: true }, now).status, 'admin');
-  // O teste grátis não dá Open Finance.
-  assert.equal(accessOf(base, now).premium, false);
+  // O teste grátis é o Premium completo.
+  assert.equal(accessOf(base, now).premium, true);
+});
+
+test('plano de cada situação', () => {
+  const base = { is_admin: false, free_access: false, trial_ends_at: before, paid_until: null, plan: null };
+  const plan = (u) => accessOf({ ...base, ...u }, now).plan;
+  assert.equal(plan({ trial_ends_at: later }), 'premium');
+  assert.equal(plan({ is_admin: true }), 'premium');
+  assert.equal(plan({ free_access: true }), 'premium');
+  assert.equal(plan({ paid_until: later, plan: 'premium' }), 'premium');
+  assert.equal(plan({ paid_until: later, plan: 'basico' }), 'basico');
+  // Assinatura vencida e teste acabado: Grátis (nunca bloqueado).
+  assert.equal(plan({}), 'gratis');
+  assert.equal(plan({ paid_until: before, plan: 'premium' }), 'gratis');
+  // Pago durante o teste: vale o plano comprado.
+  assert.equal(plan({ trial_ends_at: later, paid_until: later, plan: 'basico' }), 'basico');
+  const g = accessOf(base, now);
+  assert.equal(g.status, 'expired');
+  assert.equal(g.premium, false);
 });
 
 test('permissões do RevenueCat', () => {
@@ -40,7 +58,7 @@ const url = process.env.TEST_DATABASE_URL;
 test('assinatura pela API', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
   const pool = new Pool({ connectionString: url });
   await pool.query(
-    'drop table if exists share_audit, share_payments, share_settlements, share_allocations, share_expenses, share_recurrences, share_categories, share_members, share_groups, of_items, whatsapp_config, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, whatsapp_usage, app_docs, users cascade',
+    'drop table if exists openfinance_interest, share_audit, share_payments, share_settlements, share_allocations, share_expenses, share_recurrences, share_categories, share_members, share_groups, of_items, whatsapp_config, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, whatsapp_usage, app_docs, users cascade',
   );
   await migrate(pool);
   const entitlements = new Map();
@@ -81,18 +99,26 @@ test('assinatura pela API', { skip: !url && 'TEST_DATABASE_URL não definido' },
   const doc = { docs: [{ coll: 'accounts', id: 'a1', data: { id: 'a1', name: 'Itaú' } }] };
   assert.equal((await call('POST', '/docs/batch', { token: eva.token, body: doc })).status, 200);
 
-  // Teste vencido: lê, mas não grava.
+  // Teste vencido: vira o plano Grátis e continua lançando e sincronizando.
   await pool.query("update users set trial_ends_at = now() - interval '1 day' where id = $1", [eva.user.id]);
-  assert.equal((await call('GET', '/me', { token: eva.token })).body.user.access.status, 'expired');
-  const blocked = await call('POST', '/docs/batch', { token: eva.token, body: doc });
-  assert.equal(blocked.status, 402);
-  assert.match(blocked.body.error, /assinatura venceu/);
+  const me = (await call('GET', '/me', { token: eva.token })).body.user.access;
+  assert.equal(me.status, 'expired');
+  assert.equal(me.plan, 'gratis');
+  assert.equal((await call('POST', '/docs/batch', { token: eva.token, body: doc })).status, 200);
   assert.equal((await call('GET', '/docs', { token: eva.token })).status, 200);
+  // Open Finance no Grátis é só demonstração; "Me avise quando lançar".
+  assert.equal((await call('POST', '/openfinance/connect-token', { token: eva.token })).status, 402);
+  assert.equal((await call('POST', '/openfinance/interest')).status, 401);
+  assert.equal((await call('POST', '/openfinance/interest', { token: eva.token })).status, 204);
+  assert.equal((await call('POST', '/openfinance/interest', { token: eva.token })).status, 204);
+  const interest = await pool.query('select user_id from openfinance_interest');
+  assert.deepEqual(interest.rows.map((r) => r.user_id), [eva.user.id]);
 
   // Compra do plano básico confirmada pelo app.
   entitlements.set(eva.user.id, { basico: { expires_date: '2099-01-01T00:00:00Z' } });
   const paid = await call('POST', '/billing/refresh', { token: eva.token });
   assert.equal(paid.body.access.status, 'active');
+  assert.equal(paid.body.access.plan, 'basico');
   assert.equal(paid.body.access.premium, false);
   assert.equal((await call('POST', '/docs/batch', { token: eva.token, body: doc })).status, 200);
   // Open Finance só no Premium.

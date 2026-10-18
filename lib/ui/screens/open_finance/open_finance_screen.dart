@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/dates.dart';
+import '../../../core/money.dart';
+import '../../../data/cloud/cloud_auth_service.dart';
 import '../../../data/cloud/pluggy_connect.dart';
 import '../../../data/open_finance.dart';
 import '../../../domain/models/entities.dart';
@@ -11,6 +13,7 @@ import '../../../state/auth_controller.dart';
 import '../../../state/finance_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/plan_upsell.dart';
 
 /// Conexões Open Finance: consentimento, sincronização, importação,
 /// detecção de duplicidade e conciliação.
@@ -226,6 +229,8 @@ class OpenFinanceScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Fora do Premium: só a demonstração (o servidor também recusa).
+    if (!isPremiumPlan(context)) return const OpenFinanceDemo();
     final fc = context.watch<FinanceController>();
     final pending =
         fc.externalTransactions
@@ -709,6 +714,136 @@ class _ConnectGuide extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Open Finance fora do Premium: um banco e lançamentos fictícios mostram
+/// como funciona, e "Me avise quando lançar" registra o interesse.
+class OpenFinanceDemo extends StatefulWidget {
+  const OpenFinanceDemo({super.key});
+  @override
+  State<OpenFinanceDemo> createState() => _OpenFinanceDemoState();
+}
+
+class _OpenFinanceDemoState extends State<OpenFinanceDemo> {
+  bool _busy = false;
+  bool _done = false;
+
+  static const _bank = 'Banco Exemplo';
+  static final _txs = <(String, String, int)>[
+    ('Supermercado Bom Preço', 'Mercado', -18742),
+    ('Salário', 'Receita', 520000),
+    ('Posto Avenida', 'Transporte', -21000),
+    ('Farmácia Saúde', 'Saúde', -4590),
+    ('Streaming de filmes', 'Assinaturas', -3990),
+    ('Pix recebido · Ana', 'Receita', 7500),
+  ];
+
+  Future<void> _notify() async {
+    final auth = context.read<AuthController>();
+    final service = auth.service;
+    if (service is! CloudAuthService || (auth.user?.isDemo ?? true)) {
+      showMessage(context, 'Disponível nas contas na nuvem.');
+      return;
+    }
+    setState(() => _busy = true);
+    final ok = await runAction(
+      context,
+      () => service.api.post('openfinance/interest', const {}),
+    );
+    if (mounted) {
+      setState(() {
+        _busy = false;
+        _done = ok;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime.now();
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Open Finance')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        children: [
+          Text(
+            'Com o Premium, o app busca sozinho os lançamentos das suas contas e '
+            'cartões pelo Open Finance do Banco Central: você autoriza no app do '
+            'banco (sem informar senha aqui), confere o que chegou e importa com '
+            'um toque. O que você já tinha lançado é reconhecido e não duplica.',
+            style: context.text.bodyMedium,
+          ),
+          const SizedBox(height: 16),
+          SectionCard(
+            title: _bank,
+            trailing: Pill(
+              'Demonstração · dados fictícios',
+              color: context.fin.warning,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Conta corrente · transações recebidas', style: subtle),
+                const SizedBox(height: 4),
+                for (final (i, t) in _txs.indexed)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    leading: Icon(
+                      t.$3 < 0 ? Icons.south_west : Icons.north_east,
+                      color: t.$3 < 0
+                          ? context.fin.negative
+                          : context.fin.positive,
+                    ),
+                    title: Text(t.$1),
+                    subtitle: Text(
+                      '${Dates.format(today.subtract(Duration(days: i * 2)))} · ${t.$2}',
+                    ),
+                    trailing: Text(
+                      Money(t.$3).format(),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: t.$3 < 0
+                            ? context.fin.negative
+                            : context.fin.positive,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'O Open Finance faz parte do plano Premium e está chegando. Quer '
+            'saber quando estiver disponível?',
+            style: context.text.bodyMedium,
+          ),
+          const SizedBox(height: 12),
+          if (_done)
+            Row(
+              children: [
+                Icon(Icons.check_circle_outline, color: context.fin.positive),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Pronto, avisaremos você.')),
+              ],
+            )
+          else
+            FilledButton.icon(
+              key: const ValueKey('of-interest'),
+              icon: const Icon(Icons.notifications_active_outlined),
+              label: const Text('Me avise quando lançar'),
+              onPressed: _busy ? null : _notify,
+            ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: () => openSubscription(context),
+            child: const Text('Ver planos'),
+          ),
+        ],
       ),
     );
   }

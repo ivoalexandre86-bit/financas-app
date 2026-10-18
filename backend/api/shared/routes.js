@@ -32,7 +32,10 @@ const MAX_CENTS = 1e12;
 
 const iso = (d) => (d == null ? null : d instanceof Date ? d.toISOString().slice(0, 10) : String(d));
 
-function mountShared(app, { pool, authed, wrap, HttpError }) {
+/** Grupos que o plano Grátis pode criar (como dono). */
+const FREE_GROUPS = 1;
+
+function mountShared(app, { pool, authed, wrap, HttpError, accessOf }) {
   const bad = (msg) => new HttpError(400, msg);
   const notFound = () => new HttpError(404, 'Não encontrado ou sem acesso');
 
@@ -344,6 +347,17 @@ function mountShared(app, { pool, authed, wrap, HttpError }) {
       ? req.body.categories.map((n) => text(n, 'o nome da categoria', 80))
       : DEFAULT_CATEGORIES;
     const id = await inGroupTx(null, async (c) => {
+      if (accessOf?.(req.user).plan === 'gratis') {
+        // Em série por usuário, para dois pedidos juntos não passarem do limite.
+        await c.query("select pg_advisory_xact_lock(hashtext('share-owner:' || $1))", [req.user.id]);
+        const owned = await c.query('select count(*)::int as n from share_groups where owner_id = $1', [req.user.id]);
+        if (owned.rows[0].n >= FREE_GROUPS) {
+          throw new HttpError(
+            402,
+            'O plano Grátis tem 1 grupo de despesas compartilhadas. Assine o Básico para criar mais.',
+          );
+        }
+      }
       const { rows } = await c.query(
         'insert into share_groups (owner_id, name, kind) values ($1, $2, $3) returning id',
         [req.user.id, name, kind],

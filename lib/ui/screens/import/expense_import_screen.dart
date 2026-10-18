@@ -9,6 +9,7 @@ import '../../../state/finance_controller.dart';
 import '../../app_shell.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/plan_upsell.dart';
 
 enum _RowFilter { all, selected, issues }
 
@@ -176,6 +177,21 @@ class _ExpenseImportScreenState extends State<ExpenseImportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (isGratisPlan(context)) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Importar despesas')),
+        body: EmptyState(
+          icon: Icons.workspace_premium_outlined,
+          title: 'Importar planilha é do plano Básico',
+          message:
+              'Lance dezenas de despesas de uma vez a partir de uma planilha '
+              '(.xlsx ou .csv). No plano Grátis, os lançamentos são feitos um '
+              'a um no app.',
+          actionLabel: 'Ver planos',
+          onAction: () => openSubscription(context),
+        ),
+      );
+    }
     final p = plan;
     return Scaffold(
       appBar: AppBar(

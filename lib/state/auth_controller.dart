@@ -65,8 +65,11 @@ class AuthController extends ChangeNotifier {
 
   bool get isAdmin => user?.isAdmin ?? false;
 
-  /// Assinatura vencida: o app mostra a tela de assinar.
-  bool get locked => user?.access?.expired ?? false;
+  /// Plano em vigor. Contas locais e a demonstração não têm assinatura e
+  /// usam tudo.
+  String get plan => user?.access?.currentPlan ?? 'premium';
+  bool get isGratis => plan == 'gratis';
+  bool get isPremium => plan == 'premium';
 
   Future<void> _refreshQuietly() async {
     try {
