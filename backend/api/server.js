@@ -4,6 +4,7 @@ const { createPluggy } = require('./pluggy');
 const { createMetaClient, createSignup } = require('./whatsapp/meta');
 const { createExtractor } = require('./whatsapp/extract');
 const { createTranscriber } = require('./whatsapp/transcribe');
+const { createRevenueCat } = require('./billing');
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -80,6 +81,12 @@ migrate(pool)
       whatsapp: whatsAppFromEnv(process.env),
       // Cadastro aberto para o app nas lojas; OPEN_SIGNUP=false fecha.
       openSignup: process.env.OPEN_SIGNUP !== 'false',
+      // Assinaturas das lojas pelo RevenueCat (chave secreta da API v1 e o
+      // valor do cabeçalho Authorization configurado no webhook).
+      revenuecat: process.env.REVENUECAT_SECRET_KEY
+        ? createRevenueCat({ secretKey: process.env.REVENUECAT_SECRET_KEY })
+        : null,
+      revenuecatWebhookAuth: process.env.REVENUECAT_WEBHOOK_AUTH,
     });
     app.set('trust proxy', 1);
     const port = Number(process.env.PORT ?? 3000);

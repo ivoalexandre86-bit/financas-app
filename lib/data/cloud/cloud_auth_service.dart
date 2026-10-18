@@ -47,7 +47,22 @@ class CloudAuthService implements AuthService {
     name: u['name'] as String,
     email: u['email'] as String,
     isAdmin: (u['isAdmin'] as bool?) ?? false,
+    access: Access.fromJson(u['access']),
   );
+
+  @override
+  Future<AppUser?> refreshSubscription() async {
+    if (_demo) return local.restoreSession();
+    final s = await _session.record('current').get(await _database);
+    if (s == null) return null;
+    final res = await api.post('billing/refresh', const {});
+    final user = {
+      ...(s['user'] as Map).cast<String, Object?>(),
+      'access': res['access'],
+    };
+    await _session.record('current').put(await _database, {...s, 'user': user});
+    return _toUser(user);
+  }
 
   @override
   Future<AppUser?> restoreSession() async {

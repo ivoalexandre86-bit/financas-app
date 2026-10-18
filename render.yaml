@@ -45,3 +45,9 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      # Assinaturas das lojas (RevenueCat): chave secreta da API v1 e o
+      # valor do cabeçalho Authorization configurado no webhook.
+      - key: REVENUECAT_SECRET_KEY
+        sync: false
+      - key: REVENUECAT_WEBHOOK_AUTH
+        generateValue: true
