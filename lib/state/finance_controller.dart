@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:math';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import '../core/dates.dart';
@@ -980,6 +984,44 @@ class FinanceController extends ChangeNotifier {
     return repo.saveSettings(s);
   }
 
+  /// Mostra ou oculta os valores em todas as telas, na hora.
+  Future<void> setHideValues(bool hide) {
+    final s = data.settings.copyWith(hideValues: hide);
+    data = data.copyWith(settings: s);
+    notifyListeners();
+    return repo.saveSettings(s);
+  }
+
+  bool get hasPin => data.settings.pinLock != null;
+
+  static String _pinHash(String salt, String pin) =>
+      sha256.convert(utf8.encode('$salt:$pin')).toString();
+
+  /// Define o PIN de bloqueio (4 a 8 dígitos) ou remove com `null`.
+  Future<void> setPin(String? pin) {
+    if (pin != null && !RegExp(r'^\d{4,8}$').hasMatch(pin)) {
+      throw ArgumentError('O PIN deve ter de 4 a 8 números.');
+    }
+    final rnd = Random.secure();
+    final salt = pin == null
+        ? ''
+        : List.generate(8, (_) => rnd.nextInt(256).toRadixString(16)).join();
+    final s = pin == null
+        ? data.settings.copyWith(clearPin: true)
+        : data.settings.copyWith(pinLock: '$salt:${_pinHash(salt, pin)}');
+    data = data.copyWith(settings: s);
+    notifyListeners();
+    return repo.saveSettings(s);
+  }
+
+  bool checkPin(String pin) {
+    final lock = data.settings.pinLock;
+    if (lock == null) return true;
+    final i = lock.indexOf(':');
+    if (i < 0) return false;
+    return _pinHash(lock.substring(0, i), pin) == lock.substring(i + 1);
+  }
+
   Future<void> saveSettings(AppSettings s) async {
     await repo.saveSettings(s);
     _set(await repo.load());
@@ -1557,7 +1599,9 @@ class FinanceController extends ChangeNotifier {
       c.add('descrição "${a.description}" → "${b.description}"');
     }
     if (a.amount != b.amount) {
-      c.add('valor ${Money(a.amount).format()} → ${Money(b.amount).format()}');
+      c.add(
+        'valor ${Money(a.amount).formatVisible()} → ${Money(b.amount).formatVisible()}',
+      );
     }
     if (a.month != b.month) c.add('mês ${a.month.key} → ${b.month.key}');
     if (a.dueDate != b.dueDate) c.add('vencimento alterado');
@@ -1601,7 +1645,7 @@ class FinanceController extends ChangeNotifier {
     final name = personById(p.personId)?.name ?? 'pessoa';
     final text =
         '${exists ? 'Pagamento alterado' : 'Pagamento registrado'}: $name '
-        '${Money(p.amount).format()} em ${Dates.format(p.date)} '
+        '${Money(p.amount).formatVisible()} em ${Dates.format(p.date)} '
         '(${p.method})';
     await _commitOther([
       e
@@ -1624,7 +1668,7 @@ class FinanceController extends ChangeNotifier {
             updatedAt: DateTime.now(),
           )
           .withHistory(
-            'Pagamento excluído: $name ${Money(p.amount).format()} em '
+            'Pagamento excluído: $name ${Money(p.amount).formatVisible()} em '
             '${Dates.format(p.date)}',
           ),
     ]);

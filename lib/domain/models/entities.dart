@@ -1083,6 +1083,13 @@ class AppSettings {
   /// Aviso pelo WhatsApp quando um orçamento chega no limite.
   final bool whatsappBudgetAlerts;
 
+  /// Mostra "R\$ ••••" no lugar dos valores (para usar o app em público).
+  final bool hideValues;
+
+  /// PIN que bloqueia o app ao abrir, como "sal:sha256(sal+PIN)". Nulo =
+  /// sem bloqueio.
+  final String? pinLock;
+
   const AppSettings({
     this.themeMode = 'system',
     this.cardExpenseBasis = CardExpenseBasis.invoiceDue,
@@ -1094,6 +1101,8 @@ class AppSettings {
     this.menuLayout,
     this.whatsappReminders = false,
     this.whatsappBudgetAlerts = false,
+    this.hideValues = false,
+    this.pinLock,
   });
 
   /// [resetMenuLayout] volta o menu lateral ao padrão.
@@ -1109,6 +1118,9 @@ class AppSettings {
     bool resetMenuLayout = false,
     bool? whatsappReminders,
     bool? whatsappBudgetAlerts,
+    bool? hideValues,
+    String? pinLock,
+    bool clearPin = false,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     cardExpenseBasis: cardExpenseBasis ?? this.cardExpenseBasis,
@@ -1120,6 +1132,8 @@ class AppSettings {
     menuLayout: resetMenuLayout ? null : menuLayout ?? this.menuLayout,
     whatsappReminders: whatsappReminders ?? this.whatsappReminders,
     whatsappBudgetAlerts: whatsappBudgetAlerts ?? this.whatsappBudgetAlerts,
+    hideValues: hideValues ?? this.hideValues,
+    pinLock: clearPin ? null : pinLock ?? this.pinLock,
   );
 
   Map<String, Object?> toJson() => {
@@ -1133,6 +1147,8 @@ class AppSettings {
     'menuLayout': menuLayout,
     'whatsappReminders': whatsappReminders,
     'whatsappBudgetAlerts': whatsappBudgetAlerts,
+    'hideValues': hideValues,
+    'pinLock': pinLock,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> j) => AppSettings(
@@ -1154,5 +1170,7 @@ class AppSettings {
         : null,
     whatsappReminders: (j['whatsappReminders'] as bool?) ?? false,
     whatsappBudgetAlerts: (j['whatsappBudgetAlerts'] as bool?) ?? false,
+    hideValues: (j['hideValues'] as bool?) ?? false,
+    pinLock: j['pinLock'] as String?,
   );
 }

@@ -10,6 +10,7 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../users/users_screen.dart';
 import 'cloud_import.dart';
+import 'lock_screen.dart';
 import 'menu_editor_screen.dart';
 import '../subscription/subscription_screen.dart';
 import 'whatsapp_screen.dart';
@@ -41,6 +42,30 @@ class SettingsScreen extends StatelessWidget {
                 fc.saveSettings(s.copyWith(themeMode: v.first));
               },
             ),
+          ),
+          _h(context, 'Privacidade'),
+          SwitchListTile(
+            key: const ValueKey('hide-values'),
+            secondary: const Icon(Icons.visibility_off_outlined),
+            title: const Text('Ocultar valores'),
+            subtitle: const Text(
+              'Mostra R\$ •••• no lugar de saldos e valores. Também dá para '
+              'trocar pelo menu lateral.',
+            ),
+            value: s.hideValues,
+            onChanged: fc.setHideValues,
+          ),
+          ListTile(
+            key: const ValueKey('pin-lock'),
+            leading: const Icon(Icons.pin_outlined),
+            title: const Text('Bloqueio por PIN'),
+            subtitle: Text(
+              fc.hasPin
+                  ? 'Ativo: o app pede o PIN ao abrir e depois de 2 minutos fora dele.'
+                  : 'Peça um PIN de 4 a 8 números ao abrir o app.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => showPinSettings(context),
           ),
           _h(context, 'Menu lateral'),
           ListTile(

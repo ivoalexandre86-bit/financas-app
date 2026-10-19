@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app.dart';
+import '../core/money.dart';
 import '../state/auth_controller.dart';
 import '../state/finance_controller.dart';
 import '../state/shared_controller.dart';
@@ -22,6 +23,7 @@ import 'screens/projection/projection_screen.dart';
 import 'screens/projects/projects_screen.dart';
 import 'screens/recurring/recurring_screen.dart';
 import 'screens/rules/category_rules_screen.dart';
+import 'screens/settings/lock_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/shared/shared_screen.dart';
 import 'screens/simulations/simulations_screen.dart';
@@ -50,6 +52,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   String? _appliedTheme;
   DateTime _lastRefresh = DateTime.now();
 
+  /// Bloqueado pelo PIN (`null` = ainda não decidido: os dados carregando).
+  bool? _locked;
+  DateTime? _leftAt;
+
+  /// Tempo fora do app que volta a pedir o PIN.
+  static const relockAfter = Duration(minutes: 2);
+
+  void lock() => setState(() => _locked = true);
+
   @override
   void initState() {
     super.initState();
@@ -66,8 +77,20 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   /// (outro aparelho ou WhatsApp).
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      _leftAt ??= DateTime.now();
+      return;
+    }
     if (state != AppLifecycleState.resumed) return;
     final fc = context.read<FinanceController>();
+    final left = _leftAt;
+    _leftAt = null;
+    if (fc.hasPin &&
+        left != null &&
+        DateTime.now().difference(left) >= relockAfter) {
+      setState(() => _locked = true);
+    }
     if (!fc.isCloud || fc.loading) return;
     final now = DateTime.now();
     if (now.difference(_lastRefresh) < const Duration(seconds: 30)) return;
@@ -111,8 +134,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         body: ErrorState(message: fc.error!, onRetry: fc.load),
       );
     }
+    Money.hidden = fc.data.settings.hideValues;
+    _locked ??= fc.hasPin && !context.read<AuthController>().freshLogin;
     final wideScreen = MediaQuery.sizeOf(context).width >= 600;
-    return Scaffold(
+    final shell = Scaffold(
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -152,6 +177,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           ),
         ],
       ),
+    );
+    if (_locked != true || !fc.hasPin) return shell;
+    // O conteúdo fica montado por baixo: desbloquear volta onde estava.
+    return Stack(
+      children: [
+        Offstage(child: shell),
+        LockScreen(onUnlocked: () => setState(() => _locked = false)),
+      ],
     );
   }
 }
@@ -392,6 +425,9 @@ class _SideMenuState extends State<SideMenu> {
     final user = context.watch<AuthController>().user;
     final isAdmin = user?.isAdmin ?? false;
     final name = user?.name ?? '';
+    // Nulo em testes que montam só o menu.
+    final fc = context.watch<FinanceController?>();
+    final hidden = fc?.data.settings.hideValues ?? false;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
@@ -634,8 +670,27 @@ class _SideMenuState extends State<SideMenu> {
                   ),
                 ),
                 const Divider(height: 1, color: line),
+                const SizedBox(height: 8),
+                if (fc != null)
+                  entry(
+                    key: const ValueKey('menu-hide-values'),
+                    icon: hidden
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    label: hidden ? 'Mostrar valores' : 'Ocultar valores',
+                    onTap: () => fc.setHideValues(!hidden),
+                  ),
+                if (fc?.hasPin ?? false)
+                  entry(
+                    key: const ValueKey('menu-lock'),
+                    icon: Icons.lock_outline,
+                    label: 'Bloquear agora',
+                    onTap: () => context
+                        .findAncestorStateOfType<_AppShellState>()
+                        ?.lock(),
+                  ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.only(bottom: 8),
                   child: entry(
                     icon: Icons.logout,
                     label: 'Sair',

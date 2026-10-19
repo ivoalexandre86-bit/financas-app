@@ -305,7 +305,7 @@ class ReportExport {
     final doc = pw.Document(title: 'Relatório financeiro - $periodLabel');
     final primary = PdfColor.fromInt(0xFF2457D6);
     final grey = PdfColor.fromInt(0xFF6B7280);
-    String brl(Money m) => m.format().replaceAll(' ', ' ');
+    String brl(Money m) => m.formatVisible().replaceAll(' ', ' ');
     final be = BudgetEngine(engine);
 
     pw.Widget table(

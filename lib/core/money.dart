@@ -93,14 +93,23 @@ class Money implements Comparable<Money> {
   );
   static final NumberFormat _compact = NumberFormat.decimalPattern('pt_BR');
 
-  /// "R$ 1.234,56" (centavos formatados via inteiros, sem arredondamento).
-  String format() => _fmt(_currency);
+  /// Valores ocultos na tela ([AppSettings.hideValues]); aplicado pelo
+  /// AppShell a cada build.
+  static bool hidden = false;
+
+  /// "R$ 1.234,56" (centavos formatados via inteiros, sem arredondamento),
+  /// ou "R$ ••••" com os valores ocultos.
+  String format() => hidden ? 'R\$ ••••' : formatVisible();
+
+  /// Sempre o valor, mesmo com os valores ocultos (histórico, relatórios).
+  String formatVisible() => _fmt(_currency);
 
   /// "1.234,56"
   String formatPlain() => _fmt(_plain).trim();
 
   /// Valor sem centavos para tabelas densas: "1.235".
   String formatCompact() {
+    if (hidden) return '••••';
     final reais = (cents.abs() + 50) ~/ 100;
     return '${cents < 0 ? '-' : ''}${_compact.format(reais)}';
   }
