@@ -57,6 +57,10 @@ function whatsAppFromEnv(env) {
       model: env.ANTHROPIC_MODEL || undefined,
       mediaModel: env.ANTHROPIC_MEDIA_MODEL || undefined,
     }),
+    // Lembretes diários: fora da janela de 24h a Meta exige um modelo
+    // aprovado (nome em WHATSAPP_REMINDER_TEMPLATE, um parâmetro no corpo).
+    startReminders: env.WHATSAPP_REMINDERS !== 'false',
+    reminderTemplate: env.WHATSAPP_REMINDER_TEMPLATE || undefined,
     monthlyLimit: Number(env.WHATSAPP_MONTHLY_LIMIT) || undefined,
     freeMonthlyLimit: Number(env.WHATSAPP_FREE_MONTHLY_LIMIT) || undefined,
     transcribe: env.OPENAI_API_KEY

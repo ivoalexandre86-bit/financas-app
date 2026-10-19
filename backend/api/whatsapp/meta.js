@@ -87,6 +87,22 @@ function createMetaClient({ token, phoneNumberId, apiVersion = 'v23.0' }) {
         },
       }),
 
+    /// Modelo aprovado na Meta (pode ser enviado fora da janela de 24h).
+    sendTemplate: (to, name, params = [], language = 'pt_BR') =>
+      send(to, {
+        type: 'template',
+        template: {
+          name,
+          language: { code: language },
+          components: params.length
+            ? [{
+                type: 'body',
+                parameters: params.map((p) => ({ type: 'text', text: String(p).slice(0, 1000) })),
+              }]
+            : [],
+        },
+      }),
+
     markRead: (messageId) =>
       send(undefined, { status: 'read', message_id: messageId }).catch(() => {}),
 

@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../data/cloud/api_client.dart';
 import '../../../data/cloud/cloud_auth_service.dart';
 import '../../../state/auth_controller.dart';
+import '../../../state/finance_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/plan_upsell.dart';
@@ -189,6 +190,8 @@ class _WhatsAppScreenState extends State<WhatsAppScreen> {
         onPressed: () => _open('https://wa.me/${s.botNumber}'),
       ),
     const SizedBox(height: 8),
+    const _ReminderSwitches(),
+    const SizedBox(height: 8),
     OutlinedButton.icon(
       key: const ValueKey('wa-unlink'),
       icon: const Icon(Icons.link_off),
@@ -307,4 +310,52 @@ class _ErrorView extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// Avisos que o bot manda sozinho (o servidor lê estas preferências).
+class _ReminderSwitches extends StatelessWidget {
+  const _ReminderSwitches();
+
+  @override
+  Widget build(BuildContext context) {
+    final FinanceController fc;
+    try {
+      fc = context.watch<FinanceController>();
+    } on ProviderNotFoundException {
+      return const SizedBox.shrink();
+    }
+    final st = fc.data.settings;
+    return Card(
+      child: Column(
+        children: [
+          SwitchListTile(
+            key: const ValueKey('wa-reminders'),
+            title: const Text('Lembrete de contas a vencer'),
+            subtitle: const Text(
+              'Todo dia às 8h, as contas e faturas que vencem hoje e amanhã '
+              'e o que ficou em atraso.',
+            ),
+            value: st.whatsappReminders,
+            onChanged: (v) => runAction(
+              context,
+              () => fc.saveSettings(st.copyWith(whatsappReminders: v)),
+            ),
+          ),
+          SwitchListTile(
+            key: const ValueKey('wa-budget-alerts'),
+            title: const Text('Aviso de orçamento no limite'),
+            subtitle: const Text(
+              'Quando o gasto de uma categoria chegar no percentual de aviso '
+              'ou passar do limite.',
+            ),
+            value: st.whatsappBudgetAlerts,
+            onChanged: (v) => runAction(
+              context,
+              () => fc.saveSettings(st.copyWith(whatsappBudgetAlerts: v)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

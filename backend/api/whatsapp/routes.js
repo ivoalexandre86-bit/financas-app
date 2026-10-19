@@ -24,6 +24,7 @@ const {
 const { brl } = require('./ledger');
 const { allocate: allocateLine } = require('../shared/allocation');
 const { accessOf } = require('../billing');
+const { createReminderJob } = require('./reminders');
 
 const CODE_MINUTES = 10;
 /** Leituras da IA por mês por usuário (administradores não têm limite). */
@@ -65,6 +66,15 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
       if (rows[0] && isEnabled()) console.log(`WhatsApp ativo no número ${botNumber}`);
     })
     .catch((e) => console.error('WhatsApp: falha ao ler a configuração salva', e));
+
+  // Lembretes diários (só no servidor; os testes chamam runOnce direto).
+  const reminders = createReminderJob({
+    pool,
+    getMeta: () => (isEnabled() ? meta : null),
+    template: whatsapp?.reminderTemplate,
+  });
+  app.locals.reminders = reminders;
+  if (whatsapp?.startReminders) loaded.then(() => reminders.start());
 
   // App ----------------------------------------------------------------------
 

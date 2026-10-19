@@ -1065,6 +1065,13 @@ class AppSettings {
   /// itens de cada uma), no formato JSON de `MenuLayout`. Nulo = padrão.
   final List<Object?>? menuLayout;
 
+  /// Lembrete diário pelo WhatsApp das contas e faturas que vencem hoje e
+  /// amanhã (lido pelo servidor).
+  final bool whatsappReminders;
+
+  /// Aviso pelo WhatsApp quando um orçamento chega no limite.
+  final bool whatsappBudgetAlerts;
+
   const AppSettings({
     this.themeMode = 'system',
     this.cardExpenseBasis = CardExpenseBasis.invoiceDue,
@@ -1074,6 +1081,8 @@ class AppSettings {
     this.otherAccountId,
     this.gridFilters,
     this.menuLayout,
+    this.whatsappReminders = false,
+    this.whatsappBudgetAlerts = false,
   });
 
   /// [resetMenuLayout] volta o menu lateral ao padrão.
@@ -1087,6 +1096,8 @@ class AppSettings {
     Map<String, Object?>? gridFilters,
     List<Object?>? menuLayout,
     bool resetMenuLayout = false,
+    bool? whatsappReminders,
+    bool? whatsappBudgetAlerts,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     cardExpenseBasis: cardExpenseBasis ?? this.cardExpenseBasis,
@@ -1096,6 +1107,8 @@ class AppSettings {
     otherAccountId: otherAccountId ?? this.otherAccountId,
     gridFilters: gridFilters ?? this.gridFilters,
     menuLayout: resetMenuLayout ? null : menuLayout ?? this.menuLayout,
+    whatsappReminders: whatsappReminders ?? this.whatsappReminders,
+    whatsappBudgetAlerts: whatsappBudgetAlerts ?? this.whatsappBudgetAlerts,
   );
 
   Map<String, Object?> toJson() => {
@@ -1107,6 +1120,8 @@ class AppSettings {
     'otherAccountId': otherAccountId,
     'gridFilters': gridFilters,
     'menuLayout': menuLayout,
+    'whatsappReminders': whatsappReminders,
+    'whatsappBudgetAlerts': whatsappBudgetAlerts,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> j) => AppSettings(
@@ -1126,5 +1141,7 @@ class AppSettings {
     menuLayout: j['menuLayout'] is List
         ? List<Object?>.from(j['menuLayout'] as List)
         : null,
+    whatsappReminders: (j['whatsappReminders'] as bool?) ?? false,
+    whatsappBudgetAlerts: (j['whatsappBudgetAlerts'] as bool?) ?? false,
   );
 }
