@@ -18,10 +18,12 @@ import '../domain/engine/budget_engine.dart';
 import '../domain/engine/dashboard_engine.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/engine/installments.dart';
+import '../domain/engine/networth_engine.dart';
 import '../domain/engine/other_entries_engine.dart';
 import '../domain/engine/shared_engine.dart';
 import '../domain/engine/simulation_engine.dart';
 import '../domain/import/expense_import.dart';
+import '../domain/models/asset.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
 import '../domain/models/other_entry.dart';
@@ -81,6 +83,12 @@ class FinanceController extends ChangeNotifier {
 
   /// Regras de categorização automática por descrição.
   List<CategoryRule> categoryRules = [];
+
+  /// Bens e dívidas registrados para o patrimônio líquido.
+  List<Asset> assets = [];
+
+  /// Patrimônio líquido, sempre sobre o [engine] atual.
+  NetWorthEngine get netWorthEngine => NetWorthEngine(engine);
 
   /// Cálculos de orçamentos e metas, sempre sobre o [engine] atual.
   BudgetEngine get budgetEngine => _budgetEngine?.engine == engine
@@ -208,7 +216,13 @@ class FinanceController extends ChangeNotifier {
         ]..sort(
           (a, b) => a.pattern.toLowerCase().compareTo(b.pattern.toLowerCase()),
         );
+    assets = [
+      for (final j in await repo.loadRaw(Coll.assets)) Asset.fromJson(j),
+    ]..sort(_byAssetName);
   }
+
+  static int _byAssetName(Asset a, Asset b) =>
+      a.name.toLowerCase().compareTo(b.name.toLowerCase());
 
   bool _disposed = false;
 
@@ -1094,6 +1108,38 @@ class FinanceController extends ChangeNotifier {
           contributions: g.contributions.where((x) => x.id != c.id).toList(),
         ),
       );
+
+  // ---------------------------------------------------------------------------
+  // Patrimônio (bens e dívidas)
+
+  /// Cria ou altera um bem/dívida. Um valor novo entra no histórico.
+  Future<void> saveAsset(Asset a) async {
+    if (a.name.trim().isEmpty) throw ArgumentError('Informe um nome');
+    if (a.value.isNegative) throw ArgumentError('Valor negativo');
+    final old = assets.where((x) => x.id == a.id).firstOrNull;
+    if (old == null || old.value != a.value || a.history.isEmpty) {
+      a = a.withValue(a.value, today);
+    }
+    assets = [...assets.where((x) => x.id != a.id), a]..sort(_byAssetName);
+    notifyListeners();
+    await repo.write([WriteOp.put(Coll.assets, a.id, a.toJson())]);
+  }
+
+  Future<void> deleteAsset(Asset a) async {
+    assets = assets.where((x) => x.id != a.id).toList();
+    notifyListeners();
+    await repo.write([WriteOp.delete(Coll.assets, a.id)]);
+  }
+
+  /// Atualiza o valor de um bem/dívida em [date] (hoje, se omitida),
+  /// guardando o valor anterior no histórico.
+  Future<void> updateAssetValue(Asset a, Money value, {DateTime? date}) async {
+    if (value.isNegative) throw ArgumentError('Valor negativo');
+    final next = a.withValue(value, date ?? today);
+    assets = [...assets.where((x) => x.id != a.id), next]..sort(_byAssetName);
+    notifyListeners();
+    await repo.write([WriteOp.put(Coll.assets, next.id, next.toJson())]);
+  }
 
   // ---------------------------------------------------------------------------
   // Regras de categorização e tags
