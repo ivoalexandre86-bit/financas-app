@@ -757,3 +757,95 @@ class _BankPickerState extends State<_BankPicker> {
     );
   }
 }
+
+/// Tags livres de um lançamento: chips removíveis e um campo que sugere as
+/// tags já usadas. Enter (ou vírgula) adiciona.
+class TagsField extends StatefulWidget {
+  final List<String> value;
+  final List<String> suggestions;
+  final ValueChanged<List<String>> onChanged;
+  const TagsField({
+    super.key,
+    required this.value,
+    required this.suggestions,
+    required this.onChanged,
+  });
+
+  @override
+  State<TagsField> createState() => _TagsFieldState();
+}
+
+class _TagsFieldState extends State<TagsField> {
+  TextEditingController? _ctrl;
+
+  void _add(String raw) {
+    final tags = [...widget.value];
+    for (final part in raw.split(',')) {
+      final t = part.trim();
+      if (t.isEmpty || t.length > 40) continue;
+      if (tags.any((x) => x.toLowerCase() == t.toLowerCase())) continue;
+      // Reaproveita a grafia de uma tag já usada.
+      tags.add(
+        widget.suggestions
+                .where((s) => s.toLowerCase() == t.toLowerCase())
+                .firstOrNull ??
+            t,
+      );
+    }
+    _ctrl?.clear();
+    widget.onChanged(tags);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Autocomplete<String>(
+          optionsBuilder: (v) {
+            final q = v.text.trim().toLowerCase();
+            return widget.suggestions.where(
+              (s) =>
+                  !widget.value.contains(s) &&
+                  (q.isEmpty || s.toLowerCase().contains(q)),
+            );
+          },
+          onSelected: _add,
+          fieldViewBuilder: (context, ctrl, focus, onSubmit) {
+            _ctrl = ctrl;
+            return TextField(
+              key: const ValueKey('tags-input'),
+              controller: ctrl,
+              focusNode: focus,
+              decoration: const InputDecoration(
+                labelText: 'Tags (opcional)',
+                hintText: 'Ex.: Viagem, Reforma',
+              ),
+              onChanged: (v) {
+                if (v.endsWith(',')) _add(v);
+              },
+              onSubmitted: (v) => _add(v),
+            );
+          },
+        ),
+        if (widget.value.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final t in widget.value)
+                  InputChip(
+                    label: Text(t),
+                    onDeleted: () => widget.onChanged(
+                      widget.value.where((x) => x != t).toList(),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}

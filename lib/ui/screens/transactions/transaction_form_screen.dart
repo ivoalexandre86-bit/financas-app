@@ -64,6 +64,11 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   final installmentsCtrl = TextEditingController(text: '2');
   final intervalCtrl = TextEditingController(text: '1');
   String? categoryId;
+
+  /// Categoria preenchida por uma regra (não pelo usuário): muda se a
+  /// descrição mudar.
+  bool categoryFromRule = false;
+  List<String> tags = const [];
   late DateTime date;
   DateTime? dueDate;
 
@@ -121,6 +126,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     description = TextEditingController(text: t?.description ?? '');
     notes = TextEditingController(text: t?.notes ?? '');
     categoryId = t?.categoryId;
+    tags = t?.tags ?? const [];
     date = t?.date ?? widget.initialDate ?? fc.today;
     dueDate = t?.dueDate;
     dueTouched = t?.dueDate != null && Dates.dateOnly(t!.dueDate!) != date;
@@ -297,6 +303,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
           destinationAccountId: isTransfer ? toAccount : null,
           projectId: projectId,
           notes: notes.text.trim(),
+          tags: tags,
           status: status,
           // Igual à data: não grava, assim o vencimento acompanha a data.
           dueDate: !_showsDueDate || _dueOffset == 0 && _dueRequired
@@ -414,6 +421,22 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
               validator: (v) => (v == null || v.trim().isEmpty)
                   ? 'Informe uma descrição'
                   : (v.length > 120 ? 'Máximo de 120 caracteres' : null),
+              onChanged: (v) {
+                if (isTransfer || (categoryId != null && !categoryFromRule)) {
+                  return;
+                }
+                final ruled = fc.ruleCategoryFor(
+                  v,
+                  type == TransactionType.income
+                      ? CategoryKind.income
+                      : CategoryKind.expense,
+                );
+                if (ruled == null && !categoryFromRule) return;
+                setState(() {
+                  categoryId = ruled;
+                  categoryFromRule = ruled != null;
+                });
+              },
             ),
             const SizedBox(height: 12),
             if (!isTransfer) ...[
@@ -423,8 +446,21 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                     ? CategoryKind.income
                     : CategoryKind.expense,
                 value: categoryId,
-                onChanged: (v) => setState(() => categoryId = v),
+                onChanged: (v) => setState(() {
+                  categoryId = v;
+                  categoryFromRule = false;
+                }),
               ),
+              if (categoryFromRule)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, left: 12),
+                  child: Text(
+                    'Categoria sugerida por uma regra',
+                    style: context.text.bodySmall?.copyWith(
+                      color: context.colors.primary,
+                    ),
+                  ),
+                ),
               const SizedBox(height: 12),
             ],
             DateField(
@@ -530,6 +566,14 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 labelText: 'Observações (opcional)',
               ),
             ),
+            if (!recurring && !installment) ...[
+              const SizedBox(height: 12),
+              TagsField(
+                value: tags,
+                suggestions: fc.allTags,
+                onChanged: (v) => setState(() => tags = v),
+              ),
+            ],
             if (canAdvanced && !isTransfer) ...[
               const SizedBox(height: 8),
               SwitchListTile(

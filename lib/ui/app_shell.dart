@@ -12,6 +12,7 @@ import 'screens/cards/cards_screen.dart';
 import 'screens/cards/invoices_screen.dart';
 import 'screens/categories/categories_screen.dart';
 import 'screens/dashboards/dashboards_screen.dart';
+import 'screens/export/export_screen.dart';
 import 'screens/goals/goals_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/import/expense_import_screen.dart';
@@ -20,6 +21,7 @@ import 'screens/open_finance/open_finance_screen.dart';
 import 'screens/projection/projection_screen.dart';
 import 'screens/projects/projects_screen.dart';
 import 'screens/recurring/recurring_screen.dart';
+import 'screens/rules/category_rules_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/shared/shared_screen.dart';
 import 'screens/simulations/simulations_screen.dart';
@@ -254,6 +256,12 @@ const menuGroups = <MenuGroup>[
       'Importar planilha',
       ExpenseImportScreen(),
     ),
+    MenuDest(
+      'export',
+      Icons.download_outlined,
+      'Exportar relatórios',
+      ExportScreen(),
+    ),
   ]),
   MenuGroup('settings-group', Icons.settings_outlined, 'Configurações', [
     MenuDest('settings', Icons.tune, 'Preferências', SettingsScreen()),
@@ -262,6 +270,12 @@ const menuGroups = <MenuGroup>[
       Icons.category_outlined,
       'Categorias',
       CategoriesScreen(),
+    ),
+    MenuDest(
+      'rules',
+      Icons.rule_outlined,
+      'Regras de categoria',
+      CategoryRulesScreen(),
     ),
     MenuDest(
       'open-finance',

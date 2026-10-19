@@ -25,19 +25,22 @@ class TxListFilter {
   final String? accountOrCard; // 'a:id' | 'c:id'
   final String? categoryId;
   final String? projectId;
+  final String? tag;
   const TxListFilter({
     this.types = const {},
     this.statuses = const {},
     this.accountOrCard,
     this.categoryId,
     this.projectId,
+    this.tag,
   });
   int get count =>
       (types.isEmpty ? 0 : 1) +
       (statuses.isEmpty ? 0 : 1) +
       (accountOrCard == null ? 0 : 1) +
       (categoryId == null ? 0 : 1) +
-      (projectId == null ? 0 : 1);
+      (projectId == null ? 0 : 1) +
+      (tag == null ? 0 : 1);
 }
 
 /// Filtro rápido de status (barra acima da lista).
@@ -115,6 +118,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     'location': filter.accountOrCard,
     'category': filter.categoryId,
     'project': filter.projectId,
+    'tag': filter.tag,
     'quickStatus': quickStatus.name,
     'quickType': quickType.name,
     'sort': sort.name,
@@ -136,6 +140,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
       ]),
       categoryId: FilterJson.id(j['category'], d.categories.map((c) => c.id)),
       projectId: FilterJson.id(j['project'], d.projects.map((p) => p.id)),
+      tag: FilterJson.id(j['tag'], fc.allTags),
     );
     quickStatus =
         FilterJson.enumOrNull(QuickStatus.values, j['quickStatus']) ??
@@ -175,6 +180,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
         !fc.data.settings.groupCardInvoices ||
         cats.isNotEmpty ||
         filter.projectId != null ||
+        filter.tag != null ||
         q.isNotEmpty;
 
     bool matches(FinTransaction t) {
@@ -199,10 +205,12 @@ class _TransactionsScreenState extends State<TransactionsScreen>
       if (filter.projectId != null && t.projectId != filter.projectId) {
         return false;
       }
+      if (filter.tag != null && !t.tags.contains(filter.tag)) return false;
       if (q.isNotEmpty) {
         final hay = [
           t.description,
           t.notes,
+          ...t.tags,
           e.categoryLabel(t.categoryId),
           e.locationLabel(t),
           t.amount.formatPlain(),
@@ -1532,6 +1540,7 @@ class _FilterSheetState extends State<_FilterSheet> {
   late String? loc = widget.initial.accountOrCard;
   late String? cat = widget.initial.categoryId;
   late String? prj = widget.initial.projectId;
+  late String? tag = widget.initial.tag;
 
   @override
   Widget build(BuildContext context) {
@@ -1618,6 +1627,20 @@ class _FilterSheetState extends State<_FilterSheet> {
               ],
               onChanged: (v) => setState(() => prj = v),
             ),
+            if (fc.allTags.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String?>(
+                initialValue: tag,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Tag'),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Todas')),
+                  for (final t in fc.allTags)
+                    DropdownMenuItem(value: t, child: Text(t)),
+                ],
+                onChanged: (v) => setState(() => tag = v),
+              ),
+            ],
             const SizedBox(height: 20),
             Row(
               children: [
@@ -1635,6 +1658,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                       accountOrCard: loc,
                       categoryId: cat,
                       projectId: prj,
+                      tag: tag,
                     ),
                   ),
                   child: const Text('Aplicar'),

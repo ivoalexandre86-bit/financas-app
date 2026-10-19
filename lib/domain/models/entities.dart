@@ -389,6 +389,9 @@ class FinTransaction {
   /// é ela que define se o lançamento pendente está atrasado.
   final DateTime? dueDate;
 
+  /// Marcadores livres ("Viagem", "Reforma") que atravessam categorias.
+  final List<String> tags;
+
   /// `true` para ocorrências geradas pelo motor a partir de uma regra
   /// recorrente e ainda não persistidas.
   final bool isVirtual;
@@ -415,6 +418,7 @@ class FinTransaction {
     this.installmentCount,
     this.externalId,
     this.dueDate,
+    this.tags = const [],
     this.isVirtual = false,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -461,6 +465,7 @@ class FinTransaction {
     Object? installmentCount = _unset,
     Object? externalId = _unset,
     Object? dueDate = _unset,
+    List<String>? tags,
     bool? isVirtual,
   }) => FinTransaction(
     id: id ?? this.id,
@@ -502,6 +507,7 @@ class FinTransaction {
         ? this.externalId
         : externalId as String?,
     dueDate: identical(dueDate, _unset) ? this.dueDate : dueDate as DateTime?,
+    tags: tags ?? this.tags,
     isVirtual: isVirtual ?? this.isVirtual,
     createdAt: createdAt,
     updatedAt: DateTime.now(),
@@ -527,6 +533,7 @@ class FinTransaction {
     'installmentCount': installmentCount,
     'externalId': externalId,
     'dueDate': _d(dueDate),
+    if (tags.isNotEmpty) 'tags': tags,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -559,6 +566,10 @@ class FinTransaction {
     installmentCount: j['installmentCount'] as int?,
     externalId: j['externalId'] as String?,
     dueDate: _pd(j['dueDate']),
+    tags: [
+      for (final t in (j['tags'] as List?) ?? const [])
+        if (t is String && t.trim().isNotEmpty) t,
+    ],
     createdAt: _ts(j['createdAt']),
     updatedAt: _ts(j['updatedAt']),
   );

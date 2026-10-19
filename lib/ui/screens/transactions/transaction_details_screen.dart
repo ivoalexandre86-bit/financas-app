@@ -3,6 +3,7 @@ import '../simulations/other_entries.dart';
 import '../simulations/simulations_screen.dart';
 import '../../../core/money.dart';
 import '../../../domain/engine/shared_engine.dart';
+import '../rules/category_rules_screen.dart';
 import '../shared/share_dialog.dart';
 import '../shared/shared_expense_screen.dart';
 import '../shared/shared_widgets.dart' show watchShared;
@@ -101,6 +102,16 @@ class TransactionDetailsScreen extends StatelessWidget {
               onPressed: () => t.isRecurring && rule != null
                   ? showShareDialog(context, rule: rule)
                   : showShareDialog(context, tx: t),
+            ),
+          if (!t.isTransfer && t.categoryId != null)
+            IconButton(
+              tooltip: 'Criar regra de categoria',
+              icon: const Icon(Icons.rule_outlined),
+              onPressed: () => showRuleDialog(
+                context,
+                pattern: t.description,
+                categoryId: t.categoryId,
+              ),
             ),
           IconButton(
             tooltip: 'Editar',
@@ -238,6 +249,7 @@ class TransactionDetailsScreen extends StatelessWidget {
                 if (t.externalId != null)
                   InfoRow.text('Origem', 'Open Finance'),
                 if (t.notes.isNotEmpty) InfoRow.text('Observações', t.notes),
+                if (t.tags.isNotEmpty) InfoRow.text('Tags', t.tags.join(', ')),
               ],
             ),
           ),

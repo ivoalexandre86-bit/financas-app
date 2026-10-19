@@ -172,3 +172,73 @@ class SavingsGoal {
     updatedAt: _ts(j['updatedAt']),
   );
 }
+
+/// Regra de categorização: lançamentos cuja descrição contém [pattern]
+/// (sem diferenciar maiúsculas e acentos) vão para [categoryId].
+class CategoryRule {
+  final String id;
+  final String pattern;
+  final String categoryId;
+  final DateTime createdAt;
+
+  CategoryRule({
+    required this.id,
+    required this.pattern,
+    required this.categoryId,
+    DateTime? createdAt,
+  }) : createdAt = createdAt ?? DateTime.now();
+
+  CategoryRule copyWith({String? pattern, String? categoryId}) => CategoryRule(
+    id: id,
+    pattern: pattern ?? this.pattern,
+    categoryId: categoryId ?? this.categoryId,
+    createdAt: createdAt,
+  );
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'pattern': pattern,
+    'categoryId': categoryId,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory CategoryRule.fromJson(Map<String, Object?> j) => CategoryRule(
+    id: j['id'] as String,
+    pattern: (j['pattern'] as String?) ?? '',
+    categoryId: j['categoryId'] as String,
+    createdAt: _ts(j['createdAt']),
+  );
+
+  /// Texto sem acentos, em minúsculas e com espaços simples.
+  static String normalize(String s) {
+    const from = 'áàâãäéèêëíìîïóòôõöúùûüçñ';
+    const to = 'aaaaaeeeeiiiiooooouuuucn';
+    final b = StringBuffer();
+    for (final ch in s.toLowerCase().split('')) {
+      final i = from.indexOf(ch);
+      b.write(i < 0 ? ch : to[i]);
+    }
+    return b.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  bool matches(String description) {
+    final p = normalize(pattern);
+    return p.isNotEmpty && normalize(description).contains(p);
+  }
+
+  /// Categoria da regra mais específica (padrão mais longo) que casa com a
+  /// descrição; [allowed] limita às categorias do tipo certo.
+  static String? categoryFor(
+    Iterable<CategoryRule> rules,
+    String description, {
+    bool Function(String categoryId)? allowed,
+  }) {
+    CategoryRule? best;
+    for (final r in rules) {
+      if (!r.matches(description)) continue;
+      if (allowed != null && !allowed(r.categoryId)) continue;
+      if (best == null || r.pattern.length > best.pattern.length) best = r;
+    }
+    return best?.categoryId;
+  }
+}

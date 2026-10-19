@@ -57,6 +57,7 @@ class _ExpenseImportScreenState extends State<ExpenseImportScreen> {
         createMissingCategories: createMissingCategories,
       ),
       today: fc.engine.today,
+      rules: fc.categoryRules,
     );
     for (final i in newPlan.items) {
       final o = overrides[i.row.line];

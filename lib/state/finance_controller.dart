@@ -75,6 +75,9 @@ class FinanceController extends ChangeNotifier {
   /// Metas de economia.
   List<SavingsGoal> goals = [];
 
+  /// Regras de categorização automática por descrição.
+  List<CategoryRule> categoryRules = [];
+
   /// Cálculos de orçamentos e metas, sempre sobre o [engine] atual.
   BudgetEngine get budgetEngine => _budgetEngine?.engine == engine
       ? _budgetEngine!
@@ -194,6 +197,13 @@ class FinanceController extends ChangeNotifier {
     goals = [
       for (final j in await repo.loadRaw(Coll.goals)) SavingsGoal.fromJson(j),
     ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    categoryRules =
+        [
+          for (final j in await repo.loadRaw(Coll.categoryRules))
+            CategoryRule.fromJson(j),
+        ]..sort(
+          (a, b) => a.pattern.toLowerCase().compareTo(b.pattern.toLowerCase()),
+        );
   }
 
   bool _disposed = false;
@@ -1044,6 +1054,86 @@ class FinanceController extends ChangeNotifier {
       );
 
   // ---------------------------------------------------------------------------
+  // Regras de categorização e tags
+
+  /// Categoria sugerida pelas regras para a descrição (nula = nenhuma).
+  String? ruleCategoryFor(String description, CategoryKind kind) =>
+      CategoryRule.categoryFor(
+        categoryRules,
+        description,
+        allowed: (id) => data.categoryById[id]?.kind == kind,
+      );
+
+  Future<void> saveCategoryRule(CategoryRule r) async {
+    if (CategoryRule.normalize(r.pattern).length < 2) {
+      throw ArgumentError('Informe pelo menos 2 letras do texto');
+    }
+    if (data.categoryById[r.categoryId] == null) {
+      throw ArgumentError('Escolha uma categoria');
+    }
+    final dup = categoryRules.any(
+      (x) =>
+          x.id != r.id &&
+          CategoryRule.normalize(x.pattern) ==
+              CategoryRule.normalize(r.pattern),
+    );
+    if (dup) throw ArgumentError('Já existe uma regra com este texto');
+    categoryRules = [...categoryRules.where((x) => x.id != r.id), r]
+      ..sort(
+        (a, b) => a.pattern.toLowerCase().compareTo(b.pattern.toLowerCase()),
+      );
+    notifyListeners();
+    await repo.write([WriteOp.put(Coll.categoryRules, r.id, r.toJson())]);
+  }
+
+  Future<void> deleteCategoryRule(CategoryRule r) async {
+    categoryRules = categoryRules.where((x) => x.id != r.id).toList();
+    notifyListeners();
+    await repo.write([WriteOp.delete(Coll.categoryRules, r.id)]);
+  }
+
+  /// Lançamentos gravados cuja descrição casa com a regra e estão em outra
+  /// categoria (só receitas/despesas do tipo da categoria da regra).
+  List<FinTransaction> ruleCandidates(CategoryRule r) {
+    final kind = data.categoryById[r.categoryId]?.kind;
+    if (kind == null) return const [];
+    final type = kind == CategoryKind.income
+        ? TransactionType.income
+        : TransactionType.expense;
+    return [
+      for (final t in data.transactions)
+        if (t.type == type &&
+            t.categoryId != r.categoryId &&
+            r.matches(t.description))
+          t,
+    ];
+  }
+
+  /// Aplica a regra aos lançamentos já gravados. Retorna quantos mudaram.
+  Future<int> applyCategoryRule(CategoryRule r) async {
+    final list = ruleCandidates(r);
+    if (list.isEmpty) return 0;
+    await _commit([
+      for (final t in list) _putTx(t.copyWith(categoryId: r.categoryId)),
+    ]);
+    return list.length;
+  }
+
+  /// Todas as tags usadas, da mais usada para a menos usada.
+  List<String> get allTags {
+    final count = <String, int>{};
+    for (final t in data.transactions) {
+      for (final tag in t.tags) {
+        count[tag] = (count[tag] ?? 0) + 1;
+      }
+    }
+    return count.keys.toList()..sort((a, b) {
+      final c = count[b]!.compareTo(count[a]!);
+      return c != 0 ? c : a.toLowerCase().compareTo(b.toLowerCase());
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Painéis personalizados
 
   void _sortDashboards() => dashboards.sort((a, b) {
@@ -1715,7 +1805,12 @@ class FinanceController extends ChangeNotifier {
       amount: e.signedAmount.abs(),
       description: e.description,
       categoryId:
-          categoryId ?? (isIncome ? 'cat_other_income' : 'cat_other_expense'),
+          categoryId ??
+          ruleCategoryFor(
+            e.description,
+            isIncome ? CategoryKind.income : CategoryKind.expense,
+          ) ??
+          (isIncome ? 'cat_other_income' : 'cat_other_expense'),
       date: e.date,
       accountId: cardId == null ? accountId : null,
       cardId: cardId,
