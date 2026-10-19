@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'core/cloud_config.dart';
 import 'data/auth_service.dart';
+import 'data/cloud/ai_api.dart';
 import 'data/cloud/api_client.dart';
 import 'data/cloud/cloud_auth_service.dart';
 import 'data/cloud/cloud_finance_repository.dart';
@@ -95,7 +96,16 @@ class FinancasApp extends StatelessWidget {
                   context.read<FinanceController>(),
                 );
               },
-              child: app,
+              // IA do servidor (comprovante e assistente): só na nuvem.
+              child: Provider<AiService?>(
+                create: (context) {
+                  final service = context.read<AuthController>().service;
+                  return service is CloudAuthService && !user.isDemo
+                      ? HttpAiService(service.api)
+                      : null;
+                },
+                child: app,
+              ),
             ),
           );
         },

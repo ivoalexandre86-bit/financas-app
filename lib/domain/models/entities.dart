@@ -389,6 +389,9 @@ class FinTransaction {
   /// é ela que define se o lançamento pendente está atrasado.
   final DateTime? dueDate;
 
+  /// Marcadores livres ("Viagem", "Reforma") que atravessam categorias.
+  final List<String> tags;
+
   /// `true` para ocorrências geradas pelo motor a partir de uma regra
   /// recorrente e ainda não persistidas.
   final bool isVirtual;
@@ -415,6 +418,7 @@ class FinTransaction {
     this.installmentCount,
     this.externalId,
     this.dueDate,
+    this.tags = const [],
     this.isVirtual = false,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -461,6 +465,7 @@ class FinTransaction {
     Object? installmentCount = _unset,
     Object? externalId = _unset,
     Object? dueDate = _unset,
+    List<String>? tags,
     bool? isVirtual,
   }) => FinTransaction(
     id: id ?? this.id,
@@ -502,6 +507,7 @@ class FinTransaction {
         ? this.externalId
         : externalId as String?,
     dueDate: identical(dueDate, _unset) ? this.dueDate : dueDate as DateTime?,
+    tags: tags ?? this.tags,
     isVirtual: isVirtual ?? this.isVirtual,
     createdAt: createdAt,
     updatedAt: DateTime.now(),
@@ -527,6 +533,7 @@ class FinTransaction {
     'installmentCount': installmentCount,
     'externalId': externalId,
     'dueDate': _d(dueDate),
+    if (tags.isNotEmpty) 'tags': tags,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -559,6 +566,10 @@ class FinTransaction {
     installmentCount: j['installmentCount'] as int?,
     externalId: j['externalId'] as String?,
     dueDate: _pd(j['dueDate']),
+    tags: [
+      for (final t in (j['tags'] as List?) ?? const [])
+        if (t is String && t.trim().isNotEmpty) t,
+    ],
     createdAt: _ts(j['createdAt']),
     updatedAt: _ts(j['updatedAt']),
   );
@@ -1065,6 +1076,20 @@ class AppSettings {
   /// itens de cada uma), no formato JSON de `MenuLayout`. Nulo = padrão.
   final List<Object?>? menuLayout;
 
+  /// Lembrete diário pelo WhatsApp das contas e faturas que vencem hoje e
+  /// amanhã (lido pelo servidor).
+  final bool whatsappReminders;
+
+  /// Aviso pelo WhatsApp quando um orçamento chega no limite.
+  final bool whatsappBudgetAlerts;
+
+  /// Mostra "R\$ ••••" no lugar dos valores (para usar o app em público).
+  final bool hideValues;
+
+  /// PIN que bloqueia o app ao abrir, como "sal:sha256(sal+PIN)". Nulo =
+  /// sem bloqueio.
+  final String? pinLock;
+
   const AppSettings({
     this.themeMode = 'system',
     this.cardExpenseBasis = CardExpenseBasis.invoiceDue,
@@ -1074,6 +1099,10 @@ class AppSettings {
     this.otherAccountId,
     this.gridFilters,
     this.menuLayout,
+    this.whatsappReminders = false,
+    this.whatsappBudgetAlerts = false,
+    this.hideValues = false,
+    this.pinLock,
   });
 
   /// [resetMenuLayout] volta o menu lateral ao padrão.
@@ -1087,6 +1116,11 @@ class AppSettings {
     Map<String, Object?>? gridFilters,
     List<Object?>? menuLayout,
     bool resetMenuLayout = false,
+    bool? whatsappReminders,
+    bool? whatsappBudgetAlerts,
+    bool? hideValues,
+    String? pinLock,
+    bool clearPin = false,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     cardExpenseBasis: cardExpenseBasis ?? this.cardExpenseBasis,
@@ -1096,6 +1130,10 @@ class AppSettings {
     otherAccountId: otherAccountId ?? this.otherAccountId,
     gridFilters: gridFilters ?? this.gridFilters,
     menuLayout: resetMenuLayout ? null : menuLayout ?? this.menuLayout,
+    whatsappReminders: whatsappReminders ?? this.whatsappReminders,
+    whatsappBudgetAlerts: whatsappBudgetAlerts ?? this.whatsappBudgetAlerts,
+    hideValues: hideValues ?? this.hideValues,
+    pinLock: clearPin ? null : pinLock ?? this.pinLock,
   );
 
   Map<String, Object?> toJson() => {
@@ -1107,6 +1145,10 @@ class AppSettings {
     'otherAccountId': otherAccountId,
     'gridFilters': gridFilters,
     'menuLayout': menuLayout,
+    'whatsappReminders': whatsappReminders,
+    'whatsappBudgetAlerts': whatsappBudgetAlerts,
+    'hideValues': hideValues,
+    'pinLock': pinLock,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> j) => AppSettings(
@@ -1126,5 +1168,9 @@ class AppSettings {
     menuLayout: j['menuLayout'] is List
         ? List<Object?>.from(j['menuLayout'] as List)
         : null,
+    whatsappReminders: (j['whatsappReminders'] as bool?) ?? false,
+    whatsappBudgetAlerts: (j['whatsappBudgetAlerts'] as bool?) ?? false,
+    hideValues: (j['hideValues'] as bool?) ?? false,
+    pinLock: j['pinLock'] as String?,
   );
 }

@@ -12,6 +12,7 @@ import '../../widgets/filters_panel.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
 import '../../widgets/tx_grid.dart';
+import '../../widgets/view_mode.dart';
 import '../installments/installments_screen.dart' show fmtMoney;
 import '../simulations/sim_common.dart' show SimKpi;
 import 'recurring_form_screen.dart';
@@ -119,6 +120,7 @@ class _RecurringScreenState extends State<RecurringScreen>
   String? categoryId;
   String? where;
   _StateFilter state = _StateFilter.current;
+  ViewMode view = ViewMode.grid;
 
   /// null = aberto no desktop e recolhido no celular.
   bool? filtersOpen;
@@ -133,6 +135,7 @@ class _RecurringScreenState extends State<RecurringScreen>
     'category': categoryId,
     'where': where,
     'state': state.name,
+    'view': view.name,
   };
 
   @override
@@ -141,6 +144,7 @@ class _RecurringScreenState extends State<RecurringScreen>
     categoryId = j['category'] as String?;
     where = j['where'] as String?;
     state = FilterJson.enumOrNull(_StateFilter.values, j['state']) ?? state;
+    view = FilterJson.enumOrNull(ViewMode.values, j['view']) ?? view;
   }
 
   @override
@@ -201,7 +205,16 @@ class _RecurringScreenState extends State<RecurringScreen>
     if (!cats.containsKey(categoryId)) categoryId = null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Recorrências')),
+      appBar: AppBar(
+        title: const Text('Recorrências'),
+        actions: [
+          ViewModeToggle(
+            keyPrefix: 'recurring',
+            mode: view,
+            onChanged: (v) => setFilters(() => view = v),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab-rec',
         onPressed: () => push(context, const RecurringFormScreen()),
@@ -326,14 +339,137 @@ class _RecurringScreenState extends State<RecurringScreen>
                       title: 'Nada com esses filtros',
                     ),
                   )
-                else
+                else if (view == ViewMode.grid)
                   RecurringGrid(
+                    rows: list,
+                    onOpen: (s) =>
+                        push(context, RecurringFormScreen(rule: s.rule)),
+                  )
+                else
+                  RecurringCards(
                     rows: list,
                     onOpen: (s) =>
                         push(context, RecurringFormScreen(rule: s.rule)),
                   ),
               ],
             ),
+    );
+  }
+}
+
+/// Recorrências em cartões, um por regra.
+class RecurringCards extends StatelessWidget {
+  final List<RecurringSummary> rows;
+  final ValueChanged<RecurringSummary> onOpen;
+  const RecurringCards({super.key, required this.rows, required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    // Mesma ordem inicial da grade: receitas primeiro, depois A→Z.
+    final sorted = [...rows]
+      ..sort(
+        (a, b) => a.isIncome != b.isIncome
+            ? (a.isIncome ? -1 : 1)
+            : a.rule.description.toLowerCase().compareTo(
+                b.rule.description.toLowerCase(),
+              ),
+      );
+    return Column(
+      children: [
+        for (final s in sorted)
+          Card(
+            key: ValueKey('rec-card-${s.rule.id}'),
+            margin: const EdgeInsets.only(bottom: 10),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => onOpen(s),
+              child: Opacity(
+                opacity: s.state == RecurringState.ended ? 0.6 : 1,
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor:
+                            (s.isIncome
+                                    ? context.fin.positive
+                                    : context.fin.negative)
+                                .withValues(alpha: 0.12),
+                        child: Icon(
+                          s.isIncome ? Icons.south_west : Icons.north_east,
+                          color: s.isIncome
+                              ? context.fin.positive
+                              : context.fin.negative,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              s.rule.description,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: context.text.bodyLarge?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              [
+                                frequencyLabel(s.rule),
+                                if (s.where != '—') s.where,
+                                s.category,
+                              ].join(' · '),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: subtle,
+                            ),
+                            Text(
+                              s.next != null
+                                  ? 'Próxima ${Dates.format(s.next!)}'
+                                  : s.rule.endDate != null
+                                  ? 'Fim ${Dates.format(s.rule.endDate!)}'
+                                  : 'Sem próxima ocorrência',
+                              style: subtle,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            fmtMoney(s.rule.amount.cents),
+                            style: context.text.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: s.isIncome ? context.fin.positive : null,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          NeonStatus(
+                            label: s.state.label,
+                            color: switch (s.state) {
+                              RecurringState.active => context.fin.positive,
+                              RecurringState.paused => context.fin.warning,
+                              RecurringState.ended => context.fin.subtle,
+                            },
+                            done: s.state == RecurringState.active,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

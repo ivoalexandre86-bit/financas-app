@@ -13,6 +13,7 @@ import '../../widgets/filters_panel.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
 import '../../widgets/tx_grid.dart';
+import '../../widgets/view_mode.dart';
 import '../simulations/sim_common.dart' show SimKpi;
 import '../transactions/transaction_form_screen.dart';
 import 'installment_details_screen.dart';
@@ -133,6 +134,7 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
   String? where;
   String? categoryId;
   _Situation? situation;
+  ViewMode view = ViewMode.grid;
 
   /// null = aberto no desktop e recolhido no celular.
   bool? filtersOpen;
@@ -146,6 +148,7 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
     'where': where,
     'category': categoryId,
     'situation': situation?.name,
+    'view': view.name,
   };
 
   @override
@@ -153,6 +156,7 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
     where = j['where'] as String?;
     categoryId = j['category'] as String?;
     situation = FilterJson.enumOrNull(_Situation.values, j['situation']);
+    view = FilterJson.enumOrNull(ViewMode.values, j['view']) ?? view;
   }
 
   @override
@@ -208,7 +212,16 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
     if (!cats.containsKey(categoryId)) categoryId = null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Parcelamentos')),
+      appBar: AppBar(
+        title: const Text('Parcelamentos'),
+        actions: [
+          ViewModeToggle(
+            keyPrefix: 'installments',
+            mode: view,
+            onChanged: (v) => setFilters(() => view = v),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab-inst',
         onPressed: () => push(context, const TransactionFormScreen()),
@@ -317,8 +330,16 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
                       title: 'Nada com esses filtros',
                     ),
                   )
-                else
+                else if (view == ViewMode.grid)
                   InstallmentsGrid(
+                    rows: list,
+                    onOpen: (s) => push(
+                      context,
+                      InstallmentDetailsScreen(groupId: s.group.id),
+                    ),
+                  )
+                else
+                  InstallmentsCards(
                     rows: list,
                     onOpen: (s) => push(
                       context,
@@ -332,6 +353,145 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
 }
 
 String fmtMoney(int cents) => Money(cents).format();
+
+/// Compras parceladas em cartões, um por compra.
+class InstallmentsCards extends StatelessWidget {
+  final List<InstallmentSummary> rows;
+  final ValueChanged<InstallmentSummary> onOpen;
+  const InstallmentsCards({
+    super.key,
+    required this.rows,
+    required this.onOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = GridPalette.of(context);
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    // Mesma ordem inicial da grade: compra mais recente primeiro.
+    final sorted = [...rows]
+      ..sort((a, b) => b.group.purchaseDate.compareTo(a.group.purchaseDate));
+    return Column(
+      children: [for (final s in sorted) _card(context, s, p, subtle)],
+    );
+  }
+
+  Widget _card(
+    BuildContext context,
+    InstallmentSummary s,
+    GridPalette p,
+    TextStyle? subtle,
+  ) {
+    final accent = s.finished ? context.fin.positive : p.neon;
+    return Card(
+      key: ValueKey('inst-card-${s.group.id}'),
+      margin: const EdgeInsets.only(bottom: 10),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => onOpen(s),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          s.group.description,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.text.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          [
+                            s.where,
+                            s.category,
+                            'compra ${Dates.format(s.group.purchaseDate)}',
+                          ].join(' · '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: subtle,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        fmtMoney(s.total),
+                        style: context.text.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (!s.finished)
+                        Text('${fmtMoney(s.parcel)}/mês', style: subtle),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Text(
+                    '${s.elapsed.clamp(0, s.count)}/${s.count}',
+                    style: context.text.bodySmall?.copyWith(
+                      color: p.neon,
+                      fontWeight: FontWeight.w800,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: LinearProgressIndicator(
+                        value: s.count == 0 ? 0 : s.elapsed / s.count,
+                        minHeight: 6,
+                        backgroundColor: context.fin.gridLine,
+                        color: accent,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      [
+                        if (s.next != null) 'Próxima ${Dates.format(s.next!)}',
+                        if (s.remaining > 0) 'falta ${fmtMoney(s.remaining)}',
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: subtle,
+                    ),
+                  ),
+                  NeonStatus(
+                    label: s.finished ? 'Quitado' : 'Em andamento',
+                    color: accent,
+                    done: s.finished,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// Compras parceladas numa grade única, ordenável e com totais.
 class InstallmentsGrid extends StatelessWidget {

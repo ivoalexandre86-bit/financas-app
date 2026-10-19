@@ -7,6 +7,10 @@ import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/remembered_filters.dart';
+import '../../widgets/sort_grid.dart';
+import '../../widgets/tx_grid.dart';
+import '../../widgets/view_mode.dart';
 import 'scenario_compare_screen.dart';
 import '../../../domain/models/entities.dart';
 import 'other_entries.dart';
@@ -27,7 +31,19 @@ class SimulationsScreen extends StatefulWidget {
 enum _Show { active, archived, all }
 
 class _SimulationsScreenState extends State<SimulationsScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, RememberedFilters {
+  ViewMode view = ViewMode.cards;
+
+  @override
+  String get filterKey => 'simulations';
+
+  @override
+  Map<String, Object?> filtersToJson() => {'view': view.name};
+
+  @override
+  void restoreFilters(Map<String, Object?> saved, FinanceController fc) =>
+      view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
+
   late final tabs = TabController(
     length: 3,
     vsync: this,
@@ -78,6 +94,12 @@ class _SimulationsScreenState extends State<SimulationsScreen>
               onPressed: () => _compare(context, selected.toList()),
               icon: const Icon(Icons.compare_arrows),
               label: Text('Comparar (${selected.length})'),
+            ),
+          if (tabs.index == 0)
+            ViewModeToggle(
+              keyPrefix: 'simulations',
+              mode: view,
+              onChanged: (v) => setFilters(() => view = v),
             ),
           const SizedBox(width: 8),
         ],
@@ -184,6 +206,11 @@ class _SimulationsScreenState extends State<SimulationsScreen>
                       ? () => _create(context)
                       : null,
                 )
+              : view == ViewMode.grid
+              ? ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+                  children: [_grid(context, list)],
+                )
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
                   children: [
@@ -202,6 +229,184 @@ class _SimulationsScreenState extends State<SimulationsScreen>
                 ),
         ),
       ],
+    );
+  }
+
+  String _status(Simulation s) => s.isArchived
+      ? 'Arquivada'
+      : s.appliedAt != null
+      ? 'Aplicada'
+      : 'Ativa';
+
+  /// Cenários em grade ordenável, com seleção para comparar e menu de ações.
+  Widget _grid(BuildContext context, List<Simulation> list) {
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    int text(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
+    Widget check(Simulation s) => Checkbox(
+      key: ValueKey('simulations-select-${s.id}'),
+      visualDensity: VisualDensity.compact,
+      value: selected.contains(s.id),
+      onChanged: (v) => setState(
+        () => (v ?? false) ? selected.add(s.id) : selected.remove(s.id),
+      ),
+    );
+    Widget menu(Simulation s) => PopupMenuButton<_Act>(
+      tooltip: 'Ações',
+      iconSize: 18,
+      padding: EdgeInsets.zero,
+      onSelected: (a) => _action(context, s, a),
+      itemBuilder: (_) => _menuItems(s),
+    );
+    Color statusColor(Simulation s) =>
+        s.isArchived ? context.fin.subtle : context.fin.positive;
+
+    return SortGrid<Simulation>(
+      keyPrefix: 'simulations',
+      rows: list,
+      rowId: (s) => s.id,
+      accent: (context, s) => Color(s.color),
+      dimmed: (s) => s.isArchived,
+      onOpen: (s) => _action(context, s, _Act.open),
+      initialSort: 'updated',
+      initialAscending: false,
+      tieBreak: (a, b) => text(a.name, b.name),
+      columns: [
+        SortCol(
+          id: 'select',
+          label: '',
+          width: 44,
+          cell: (context, s) => Center(child: check(s)),
+        ),
+        SortCol(
+          id: 'name',
+          label: 'Simulação',
+          width: 240,
+          minWidth: 150,
+          flexible: true,
+          fill: true,
+          compare: (a, b) => text(a.name, b.name),
+          cell: (context, s) => GridCell(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: s.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  if (s.description.isNotEmpty)
+                    TextSpan(text: '  ${s.description}', style: subtle),
+                ],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.bodyMedium,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'base',
+          label: 'Orçamento base',
+          width: 180,
+          minWidth: 110,
+          flexible: true,
+          compare: (a, b) => text(a.baseName, b.baseName),
+          cell: (context, s) => GridCell(
+            child: Text(
+              s.baseName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.bodySmall,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'period',
+          label: 'Período',
+          width: 160,
+          minWidth: 110,
+          flexible: true,
+          compare: (a, b) {
+            final c = a.from.compareTo(b.from);
+            return c != 0 ? c : a.to.compareTo(b.to);
+          },
+          cell: (context, s) => GridCell(
+            child: Text(
+              s.periodLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.bodySmall,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'status',
+          label: 'Status',
+          width: 116,
+          compare: (a, b) => _status(a).compareTo(_status(b)),
+          cell: (context, s) => GridCell(
+            child: NeonStatus(
+              label: _status(s),
+              color: statusColor(s),
+              done: s.isArchived,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'updated',
+          label: 'Atualizada',
+          width: 124,
+          compare: (a, b) => a.updatedAt.compareTo(b.updatedAt),
+          cell: (context, s) =>
+              GridCell(child: Text(fmtUpdated(s.updatedAt), style: subtle)),
+        ),
+        SortCol(
+          id: 'actions',
+          label: '',
+          width: 44,
+          cell: (context, s) => Center(child: menu(s)),
+        ),
+      ],
+      compactRow: (context, s) => Row(
+        children: [
+          check(s),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  s.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '${_status(s)} · ${s.periodLabel} · base: ${s.baseName}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: subtle,
+                ),
+              ],
+            ),
+          ),
+          menu(s),
+        ],
+      ),
+      footerLabel: (context, l) => Text(
+        'Total · ${l.length} ${l.length == 1 ? 'simulação' : 'simulações'}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: gridFooterLabelStyle(context),
+      ),
+      compactFooter: (context, l) {
+        final n = l.where((s) => selected.contains(s.id)).length;
+        return Text(
+          '$n ${n == 1 ? 'selecionada' : 'selecionadas'}',
+          style: context.text.bodySmall,
+        );
+      },
     );
   }
 
@@ -339,6 +544,19 @@ Future<String?> _askName(BuildContext context, String title, String initial) {
 
 enum _Act { open, edit, duplicate, compare, rename, archive, delete }
 
+List<PopupMenuEntry<_Act>> _menuItems(Simulation sim) => [
+  const PopupMenuItem(value: _Act.open, child: Text('Abrir')),
+  const PopupMenuItem(value: _Act.edit, child: Text('Editar')),
+  const PopupMenuItem(value: _Act.duplicate, child: Text('Duplicar')),
+  const PopupMenuItem(value: _Act.compare, child: Text('Comparar')),
+  const PopupMenuItem(value: _Act.rename, child: Text('Renomear')),
+  PopupMenuItem(
+    value: _Act.archive,
+    child: Text(sim.isArchived ? 'Restaurar' : 'Arquivar'),
+  ),
+  const PopupMenuItem(value: _Act.delete, child: Text('Excluir')),
+];
+
 class _TableHeader extends StatelessWidget {
   const _TableHeader();
 
@@ -405,18 +623,7 @@ class _SimRow extends StatelessWidget {
     final menu = PopupMenuButton<_Act>(
       tooltip: 'Ações',
       onSelected: onAction,
-      itemBuilder: (_) => [
-        const PopupMenuItem(value: _Act.open, child: Text('Abrir')),
-        const PopupMenuItem(value: _Act.edit, child: Text('Editar')),
-        const PopupMenuItem(value: _Act.duplicate, child: Text('Duplicar')),
-        const PopupMenuItem(value: _Act.compare, child: Text('Comparar')),
-        const PopupMenuItem(value: _Act.rename, child: Text('Renomear')),
-        PopupMenuItem(
-          value: _Act.archive,
-          child: Text(sim.isArchived ? 'Restaurar' : 'Arquivar'),
-        ),
-        const PopupMenuItem(value: _Act.delete, child: Text('Excluir')),
-      ],
+      itemBuilder: (_) => _menuItems(sim),
     );
     final check = Checkbox(
       value: selected,

@@ -7,6 +7,10 @@ import '../../../state/finance_controller.dart';
 import '../../theme.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
+import '../../widgets/remembered_filters.dart';
+import '../../widgets/sort_grid.dart';
+import '../../widgets/tx_grid.dart';
+import '../../widgets/view_mode.dart';
 
 /// Ajuste das categorias: renomear, trocar ícone/cor, mover, excluir e
 /// adicionar subcategorias.
@@ -17,9 +21,21 @@ class CategoriesScreen extends StatefulWidget {
   State<CategoriesScreen> createState() => _CategoriesScreenState();
 }
 
-class _CategoriesScreenState extends State<CategoriesScreen> {
+class _CategoriesScreenState extends State<CategoriesScreen>
+    with RememberedFilters {
   late CategoryKind kind = widget.initialKind;
   String query = '';
+  ViewMode view = ViewMode.cards;
+
+  @override
+  String get filterKey => 'categories';
+
+  @override
+  Map<String, Object?> filtersToJson() => {'view': view.name};
+
+  @override
+  void restoreFilters(Map<String, Object?> saved, FinanceController fc) =>
+      view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
 
   Future<void> _edit(
     FinanceController fc, {
@@ -191,7 +207,16 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Categorias')),
+      appBar: AppBar(
+        title: const Text('Categorias'),
+        actions: [
+          ViewModeToggle(
+            keyPrefix: 'categories',
+            mode: view,
+            onChanged: (v) => setFilters(() => view = v),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab-cat',
         onPressed: () => _edit(fc),
@@ -239,6 +264,18 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                             ? 'Nenhuma categoria'
                             : 'Nenhuma categoria encontrada',
                       )
+                    : view == ViewMode.grid
+                    ? ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+                        children: [
+                          _grid(fc, [
+                            for (final r in roots) ...[
+                              r,
+                              ...subsOf(r).where((s) => hit(s) || hit(r)),
+                            ],
+                          ], uses),
+                        ],
+                      )
                     : ListView(
                         padding: const EdgeInsets.only(bottom: 96),
                         children: [for (final r in roots) rootCard(r)],
@@ -248,6 +285,188 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// Categorias e subcategorias em grade ordenável; a subcategoria fica
+  /// logo abaixo da principal na ordem padrão.
+  Widget _grid(
+    FinanceController fc,
+    List<FinCategory> rows,
+    Map<String, int> uses,
+  ) {
+    final byId = fc.data.categoryById;
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    final strong = context.text.bodyMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+    );
+    int text(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
+    String parentName(FinCategory c) => byId[c.parentId]?.name ?? '';
+    // Caminho "Principal / Sub": mantém a hierarquia na ordem por nome.
+    String path(FinCategory c) =>
+        c.parentId == null ? c.name : '${parentName(c)}\u0000${c.name}';
+    final subCount = <String, int>{};
+    for (final c in fc.data.categories) {
+      final p = c.parentId;
+      if (p != null) subCount[p] = (subCount[p] ?? 0) + 1;
+    }
+    int used(FinCategory c) => uses[c.id] ?? 0;
+    int total(List<FinCategory> l) => l.fold(0, (t, c) => t + used(c));
+    String usage(int n) => '$n ${n == 1 ? 'lançamento' : 'lançamentos'}';
+    Widget icon(FinCategory c, double size) =>
+        Icon(categoryIcon(c.icon), size: size, color: Color(c.color));
+
+    return SortGrid<FinCategory>(
+      keyPrefix: 'categories',
+      rows: rows,
+      rowId: (c) => c.id,
+      accent: (context, c) => Color(c.color),
+      onOpen: (c) => _edit(fc, category: c),
+      initialSort: 'name',
+      tieBreak: (a, b) => text(path(a), path(b)),
+      columns: [
+        SortCol(
+          id: 'name',
+          label: 'Categoria',
+          width: 220,
+          minWidth: 150,
+          flexible: true,
+          fill: true,
+          compare: (a, b) => text(path(a), path(b)),
+          cell: (context, c) => GridCell(
+            child: Row(
+              children: [
+                if (c.parentId != null) const SizedBox(width: 18),
+                icon(c, 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    c.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.bodyMedium?.copyWith(
+                      fontWeight: c.parentId == null
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'kind',
+          label: 'Tipo',
+          width: 110,
+          compare: (a, b) => a.kind.index.compareTo(b.kind.index),
+          cell: (context, c) => GridCell(
+            child: Text(
+              c.kind == CategoryKind.expense ? 'Despesa' : 'Receita',
+              style: context.text.bodySmall,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'parent',
+          label: 'Categoria pai',
+          width: 170,
+          minWidth: 110,
+          flexible: true,
+          compare: (a, b) => text(parentName(a), parentName(b)),
+          cell: (context, c) => GridCell(
+            child: Text(
+              c.parentId == null ? '—' : parentName(c),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: subtle,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'subs',
+          label: 'Subcategorias',
+          width: 130,
+          right: true,
+          compare: (a, b) =>
+              (subCount[a.id] ?? 0).compareTo(subCount[b.id] ?? 0),
+          cell: (context, c) => GridCell(
+            right: true,
+            child: Text(
+              c.parentId == null ? '${subCount[c.id] ?? 0}' : '—',
+              style: context.text.bodySmall,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'uses',
+          label: 'Lançamentos',
+          width: 124,
+          right: true,
+          highlight: true,
+          compare: (a, b) => used(a).compareTo(used(b)),
+          cell: (context, c) =>
+              GridCell(right: true, child: Text('${used(c)}', style: strong)),
+          footer: (context, l) => Text('${total(l)}', style: strong),
+        ),
+        SortCol(
+          id: 'actions',
+          label: '',
+          width: 48,
+          cell: (context, c) => Center(
+            child: IconButton(
+              key: ValueKey('categories-delete-${c.id}'),
+              tooltip: 'Excluir',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.delete_outline, size: 18),
+              onPressed: () => _delete(fc, c),
+            ),
+          ),
+        ),
+      ],
+      compactRow: (context, c) => Row(
+        children: [
+          if (c.parentId != null) const SizedBox(width: 16),
+          icon(c, 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  c.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  [
+                    if (c.parentId != null)
+                      'em ${parentName(c)}'
+                    else
+                      '${subCount[c.id] ?? 0} '
+                          '${(subCount[c.id] ?? 0) == 1 ? 'subcategoria' : 'subcategorias'}',
+                    usage(used(c)),
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: subtle,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      footerLabel: (context, l) => Text(
+        'Total · ${l.length} ${l.length == 1 ? 'categoria' : 'categorias'}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: gridFooterLabelStyle(context),
+      ),
+      compactFooter: (context, l) => Text(usage(total(l)), style: strong),
     );
   }
 }

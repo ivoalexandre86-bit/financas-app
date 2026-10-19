@@ -3,6 +3,7 @@ const { createApp, migrate } = require('./app');
 const { createPluggy } = require('./pluggy');
 const { createMetaClient, createSignup } = require('./whatsapp/meta');
 const { createExtractor } = require('./whatsapp/extract');
+const { createAi } = require('./ai');
 const { createTranscriber } = require('./whatsapp/transcribe');
 const { createRevenueCat } = require('./billing');
 
@@ -57,6 +58,10 @@ function whatsAppFromEnv(env) {
       model: env.ANTHROPIC_MODEL || undefined,
       mediaModel: env.ANTHROPIC_MEDIA_MODEL || undefined,
     }),
+    // Lembretes diários: fora da janela de 24h a Meta exige um modelo
+    // aprovado (nome em WHATSAPP_REMINDER_TEMPLATE, um parâmetro no corpo).
+    startReminders: env.WHATSAPP_REMINDERS !== 'false',
+    reminderTemplate: env.WHATSAPP_REMINDER_TEMPLATE || undefined,
     monthlyLimit: Number(env.WHATSAPP_MONTHLY_LIMIT) || undefined,
     freeMonthlyLimit: Number(env.WHATSAPP_FREE_MONTHLY_LIMIT) || undefined,
     transcribe: env.OPENAI_API_KEY
@@ -88,6 +93,19 @@ migrate(pool)
         ? createRevenueCat({ secretKey: process.env.REVENUECAT_SECRET_KEY })
         : null,
       revenuecatWebhookAuth: process.env.REVENUECAT_WEBHOOK_AUTH,
+      // IA no app (comprovante por foto e assistente): mesma chave do
+      // WhatsApp.
+      ai: process.env.ANTHROPIC_API_KEY
+        ? createAi({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+            model: process.env.ANTHROPIC_ASSISTANT_MODEL || undefined,
+            extract: createExtractor({
+              apiKey: process.env.ANTHROPIC_API_KEY,
+              model: process.env.ANTHROPIC_MODEL || undefined,
+              mediaModel: process.env.ANTHROPIC_MEDIA_MODEL || undefined,
+            }),
+          })
+        : null,
     });
     app.set('trust proxy', 1);
     const port = Number(process.env.PORT ?? 3000);

@@ -30,8 +30,11 @@ class ApiClient {
       _http = client ?? http.Client();
 
   Future<Map<String, Object?>> get(String path) => _send('GET', path);
-  Future<Map<String, Object?>> post(String path, [Object? body]) =>
-      _send('POST', path, body);
+  Future<Map<String, Object?>> post(
+    String path, [
+    Object? body,
+    Duration timeout = const Duration(seconds: 30),
+  ]) => _send('POST', path, body, timeout);
   Future<Map<String, Object?>> patch(String path, Object? body) =>
       _send('PATCH', path, body);
   Future<Map<String, Object?>> delete(String path) => _send('DELETE', path);
@@ -40,6 +43,7 @@ class ApiClient {
     String method,
     String path, [
     Object? body,
+    Duration timeout = const Duration(seconds: 30),
   ]) async {
     final req = http.Request(method, base.resolve(path))
       ..headers['Accept'] = 'application/json';
@@ -51,7 +55,7 @@ class ApiClient {
     final http.Response res;
     try {
       res = await http.Response.fromStream(
-        await _http.send(req).timeout(const Duration(seconds: 30)),
+        await _http.send(req).timeout(timeout),
       );
     } on TimeoutException {
       throw const OfflineException();

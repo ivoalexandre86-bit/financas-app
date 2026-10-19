@@ -18,7 +18,10 @@ import '../shared/shared_widgets.dart' show watchShared;
 /// Cadastro/edição de regra recorrente, com pausa, retomada e exclusão.
 class RecurringFormScreen extends StatefulWidget {
   final RecurringRule? rule;
-  const RecurringFormScreen({super.key, this.rule});
+
+  /// Valores iniciais de uma nova recorrência (ex.: assinatura detectada).
+  final RecurringRule? prefill;
+  const RecurringFormScreen({super.key, this.rule, this.prefill});
   @override
   State<RecurringFormScreen> createState() => _RecurringFormScreenState();
 }
@@ -26,26 +29,27 @@ class RecurringFormScreen extends StatefulWidget {
 class _RecurringFormScreenState extends State<RecurringFormScreen> {
   final _form = GlobalKey<FormState>();
   late RecurringRule? r = widget.rule;
-  late TransactionType type = r?.type ?? TransactionType.expense;
+  late final RecurringRule? _seed = widget.rule ?? widget.prefill;
+  late TransactionType type = _seed?.type ?? TransactionType.expense;
   late final amount = TextEditingController(
-    text: r?.amount.formatPlain() ?? '',
+    text: _seed?.amount.formatPlain() ?? '',
   );
-  late final desc = TextEditingController(text: r?.description ?? '');
-  late final notes = TextEditingController(text: r?.notes ?? '');
-  late final interval = TextEditingController(text: '${r?.interval ?? 1}');
+  late final desc = TextEditingController(text: _seed?.description ?? '');
+  late final notes = TextEditingController(text: _seed?.notes ?? '');
+  late final interval = TextEditingController(text: '${_seed?.interval ?? 1}');
   late final day = TextEditingController(
-    text: r?.dayOfMonth?.toString() ?? (r == null ? '' : ''),
+    text: _seed?.dayOfMonth?.toString() ?? (_seed == null ? '' : ''),
   );
-  late String? categoryId = r?.categoryId;
-  late Funding? funding = r == null
+  late String? categoryId = _seed?.categoryId;
+  late Funding? funding = _seed == null
       ? null
-      : Funding(accountId: r!.accountId, cardId: r!.cardId);
-  late String? projectId = r?.projectId;
+      : Funding(accountId: _seed.accountId, cardId: _seed.cardId);
+  late String? projectId = _seed?.projectId;
   late RecurrenceFrequency frequency =
-      r?.frequency ?? RecurrenceFrequency.monthly;
-  late RecurrenceUnit unit = r?.unit ?? RecurrenceUnit.months;
-  late DateTime start = r?.startDate ?? DateTime.now();
-  late DateTime? end = r?.endDate;
+      _seed?.frequency ?? RecurrenceFrequency.monthly;
+  late RecurrenceUnit unit = _seed?.unit ?? RecurrenceUnit.months;
+  late DateTime start = _seed?.startDate ?? DateTime.now();
+  late DateTime? end = _seed?.endDate;
 
   bool get monthly =>
       frequency == RecurrenceFrequency.monthly ||

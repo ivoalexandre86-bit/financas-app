@@ -16,6 +16,10 @@ class AuthController extends ChangeNotifier {
   bool canRegister = false;
   bool initializing = true;
   bool busy = false;
+
+  /// Entrou agora com a senha (não é uma sessão restaurada): o app não pede
+  /// o PIN de bloqueio.
+  bool freshLogin = false;
   String? error;
 
   Future<void> init() async {
@@ -39,6 +43,7 @@ class AuthController extends ChangeNotifier {
     try {
       user = await op();
       canRegister = false;
+      freshLogin = true;
       return true;
     } on AuthException catch (e) {
       error = e.message;

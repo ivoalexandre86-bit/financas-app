@@ -219,7 +219,12 @@ void main() {
         'invoices',
         'projection',
       ], label: 'Planejar'),
-      const MenuSection('entries', ['transactions', 'accounts', 'cards']),
+      const MenuSection('entries', [
+        'transactions',
+        'accounts',
+        'cards',
+        'networth',
+      ]),
       const MenuSection('wallet', []),
     ]);
     await tester.pumpWidget(

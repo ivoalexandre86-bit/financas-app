@@ -205,6 +205,7 @@ void main() {
       'status': <String>[],
       'sort': 'due',
       'asc': true,
+      'view': 'grid',
     });
 
     // Reabre a tela: continua no mês escolhido.
@@ -214,5 +215,41 @@ void main() {
     expect(selected(now), isFalse);
     expect(selected(now.next), isTrue);
     expect(find.byKey(ValueKey('invoices-row-$key')), findsOneWidget);
+  });
+
+  testWidgets('modo cartões: uma fatura por cartão e lembra a escolha', (
+    tester,
+  ) async {
+    final (fc, key) = await setup(tester);
+    await tester.binding.setSurfaceSize(const Size(1800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(app(fc));
+    await tester.pump();
+    expect(find.byKey(ValueKey('invoices-row-$key')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('invoices-view-cards')));
+    await tester.pump();
+    expect(find.byKey(ValueKey('invoices-row-$key')), findsNothing);
+    final card = find.byKey(ValueKey('invoices-card-$key'));
+    expect(card, findsOneWidget);
+    expect(
+      find.descendant(of: card, matching: find.textContaining('C6')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: card, matching: find.textContaining('400,00')),
+      findsOneWidget,
+    );
+    expect(
+      ((fc.repo as MemoryRepo).settings.gridFilters?['invoices']
+          as Map?)?['view'],
+      'cards',
+    );
+
+    // Reabre a tela: continua no modo cartões.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(app(fc));
+    await tester.pump();
+    expect(find.byKey(ValueKey('invoices-card-$key')), findsOneWidget);
   });
 }

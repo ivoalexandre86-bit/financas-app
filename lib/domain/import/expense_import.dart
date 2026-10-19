@@ -4,6 +4,7 @@ import '../../core/money.dart';
 import '../engine/financial_engine.dart';
 import '../engine/installments.dart';
 import '../models/entities.dart';
+import '../models/planning.dart';
 
 /// Importação de despesas em massa a partir de uma planilha.
 ///
@@ -423,6 +424,7 @@ class ExpenseImportPlanner {
     FinanceData data,
     ExpenseImportOptions options, {
     DateTime? today,
+    List<CategoryRule> rules = const [],
   }) {
     final now = Dates.dateOnly(today ?? DateTime.now());
 
@@ -489,7 +491,15 @@ class ExpenseImportPlanner {
       String? categoryId;
       String? newCategoryName;
       if (r.category.isEmpty) {
-        categoryId = hasFallback ? fallbackCategoryId : null;
+        // Sem categoria na planilha: as regras de categorização decidem.
+        categoryId =
+            CategoryRule.categoryFor(
+              rules,
+              r.description,
+              allowed: (id) =>
+                  data.categoryById[id]?.kind == CategoryKind.expense,
+            ) ??
+            (hasFallback ? fallbackCategoryId : null);
       } else {
         final c = catByName[_catKey(r.category)];
         if (c != null) {

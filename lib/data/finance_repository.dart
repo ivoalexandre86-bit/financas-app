@@ -26,6 +26,8 @@ enum Coll {
   people,
   budgets,
   goals,
+  categoryRules,
+  assets,
 }
 
 /// Nome da "coleção" das configurações do app na nuvem (registro `app`).

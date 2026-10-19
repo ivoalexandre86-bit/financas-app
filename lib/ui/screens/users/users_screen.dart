@@ -4,9 +4,14 @@ import 'package:provider/provider.dart';
 import '../../../core/cloud_config.dart';
 import '../../../data/auth_service.dart';
 import '../../../state/auth_controller.dart';
+import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/remembered_filters.dart';
+import '../../widgets/sort_grid.dart';
+import '../../widgets/tx_grid.dart';
+import '../../widgets/view_mode.dart';
 
 /// Lista de usuários do dispositivo (somente administradores). Cada usuário
 /// entra com o próprio e-mail e senha e tem um orçamento separado.
@@ -16,8 +21,19 @@ class UsersScreen extends StatefulWidget {
   State<UsersScreen> createState() => _UsersScreenState();
 }
 
-class _UsersScreenState extends State<UsersScreen> {
+class _UsersScreenState extends State<UsersScreen> with RememberedFilters {
   late Future<List<AppUser>> _users;
+  ViewMode view = ViewMode.cards;
+
+  @override
+  String get filterKey => 'users';
+
+  @override
+  Map<String, Object?> filtersToJson() => {'view': view.name};
+
+  @override
+  void restoreFilters(Map<String, Object?> saved, FinanceController fc) =>
+      view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
 
   @override
   void initState() {
@@ -25,8 +41,12 @@ class _UsersScreenState extends State<UsersScreen> {
     _reload();
   }
 
-  void _reload() =>
-      setState(() => _users = context.read<AuthController>().listUsers());
+  void _reload() {
+    final users = context.read<AuthController>().listUsers();
+    setState(() {
+      _users = users;
+    });
+  }
 
   Future<void> _open([AppUser? user]) async {
     final changed = await push<bool>(context, UserFormScreen(user: user));
@@ -37,7 +57,16 @@ class _UsersScreenState extends State<UsersScreen> {
   Widget build(BuildContext context) {
     final me = context.watch<AuthController>().user;
     return Scaffold(
-      appBar: AppBar(title: const Text('Usuários')),
+      appBar: AppBar(
+        title: const Text('Usuários'),
+        actions: [
+          ViewModeToggle(
+            keyPrefix: 'users',
+            mode: view,
+            onChanged: (v) => setFilters(() => view = v),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         key: const ValueKey('new-user'),
         icon: const Icon(Icons.person_add_alt_1),
@@ -67,30 +96,161 @@ class _UsersScreenState extends State<UsersScreen> {
                   ),
                 ),
               ),
-              for (final u in users)
-                ListTile(
-                  key: ValueKey('user-${u.email}'),
-                  leading: CircleAvatar(
-                    child: Text(
-                      u.name.isNotEmpty ? u.name[0].toUpperCase() : '?',
+              if (view == ViewMode.grid)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  child: _grid(context, users, me),
+                )
+              else
+                for (final u in users)
+                  ListTile(
+                    key: ValueKey('user-${u.email}'),
+                    leading: CircleAvatar(
+                      child: Text(
+                        u.name.isNotEmpty ? u.name[0].toUpperCase() : '?',
+                      ),
                     ),
+                    title: Text(u.id == me?.id ? '${u.name} (você)' : u.name),
+                    subtitle: Text(u.email),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (u.isAdmin)
+                          Pill('Administrador', color: context.colors.primary),
+                        const Icon(Icons.chevron_right),
+                      ],
+                    ),
+                    onTap: () => _open(u),
                   ),
-                  title: Text(u.id == me?.id ? '${u.name} (você)' : u.name),
-                  subtitle: Text(u.email),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (u.isAdmin)
-                        Pill('Administrador', color: context.colors.primary),
-                      const Icon(Icons.chevron_right),
-                    ],
-                  ),
-                  onTap: () => _open(u),
-                ),
             ],
           );
         },
       ),
+    );
+  }
+
+  Widget _grid(BuildContext context, List<AppUser> users, AppUser? me) {
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    int text(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
+    String name(AppUser u) => u.id == me?.id ? '${u.name} (você)' : u.name;
+    String role(AppUser u) => u.isAdmin ? 'Administrador' : 'Usuário';
+    Widget avatar(AppUser u, double r) => CircleAvatar(
+      radius: r,
+      child: Text(
+        u.name.isNotEmpty ? u.name[0].toUpperCase() : '?',
+        style: TextStyle(fontSize: r),
+      ),
+    );
+    int admins(List<AppUser> l) => l.where((u) => u.isAdmin).length;
+    String adminsLabel(List<AppUser> l) {
+      final n = admins(l);
+      return '$n ${n == 1 ? 'administrador' : 'administradores'}';
+    }
+
+    return SortGrid<AppUser>(
+      keyPrefix: 'users',
+      rows: users,
+      rowId: (u) => u.email,
+      accent: (context, u) =>
+          u.isAdmin ? context.colors.primary : context.fin.subtle,
+      onOpen: _open,
+      initialSort: 'name',
+      tieBreak: (a, b) => text(a.email, b.email),
+      columns: [
+        SortCol(
+          id: 'name',
+          label: 'Nome',
+          width: 220,
+          minWidth: 140,
+          flexible: true,
+          fill: true,
+          compare: (a, b) => text(a.name, b.name),
+          cell: (context, u) => GridCell(
+            child: Row(
+              children: [
+                avatar(u, 12),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    name(u),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'email',
+          label: 'E-mail',
+          width: 260,
+          minWidth: 150,
+          flexible: true,
+          compare: (a, b) => text(a.email, b.email),
+          cell: (context, u) => GridCell(
+            child: Text(
+              u.email,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: subtle,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'role',
+          label: 'Perfil',
+          width: 150,
+          compare: (a, b) => (a.isAdmin ? 0 : 1).compareTo(b.isAdmin ? 0 : 1),
+          cell: (context, u) => GridCell(
+            child: NeonStatus(
+              label: role(u),
+              color: u.isAdmin ? context.colors.primary : context.fin.subtle,
+            ),
+          ),
+          footer: (context, l) =>
+              Text(adminsLabel(l), style: context.text.bodySmall),
+        ),
+      ],
+      compactRow: (context, u) => Row(
+        children: [
+          avatar(u, 14),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name(u),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '${u.email} · ${role(u)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: subtle,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      footerLabel: (context, l) => Text(
+        'Total · ${l.length} ${l.length == 1 ? 'usuário' : 'usuários'}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: gridFooterLabelStyle(context),
+      ),
+      compactFooter: (context, l) =>
+          Text(adminsLabel(l), style: context.text.bodySmall),
     );
   }
 }

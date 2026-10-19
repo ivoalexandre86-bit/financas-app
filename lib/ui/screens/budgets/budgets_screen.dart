@@ -13,6 +13,10 @@ import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/plan_upsell.dart';
+import '../../widgets/remembered_filters.dart';
+import '../../widgets/sort_grid.dart';
+import '../../widgets/tx_grid.dart';
+import '../../widgets/view_mode.dart';
 
 /// Orçamentos que o plano Grátis permite.
 const gratisBudgetLimit = 3;
@@ -25,8 +29,19 @@ class BudgetsScreen extends StatefulWidget {
   State<BudgetsScreen> createState() => _BudgetsScreenState();
 }
 
-class _BudgetsScreenState extends State<BudgetsScreen> {
+class _BudgetsScreenState extends State<BudgetsScreen> with RememberedFilters {
   YearMonth month = YearMonth.now();
+  ViewMode view = ViewMode.cards;
+
+  @override
+  String get filterKey => 'budgets';
+
+  @override
+  Map<String, Object?> filtersToJson() => {'view': view.name};
+
+  @override
+  void restoreFilters(Map<String, Object?> saved, FinanceController fc) =>
+      view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
 
   Future<void> _new(BuildContext context, {String? categoryId}) {
     final fc = context.read<FinanceController>();
@@ -56,7 +71,16 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
       planned += s.planned;
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('Orçamentos')),
+      appBar: AppBar(
+        title: const Text('Orçamentos'),
+        actions: [
+          ViewModeToggle(
+            keyPrefix: 'budgets',
+            mode: view,
+            onChanged: (v) => setFilters(() => view = v),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab-budget',
         onPressed: () => _new(context),
@@ -89,14 +113,21 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
           else ...[
             _Summary(limit: limit, spent: spent, planned: planned),
             const SizedBox(height: 12),
-            for (final s in statuses) ...[
-              BudgetTile(
-                status: s,
-                onTap: () =>
+            if (view == ViewMode.grid)
+              BudgetsGrid(
+                statuses: statuses,
+                onOpen: (s) =>
                     showBudgetDialog(context, budget: s.budget, month: month),
-              ),
-              const SizedBox(height: 8),
-            ],
+              )
+            else
+              for (final s in statuses) ...[
+                BudgetTile(
+                  status: s,
+                  onTap: () =>
+                      showBudgetDialog(context, budget: s.budget, month: month),
+                ),
+                const SizedBox(height: 8),
+              ],
           ],
           if (free.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -164,6 +195,220 @@ class _Summary extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Rótulo e cor da situação de um orçamento (nulo = dentro do limite).
+(String, Color)? budgetStatusLabel(BuildContext context, BudgetStatus s) =>
+    s.isOver
+    ? ('Estourado', context.fin.negative)
+    : s.isAlert
+    ? ('Atenção', context.fin.warning)
+    : s.willExceed
+    ? ('Vai passar', context.fin.warning)
+    : null;
+
+/// Orçamentos no padrão de grade de Faturas: ordenável, com totais.
+class BudgetsGrid extends StatelessWidget {
+  final List<BudgetStatus> statuses;
+  final ValueChanged<BudgetStatus> onOpen;
+  const BudgetsGrid({super.key, required this.statuses, required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final fc = context.watch<FinanceController>();
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    final strong = context.text.bodyMedium?.copyWith(
+      fontWeight: FontWeight.w800,
+    );
+    int text(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
+    FinCategory? cat(BudgetStatus s) =>
+        fc.data.categoryById[s.budget.categoryId];
+    String name(BudgetStatus s) => cat(s) == null
+        ? 'Categoria excluída'
+        : fc.engine.categoryLabel(s.budget.categoryId);
+    Color color(BudgetStatus s) {
+      final c = cat(s);
+      return c == null ? context.fin.subtle : Color(c.color);
+    }
+
+    Money sum(List<BudgetStatus> l, Money Function(BudgetStatus) f) =>
+        l.fold(Money.zero, (a, s) => a + f(s));
+    Money limit(List<BudgetStatus> l) => sum(l, (s) => s.budget.amount);
+    Money spent(List<BudgetStatus> l) => sum(l, (s) => s.spent);
+    String pct(double r) => '${(r * 100).round()}%';
+    double ratio(List<BudgetStatus> l) {
+      final lim = limit(l).cents;
+      return lim <= 0 ? 0 : spent(l).cents / lim;
+    }
+
+    Widget money(Money v, {TextStyle? style}) => Text(
+      v.format(),
+      maxLines: 1,
+      style: style?.copyWith(color: v.cents < 0 ? context.fin.negative : null),
+    );
+    Widget status(BudgetStatus s) {
+      final st = budgetStatusLabel(context, s);
+      return st == null
+          ? NeonStatus(label: 'No limite', color: context.fin.positive)
+          : NeonStatus(label: st.$1, color: st.$2);
+    }
+
+    int rank(BudgetStatus s) => s.isOver
+        ? 0
+        : s.isAlert
+        ? 1
+        : s.willExceed
+        ? 2
+        : 3;
+
+    return SortGrid<BudgetStatus>(
+      keyPrefix: 'budgets',
+      rows: statuses,
+      rowId: (s) => s.budget.id,
+      accent: (context, s) => budgetStatusLabel(context, s)?.$2 ?? color(s),
+      onOpen: onOpen,
+      initialSort: 'usage',
+      initialAscending: false,
+      tieBreak: (a, b) => text(name(a), name(b)),
+      columns: [
+        SortCol(
+          id: 'category',
+          label: 'Categoria',
+          width: 200,
+          minWidth: 130,
+          flexible: true,
+          fill: true,
+          compare: (a, b) => text(name(a), name(b)),
+          cell: (context, s) => GridCell(
+            child: Row(
+              children: [
+                Icon(categoryIcon(cat(s)?.icon), size: 18, color: color(s)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    name(s),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'limit',
+          label: 'Limite',
+          width: 120,
+          right: true,
+          compare: (a, b) => a.budget.amount.compareTo(b.budget.amount),
+          cell: (context, s) => GridCell(
+            right: true,
+            child: money(s.budget.amount, style: context.text.bodySmall),
+          ),
+          footer: (context, l) => money(limit(l), style: strong),
+        ),
+        SortCol(
+          id: 'spent',
+          label: 'Gasto',
+          width: 124,
+          right: true,
+          highlight: true,
+          compare: (a, b) => a.spent.compareTo(b.spent),
+          cell: (context, s) =>
+              GridCell(right: true, child: money(s.spent, style: strong)),
+          footer: (context, l) => money(spent(l), style: strong),
+        ),
+        SortCol(
+          id: 'planned',
+          label: 'Previsto',
+          width: 120,
+          right: true,
+          compare: (a, b) => a.planned.compareTo(b.planned),
+          cell: (context, s) =>
+              GridCell(right: true, child: money(s.planned, style: subtle)),
+          footer: (context, l) =>
+              money(sum(l, (s) => s.planned), style: strong),
+        ),
+        SortCol(
+          id: 'remaining',
+          label: 'Restante',
+          width: 124,
+          right: true,
+          compare: (a, b) => a.remaining.compareTo(b.remaining),
+          cell: (context, s) => GridCell(
+            right: true,
+            child: money(s.remaining, style: context.text.bodySmall),
+          ),
+          footer: (context, l) =>
+              money(sum(l, (s) => s.remaining), style: strong),
+        ),
+        SortCol(
+          id: 'usage',
+          label: 'Uso %',
+          width: 84,
+          right: true,
+          compare: (a, b) => a.ratio.compareTo(b.ratio),
+          cell: (context, s) => GridCell(
+            right: true,
+            child: Text(pct(s.ratio), style: context.text.bodySmall),
+          ),
+          footer: (context, l) => Text(pct(ratio(l)), style: strong),
+        ),
+        SortCol(
+          id: 'status',
+          label: 'Situação',
+          width: 124,
+          compare: (a, b) => rank(a).compareTo(rank(b)),
+          cell: (context, s) => GridCell(child: status(s)),
+        ),
+      ],
+      compactRow: (context, s) => Row(
+        children: [
+          Icon(categoryIcon(cat(s)?.icon), size: 20, color: color(s)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name(s),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  [
+                    'de ${s.budget.amount.format()}',
+                    pct(s.ratio),
+                    ?budgetStatusLabel(context, s)?.$1,
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: subtle,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          money(s.spent, style: strong),
+        ],
+      ),
+      footerLabel: (context, l) => Text(
+        'Total · ${l.length} ${l.length == 1 ? 'orçamento' : 'orçamentos'}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: gridFooterLabelStyle(context),
+      ),
+      compactFooter: (context, l) =>
+          Text('${spent(l).format()} de ${limit(l).format()}', style: strong),
     );
   }
 }

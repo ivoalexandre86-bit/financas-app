@@ -94,6 +94,14 @@ create table if not exists whatsapp_seen (
   seen_at    timestamptz not null default now()
 );
 
+-- Lembretes e avisos de orçamento já enviados (cada chave uma única vez).
+create table if not exists whatsapp_reminders_sent (
+  user_id uuid not null references users (id) on delete cascade,
+  key     text not null,
+  sent_at timestamptz not null default now(),
+  primary key (user_id, key)
+);
+
 -- Número do bot conectado pelo Cadastro incorporado da Meta (linha única).
 -- Vale mais que WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID do ambiente.
 create table if not exists whatsapp_config (
@@ -242,3 +250,11 @@ create table if not exists share_audit (
   at         timestamptz not null default now()
 );
 create index if not exists share_audit_group_idx on share_audit (group_id, at desc);
+
+-- Usos da IA no app (leitura de comprovante e assistente) por mês.
+create table if not exists ai_usage (
+  user_id uuid not null references users (id) on delete cascade,
+  month   text not null,
+  calls   int not null default 0,
+  primary key (user_id, month)
+);

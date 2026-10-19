@@ -1,12 +1,16 @@
 import 'dart:convert';
 
 import 'package:financas_app/data/cloud/api_client.dart';
+import 'package:financas_app/state/finance_controller.dart';
 import 'package:financas_app/ui/screens/settings/whatsapp_screen.dart';
 import 'package:financas_app/ui/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:provider/provider.dart';
+
+import 'controller_test.dart' show MemoryRepo;
 
 void main() {
   test('formatPhone', () {
@@ -92,5 +96,43 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('ainda não foi configurado'), findsOneWidget);
     expect(find.byKey(const ValueKey('wa-link')), findsNothing);
+  });
+
+  testWidgets('vinculado: liga os lembretes e avisos de orçamento', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      'https://api.test',
+      client: MockClient(
+        (req) async => http.Response(
+          jsonEncode({
+            'enabled': true,
+            'botNumber': '15550001234',
+            'audio': false,
+            'linkedNumber': '5547999990000',
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      ),
+    );
+    final repo = MemoryRepo();
+    final fc = FinanceController(repo);
+    await tester.runAsync(fc.load);
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: fc,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: WhatsAppScreen(api: api),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('wa-reminders')));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pumpAndSettle();
+    expect(repo.settings.whatsappReminders, isTrue);
+    expect(repo.settings.whatsappBudgetAlerts, isFalse);
   });
 }

@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken');
 const { toAppTransaction, toAppAccount, PluggyError } = require('./pluggy');
 const { mountWhatsApp } = require('./whatsapp/routes');
 const { mountShared } = require('./shared/routes');
+const { mountAi } = require('./ai');
 const { accessOf, mountBilling } = require('./billing');
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -90,6 +91,7 @@ function createApp({
   openSignup = false,
   revenuecat = null,
   revenuecatWebhookAuth,
+  ai = null,
 }) {
   if (!jwtSecret || jwtSecret.length < 32) {
     throw new Error('JWT_SECRET ausente ou curto demais (mínimo 32 caracteres)');
@@ -504,6 +506,7 @@ function createApp({
 
   const shared = mountShared(app, { pool, authed, wrap, HttpError, accessOf });
   mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared });
+  mountAi(app, { pool, authed, wrap, HttpError, ai });
 
   // Erros -------------------------------------------------------------------
 

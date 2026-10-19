@@ -5,6 +5,7 @@ import 'package:financas_app/domain/models/planning.dart';
 import 'package:financas_app/state/finance_controller.dart';
 import 'package:financas_app/ui/screens/budgets/budgets_screen.dart';
 import 'package:financas_app/ui/screens/goals/goals_screen.dart';
+import 'package:financas_app/ui/screens/rules/category_rules_screen.dart';
 import 'package:financas_app/ui/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -83,5 +84,56 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Viagem'), findsOneWidget);
     expect(find.textContaining('(0%)'), findsOneWidget);
+  });
+
+  testWidgets('orçamentos em grade: linha, totais e lembra o modo', (
+    tester,
+  ) async {
+    await setup(tester, const BudgetsScreen());
+    await tester.tap(find.byKey(const ValueKey('budgets-view-grid')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('budgets-row-b')), findsOneWidget);
+    expect(find.byKey(const ValueKey('budgets-footer')), findsOneWidget);
+    expect(find.text('Atenção'), findsOneWidget);
+    expect(find.text('Gastos sem orçamento'), findsOneWidget);
+    expect(fc.gridFilter('budgets'), {'view': 'grid'});
+    await tester.tap(find.byKey(const ValueKey('budgets-row-b')));
+    await tester.pumpAndSettle();
+    expect(find.text('Editar orçamento'), findsOneWidget);
+  });
+
+  testWidgets('metas em grade', (tester) async {
+    await setup(tester, const GoalsScreen());
+    await tester.runAsync(
+      () => fc.saveGoal(
+        SavingsGoal(id: 'g', name: 'Viagem', target: const Money(100000)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('goals-view-grid')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('goals-row-g')), findsOneWidget);
+    expect(find.byKey(const ValueKey('goals-footer')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('goals-row-g')));
+    await tester.pumpAndSettle();
+    expect(find.byType(GoalDetailsScreen), findsOneWidget);
+  });
+
+  testWidgets('regras em grade', (tester) async {
+    await setup(tester, const CategoryRulesScreen());
+    await tester.runAsync(
+      () => fc.saveCategoryRule(
+        CategoryRule(id: 'r', pattern: 'ifood', categoryId: 'cat_food'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('rules-view-grid')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('rules-row-r')), findsOneWidget);
+    expect(find.text('“ifood”'), findsOneWidget);
+    expect(find.text('Despesa'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('rules-row-r')));
+    await tester.pumpAndSettle();
+    expect(find.text('Editar regra'), findsOneWidget);
   });
 }

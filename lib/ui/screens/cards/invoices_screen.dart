@@ -12,6 +12,7 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
+import '../../widgets/view_mode.dart';
 import '../transactions/transaction_details_screen.dart';
 import 'card_details_screen.dart';
 import 'cards_screen.dart';
@@ -92,6 +93,7 @@ class _InvoicesScreenState extends State<InvoicesScreen>
   bool? filtersOpen; // null = aberto no computador, recolhido no celular
   _Col sort = _Col.due;
   bool ascending = true;
+  ViewMode view = ViewMode.grid;
   final expanded = <String>{};
 
   /// Faturas disponíveis de cada cartão: 6 meses para trás e 3 à frente.
@@ -112,6 +114,7 @@ class _InvoicesScreenState extends State<InvoicesScreen>
     'status': FilterJson.enums(statusFilter),
     'sort': sort.name,
     'asc': ascending,
+    'view': view.name,
   };
 
   @override
@@ -121,6 +124,7 @@ class _InvoicesScreenState extends State<InvoicesScreen>
     statusFilter = FilterJson.enumSet(InvoiceStatus.values, j['status']);
     sort = FilterJson.enumOrNull(_Col.values, j['sort']) ?? sort;
     ascending = j['asc'] as bool? ?? ascending;
+    view = FilterJson.enumOrNull(ViewMode.values, j['view']) ?? view;
   }
 
   int get _activeFilters =>
@@ -202,7 +206,16 @@ class _InvoicesScreenState extends State<InvoicesScreen>
           ..sort(_cmp);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Faturas')),
+      appBar: AppBar(
+        title: const Text('Faturas'),
+        actions: [
+          ViewModeToggle(
+            keyPrefix: 'invoices',
+            mode: view,
+            onChanged: (v) => setFilters(() => view = v),
+          ),
+        ],
+      ),
       body: LayoutBuilder(
         builder: (context, box) {
           final pad = box.maxWidth < 640 ? 8.0 : 16.0;
@@ -287,27 +300,33 @@ class _InvoicesScreenState extends State<InvoicesScreen>
                 ],
               ),
               const SizedBox(height: 12),
-              GridPanel(
-                child: compact
-                    ? Column(children: body)
-                    : SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: SizedBox(
-                          width: layout!.totalWidth,
-                          child: Column(
-                            children: [
-                              _Header(
-                                layout: layout,
-                                sort: sort,
-                                ascending: ascending,
-                                onSort: _onSort,
-                              ),
-                              ...body,
-                            ],
+              if (view == ViewMode.cards)
+                if (rows.isEmpty)
+                  body.first
+                else
+                  for (final s in rows) _InvoiceCard(s: s)
+              else
+                GridPanel(
+                  child: compact
+                      ? Column(children: body)
+                      : SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SizedBox(
+                            width: layout!.totalWidth,
+                            child: Column(
+                              children: [
+                                _Header(
+                                  layout: layout,
+                                  sort: sort,
+                                  ascending: ascending,
+                                  onSort: _onSort,
+                                ),
+                                ...body,
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-              ),
+                ),
             ],
           );
         },
@@ -672,6 +691,68 @@ Widget _status(BuildContext context, Invoice inv) => NeonStatus(
       : invoiceStatusColor(context, inv.status),
   done: inv.status == InvoiceStatus.paid,
 );
+
+/// Fatura no modo cartões: um cartão por fatura; o toque abre a fatura.
+class _InvoiceCard extends StatelessWidget {
+  final _Summary s;
+  const _InvoiceCard({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    final inv = s.inv;
+    final color = Color(inv.card.color);
+    final overdue = inv.status == InvoiceStatus.overdue;
+    final info = [
+      'vence ${Dates.format(inv.dueDate)}',
+      '${s.count} ${s.count == 1 ? 'compra' : 'compras'}',
+      if (inv.paid.isPositive && s.unpaid) 'falta ${inv.remaining.format()}',
+    ].join(' · ');
+    return Card(
+      key: ValueKey('invoices-card-${s.key}'),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        onTap: () => push(
+          context,
+          InvoiceDetailsScreen(cardId: inv.card.id, month: inv.month),
+        ),
+        leading: CircleAvatar(
+          backgroundColor: color.withValues(alpha: 0.14),
+          child: Icon(Icons.credit_card, color: color, size: 20),
+        ),
+        title: Text(
+          '${inv.card.name} · ${inv.month.shortLabel}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          info,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: context.text.bodySmall?.copyWith(
+            color: overdue ? context.fin.negative : context.fin.subtle,
+          ),
+        ),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            MoneyText(
+              inv.isCredit ? -inv.total : inv.total,
+              color: inv.isCredit ? context.fin.positive : null,
+              style: context.text.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            _status(context, inv),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _InvoiceRow extends StatelessWidget {
   final _Summary s;

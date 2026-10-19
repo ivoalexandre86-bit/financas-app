@@ -13,6 +13,10 @@ import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/plan_upsell.dart';
+import '../../widgets/remembered_filters.dart';
+import '../../widgets/sort_grid.dart';
+import '../../widgets/tx_grid.dart';
+import '../../widgets/view_mode.dart';
 
 /// Metas que o plano Grátis permite.
 const gratisGoalLimit = 1;
@@ -24,8 +28,19 @@ class GoalsScreen extends StatefulWidget {
   State<GoalsScreen> createState() => _GoalsScreenState();
 }
 
-class _GoalsScreenState extends State<GoalsScreen> {
+class _GoalsScreenState extends State<GoalsScreen> with RememberedFilters {
   bool showArchived = false;
+  ViewMode view = ViewMode.cards;
+
+  @override
+  String get filterKey => 'goals';
+
+  @override
+  Map<String, Object?> filtersToJson() => {'view': view.name};
+
+  @override
+  void restoreFilters(Map<String, Object?> saved, FinanceController fc) =>
+      view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
 
   void _new(BuildContext context) {
     final fc = context.read<FinanceController>();
@@ -50,6 +65,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
       appBar: AppBar(
         title: const Text('Metas de economia'),
         actions: [
+          ViewModeToggle(
+            keyPrefix: 'goals',
+            mode: view,
+            onChanged: (v) => setFilters(() => view = v),
+          ),
           IconButton(
             tooltip: showArchived ? 'Ocultar arquivadas' : 'Mostrar arquivadas',
             icon: Icon(
@@ -75,6 +95,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
               actionLabel: 'Criar meta',
               onAction: () => _new(context),
             )
+          : view == ViewMode.grid
+          ? ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+              children: [
+                GoalsGrid(
+                  statuses: [for (final g in goals) fc.budgetEngine.goal(g)],
+                ),
+              ],
+            )
           : ListView.separated(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
               itemCount: goals.length,
@@ -82,6 +111,229 @@ class _GoalsScreenState extends State<GoalsScreen> {
               itemBuilder: (context, i) =>
                   GoalCard(status: fc.budgetEngine.goal(goals[i])),
             ),
+    );
+  }
+}
+
+/// Metas no padrão de grade de Faturas: ordenável, com totais.
+class GoalsGrid extends StatelessWidget {
+  final List<GoalStatus> statuses;
+  const GoalsGrid({super.key, required this.statuses});
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    final strong = context.text.bodyMedium?.copyWith(
+      fontWeight: FontWeight.w800,
+    );
+    int text(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
+    Money sum(List<GoalStatus> l, Money Function(GoalStatus) f) =>
+        l.fold(Money.zero, (a, s) => a + f(s));
+    Money target(List<GoalStatus> l) => sum(l, (s) => s.goal.target);
+    Money saved(List<GoalStatus> l) => sum(l, (s) => s.saved);
+    String pct(double r) => '${(r * 100).round()}%';
+    double progress(List<GoalStatus> l) {
+      final t = target(l).cents;
+      return t <= 0 ? 0 : (saved(l).cents / t).clamp(0, 1).toDouble();
+    }
+
+    Widget money(Money v, {TextStyle? style}) =>
+        Text(v.format(), maxLines: 1, style: style);
+    // Sem prazo vai para o fim na ordem crescente.
+    int byDeadline(GoalStatus a, GoalStatus b) {
+      final x = a.goal.deadline, y = b.goal.deadline;
+      if (x == null || y == null) {
+        return x == y ? 0 : (x == null ? 1 : -1);
+      }
+      return x.compareTo(y);
+    }
+
+    int byMonthly(GoalStatus a, GoalStatus b) =>
+        (a.monthlyNeeded?.cents ?? -1).compareTo(b.monthlyNeeded?.cents ?? -1);
+    Color accent(BuildContext context, GoalStatus s) => s.reached
+        ? context.fin.positive
+        : s.overdue
+        ? context.fin.negative
+        : Color(s.goal.color);
+
+    return SortGrid<GoalStatus>(
+      keyPrefix: 'goals',
+      rows: statuses,
+      rowId: (s) => s.goal.id,
+      accent: accent,
+      dimmed: (s) => s.goal.archived,
+      onOpen: (s) => push(context, GoalDetailsScreen(goalId: s.goal.id)),
+      initialSort: 'name',
+      tieBreak: (a, b) => text(a.goal.name, b.goal.name),
+      columns: [
+        SortCol(
+          id: 'name',
+          label: 'Meta',
+          width: 200,
+          minWidth: 130,
+          flexible: true,
+          fill: true,
+          compare: (a, b) => text(a.goal.name, b.goal.name),
+          cell: (context, s) => GridCell(
+            child: Row(
+              children: [
+                Icon(
+                  Icons.emoji_events_outlined,
+                  size: 18,
+                  color: Color(s.goal.color),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    s.goal.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'target',
+          label: 'Alvo',
+          width: 120,
+          right: true,
+          compare: (a, b) => a.goal.target.compareTo(b.goal.target),
+          cell: (context, s) => GridCell(
+            right: true,
+            child: money(s.goal.target, style: context.text.bodySmall),
+          ),
+          footer: (context, l) => money(target(l), style: strong),
+        ),
+        SortCol(
+          id: 'saved',
+          label: 'Guardado',
+          width: 124,
+          right: true,
+          highlight: true,
+          compare: (a, b) => a.saved.compareTo(b.saved),
+          cell: (context, s) =>
+              GridCell(right: true, child: money(s.saved, style: strong)),
+          footer: (context, l) => money(saved(l), style: strong),
+        ),
+        SortCol(
+          id: 'remaining',
+          label: 'Falta',
+          width: 120,
+          right: true,
+          compare: (a, b) => a.remaining.compareTo(b.remaining),
+          cell: (context, s) => GridCell(
+            right: true,
+            child: money(s.remaining, style: context.text.bodySmall),
+          ),
+          footer: (context, l) =>
+              money(sum(l, (s) => s.remaining), style: strong),
+        ),
+        SortCol(
+          id: 'progress',
+          label: 'Progresso',
+          width: 96,
+          right: true,
+          compare: (a, b) => a.progress.compareTo(b.progress),
+          cell: (context, s) => GridCell(
+            right: true,
+            child: Text(
+              pct(s.progress),
+              style: context.text.bodySmall?.copyWith(
+                color: s.reached ? context.fin.positive : null,
+                fontWeight: s.reached ? FontWeight.w700 : null,
+              ),
+            ),
+          ),
+          footer: (context, l) => Text(pct(progress(l)), style: strong),
+        ),
+        SortCol(
+          id: 'deadline',
+          label: 'Prazo',
+          width: 110,
+          compare: byDeadline,
+          cell: (context, s) => GridCell(
+            child: Text(
+              s.goal.deadline == null ? '—' : Dates.format(s.goal.deadline!),
+              style: s.overdue
+                  ? context.text.bodySmall?.copyWith(
+                      color: context.fin.negative,
+                    )
+                  : subtle,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'monthly',
+          label: 'Por mês',
+          width: 120,
+          right: true,
+          compare: byMonthly,
+          cell: (context, s) => GridCell(
+            right: true,
+            child: s.monthlyNeeded == null
+                ? Text('—', style: subtle)
+                : money(s.monthlyNeeded!, style: context.text.bodySmall),
+          ),
+          footer: (context, l) => money(
+            sum(l, (s) => s.monthlyNeeded ?? Money.zero),
+            style: strong,
+          ),
+        ),
+      ],
+      compactRow: (context, s) => Row(
+        children: [
+          Icon(
+            Icons.emoji_events_outlined,
+            size: 20,
+            color: Color(s.goal.color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  s.goal.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  [
+                    'de ${s.goal.target.format()}',
+                    pct(s.progress),
+                    if (s.goal.deadline != null)
+                      'até ${Dates.format(s.goal.deadline!)}',
+                    if (s.monthlyNeeded != null)
+                      '${s.monthlyNeeded!.format()}/mês',
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: subtle,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          money(s.saved, style: strong),
+        ],
+      ),
+      footerLabel: (context, l) => Text(
+        'Total · ${l.length} ${l.length == 1 ? 'meta' : 'metas'}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: gridFooterLabelStyle(context),
+      ),
+      compactFooter: (context, l) =>
+          Text('${saved(l).format()} de ${target(l).format()}', style: strong),
     );
   }
 }
