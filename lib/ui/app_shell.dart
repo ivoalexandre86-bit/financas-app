@@ -7,10 +7,12 @@ import '../state/finance_controller.dart';
 import '../state/shared_controller.dart';
 import 'menu_layout.dart';
 import 'screens/accounts/accounts_screen.dart';
+import 'screens/budgets/budgets_screen.dart';
 import 'screens/cards/cards_screen.dart';
 import 'screens/cards/invoices_screen.dart';
 import 'screens/categories/categories_screen.dart';
 import 'screens/dashboards/dashboards_screen.dart';
+import 'screens/goals/goals_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/import/expense_import_screen.dart';
 import 'screens/installments/installments_screen.dart';
@@ -231,6 +233,8 @@ const menuGroups = <MenuGroup>[
       'Projeção',
       ProjectionScreen(),
     ),
+    MenuDest('budgets', Icons.savings_outlined, 'Orçamentos', BudgetsScreen()),
+    MenuDest('goals', Icons.emoji_events_outlined, 'Metas', GoalsScreen()),
     MenuDest('projects', Icons.flag_outlined, 'Projetos', ProjectsScreen()),
     MenuDest(
       'simulations',

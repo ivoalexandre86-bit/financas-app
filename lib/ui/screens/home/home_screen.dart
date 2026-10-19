@@ -15,7 +15,9 @@ import '../../widgets/common.dart';
 import '../cards/invoice_details_screen.dart';
 import '../cards/invoices_screen.dart';
 import '../dashboards/dashboard_view.dart';
+import '../budgets/budgets_screen.dart';
 import '../dashboards/dashboards_screen.dart';
+import '../goals/goals_screen.dart';
 import '../installments/installments_screen.dart';
 import '../projection/drilldown_screen.dart';
 import '../recurring/recurring_screen.dart';
@@ -130,6 +132,8 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 12),
               _DefaultDashboardSection(reference: month),
               const SizedBox(height: 12),
+              _BudgetsCard(month: month),
+              _GoalsCard(),
               _UpcomingCard(engine: e),
               const SizedBox(height: 12),
               _CardBillsCard(engine: e),
@@ -578,6 +582,95 @@ class _StatTile extends StatelessWidget {
               Icon(Icons.chevron_right, size: 18, color: context.fin.subtle),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Orçamentos do mês mais apertados (só aparece quando há orçamentos).
+class _BudgetsCard extends StatelessWidget {
+  final YearMonth month;
+  const _BudgetsCard({required this.month});
+
+  @override
+  Widget build(BuildContext context) {
+    final fc = context.watch<FinanceController>();
+    if (fc.budgets.isEmpty) return const SizedBox.shrink();
+    final all = fc.budgetEngine.statuses(fc.budgets, month);
+    final warn = all.where((s) => s.isOver || s.isAlert).length;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: SectionCard(
+        title: warn == 0
+            ? 'Orçamentos do mês'
+            : 'Orçamentos do mês · $warn no limite',
+        trailing: TextButton(
+          onPressed: () => AppShell.goTo(context, 'budgets'),
+          child: const Text('Ver todos'),
+        ),
+        child: Column(
+          children: [
+            for (final s in all.take(4))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: BudgetTile(
+                  status: s,
+                  dense: true,
+                  onTap: () => AppShell.goTo(context, 'budgets'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Metas de economia ativas (só aparece quando há metas).
+class _GoalsCard extends StatelessWidget {
+  const _GoalsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final fc = context.watch<FinanceController>();
+    final goals = fc.goals.where((g) => !g.archived).toList();
+    if (goals.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: SectionCard(
+        title: 'Metas de economia',
+        trailing: TextButton(
+          onPressed: () => AppShell.goTo(context, 'goals'),
+          child: const Text('Ver todas'),
+        ),
+        padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+        child: Column(
+          children: [
+            for (final g in goals.take(3))
+              () {
+                final st = fc.budgetEngine.goal(g);
+                return ListTile(
+                  dense: true,
+                  onTap: () => push(context, GoalDetailsScreen(goalId: g.id)),
+                  leading: SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: CircularProgressIndicator(
+                      value: st.progress,
+                      color: Color(g.color),
+                      backgroundColor: context.fin.gridLine,
+                    ),
+                  ),
+                  title: Text(g.name),
+                  subtitle: Text(
+                    '${st.saved.format()} de ${g.target.format()}'
+                    '${st.monthlyNeeded == null ? '' : ' · ${st.monthlyNeeded!.format()}/mês'}',
+                  ),
+                  trailing: Text('${(st.progress * 100).round()}%'),
+                );
+              }(),
+          ],
         ),
       ),
     );

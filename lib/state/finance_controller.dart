@@ -10,6 +10,7 @@ import '../data/finance_repository.dart';
 import '../data/open_finance.dart';
 import '../data/sample_data.dart';
 import '../domain/engine/billing_cycle.dart';
+import '../domain/engine/budget_engine.dart';
 import '../domain/engine/dashboard_engine.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/engine/installments.dart';
@@ -20,6 +21,7 @@ import '../domain/import/expense_import.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
 import '../domain/models/other_entry.dart';
+import '../domain/models/planning.dart';
 import '../domain/models/shared.dart';
 import '../domain/models/simulation.dart';
 
@@ -66,6 +68,18 @@ class FinanceController extends ChangeNotifier {
 
   /// Pessoas que dividem despesas.
   List<Person> people = [];
+
+  /// Orçamentos mensais por categoria.
+  List<Budget> budgets = [];
+
+  /// Metas de economia.
+  List<SavingsGoal> goals = [];
+
+  /// Cálculos de orçamentos e metas, sempre sobre o [engine] atual.
+  BudgetEngine get budgetEngine => _budgetEngine?.engine == engine
+      ? _budgetEngine!
+      : (_budgetEngine = BudgetEngine(engine));
+  BudgetEngine? _budgetEngine;
 
   /// Motor dos gráficos, sempre derivado do [engine] atual — qualquer
   /// mudança nas transações recalcula todos os painéis.
@@ -121,6 +135,7 @@ class FinanceController extends ChangeNotifier {
       _sortSimulations();
       otherEntries = await repo.loadOtherEntries();
       people = await repo.loadPeople();
+      await _loadPlanning();
     } catch (e) {
       error = 'Falha ao carregar dados: $e';
     }
@@ -172,6 +187,15 @@ class FinanceController extends ChangeNotifier {
     }
   }
 
+  Future<void> _loadPlanning() async {
+    budgets = [
+      for (final j in await repo.loadRaw(Coll.budgets)) Budget.fromJson(j),
+    ];
+    goals = [
+      for (final j in await repo.loadRaw(Coll.goals)) SavingsGoal.fromJson(j),
+    ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  }
+
   bool _disposed = false;
 
   @override
@@ -194,6 +218,7 @@ class FinanceController extends ChangeNotifier {
     _sortSimulations();
     otherEntries = await repo.loadOtherEntries();
     people = await repo.loadPeople();
+    await _loadPlanning();
     connections = await repo.loadConnections();
     externalTransactions = await repo.loadExternalTransactions();
     notifyListeners();
@@ -872,7 +897,18 @@ class FinanceController extends ChangeNotifier {
 
   /// Exclui a categoria; subcategorias e lançamentos passam para a categoria
   /// pai (ou ficam sem categoria).
-  Future<void> deleteCategory(FinCategory c) => _commit([
+  Future<void> deleteCategory(FinCategory c) async {
+    final gone = budgets.where((b) => b.categoryId == c.id).toList();
+    if (gone.isNotEmpty) {
+      budgets.removeWhere((b) => b.categoryId == c.id);
+      await repo.write([
+        for (final b in gone) WriteOp.delete(Coll.budgets, b.id),
+      ]);
+    }
+    await _deleteCategory(c);
+  }
+
+  Future<void> _deleteCategory(FinCategory c) => _commit([
     WriteOp.delete(Coll.categories, c.id),
     for (final sub in data.categories.where((x) => x.parentId == c.id))
       WriteOp.put(
@@ -939,6 +975,73 @@ class FinanceController extends ChangeNotifier {
     _set(await repo.load());
     notifyListeners();
   }
+
+  // ---------------------------------------------------------------------------
+  // Orçamentos e metas
+
+  Budget? budgetFor(String categoryId) =>
+      budgets.where((b) => b.categoryId == categoryId).firstOrNull;
+
+  /// Cria ou altera um orçamento. Cada categoria tem no máximo um.
+  Future<void> saveBudget(Budget b) async {
+    if (!b.amount.isPositive) {
+      throw ArgumentError('Informe um limite maior que zero');
+    }
+    if (data.categoryById[b.categoryId] == null) {
+      throw ArgumentError('Escolha uma categoria');
+    }
+    final other = budgetFor(b.categoryId);
+    if (other != null && other.id != b.id) {
+      throw ArgumentError('Esta categoria já tem orçamento');
+    }
+    budgets = [...budgets.where((x) => x.id != b.id), b];
+    notifyListeners();
+    await repo.write([WriteOp.put(Coll.budgets, b.id, b.toJson())]);
+  }
+
+  Future<void> deleteBudget(Budget b) async {
+    budgets = budgets.where((x) => x.id != b.id).toList();
+    notifyListeners();
+    await repo.write([WriteOp.delete(Coll.budgets, b.id)]);
+  }
+
+  Future<void> saveGoal(SavingsGoal g) async {
+    if (g.name.trim().isEmpty) throw ArgumentError('Informe um nome');
+    if (!g.target.isPositive) throw ArgumentError('Informe o valor da meta');
+    final i = goals.indexWhere((x) => x.id == g.id);
+    goals = [...goals];
+    if (i < 0) {
+      goals.add(g);
+    } else {
+      goals[i] = g;
+    }
+    notifyListeners();
+    await repo.write([WriteOp.put(Coll.goals, g.id, g.toJson())]);
+  }
+
+  Future<void> deleteGoal(SavingsGoal g) async {
+    goals = goals.where((x) => x.id != g.id).toList();
+    notifyListeners();
+    await repo.write([WriteOp.delete(Coll.goals, g.id)]);
+  }
+
+  /// Registra um aporte (valor positivo) ou retirada (negativo) na meta.
+  Future<void> addGoalContribution(SavingsGoal g, GoalContribution c) {
+    if (c.amount.isZero) throw ArgumentError('Informe um valor');
+    return saveGoal(
+      g.copyWith(
+        contributions: [...g.contributions, c]
+          ..sort((a, b) => a.date.compareTo(b.date)),
+      ),
+    );
+  }
+
+  Future<void> deleteGoalContribution(SavingsGoal g, GoalContribution c) =>
+      saveGoal(
+        g.copyWith(
+          contributions: g.contributions.where((x) => x.id != c.id).toList(),
+        ),
+      );
 
   // ---------------------------------------------------------------------------
   // Painéis personalizados

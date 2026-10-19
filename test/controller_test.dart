@@ -50,6 +50,8 @@ class MemoryRepo implements FinanceRepository {
   @override
   Future<List<Person>> loadPeople() async => _all(Coll.people, Person.fromJson);
   @override
+  Future<List<Map<String, Object?>>> loadRaw(Coll c) async => _all(c, (j) => j);
+  @override
   Future<void> write(List<WriteOp> ops) async {
     for (final op in ops) {
       if (op.json == null) {
