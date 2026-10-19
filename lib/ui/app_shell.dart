@@ -10,6 +10,7 @@ import 'menu_layout.dart';
 import 'screens/accounts/accounts_screen.dart';
 import 'screens/assistant/assistant_screen.dart';
 import 'screens/budgets/budgets_screen.dart';
+import 'screens/calculators/calculators_screen.dart';
 import 'screens/calendar/calendar_screen.dart';
 import 'screens/cards/cards_screen.dart';
 import 'screens/cards/invoices_screen.dart';
@@ -19,6 +20,7 @@ import 'screens/export/export_screen.dart';
 import 'screens/goals/goals_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/import/expense_import_screen.dart';
+import 'screens/networth/networth_screen.dart';
 import 'screens/installments/installments_screen.dart';
 import 'screens/open_finance/open_finance_screen.dart';
 import 'screens/projection/projection_screen.dart';
@@ -268,6 +270,12 @@ const menuGroups = <MenuGroup>[
         AccountsScreen(),
       ),
       MenuDest('cards', Icons.credit_card, 'Cartões', CardsScreen()),
+      MenuDest(
+        'networth',
+        Icons.account_balance_wallet_outlined,
+        'Patrimônio',
+        NetWorthScreen(),
+      ),
     ],
   ),
   MenuGroup('planning', Icons.insights_outlined, 'Planejamento', [
@@ -290,6 +298,12 @@ const menuGroups = <MenuGroup>[
       Icons.subscriptions_outlined,
       'Assinaturas',
       SubscriptionsScreen(),
+    ),
+    MenuDest(
+      'calculators',
+      Icons.calculate_outlined,
+      'Calculadoras',
+      CalculatorsScreen(),
     ),
     MenuDest('projects', Icons.flag_outlined, 'Projetos', ProjectsScreen()),
     MenuDest(
