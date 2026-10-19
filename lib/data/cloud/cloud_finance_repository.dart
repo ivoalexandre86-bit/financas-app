@@ -157,6 +157,9 @@ class CloudFinanceRepository implements FinanceRepository {
   Future<List<Person>> loadPeople() => local.loadPeople();
 
   @override
+  Future<List<Map<String, Object?>>> loadRaw(Coll c) => local.loadRaw(c);
+
+  @override
   Future<void> write(List<WriteOp> ops) async {
     if (ops.isEmpty) return;
     await local.write(ops);

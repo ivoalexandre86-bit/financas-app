@@ -24,6 +24,8 @@ enum Coll {
   simulations,
   otherEntries,
   people,
+  budgets,
+  goals,
 }
 
 /// Nome da "coleção" das configurações do app na nuvem (registro `app`).
@@ -51,6 +53,10 @@ abstract class FinanceRepository {
   Future<List<Simulation>> loadSimulations();
   Future<List<OtherEntry>> loadOtherEntries();
   Future<List<Person>> loadPeople();
+
+  /// Registros brutos de uma coleção (para coleções sem método próprio,
+  /// como orçamentos e metas).
+  Future<List<Map<String, Object?>>> loadRaw(Coll c);
   Future<void> write(List<WriteOp> ops);
   Future<void> saveSettings(AppSettings settings);
   Future<void> close();
@@ -128,6 +134,9 @@ class LocalFinanceRepository implements FinanceRepository {
 
   @override
   Future<List<Person>> loadPeople() => _all(Coll.people, Person.fromJson);
+
+  @override
+  Future<List<Map<String, Object?>>> loadRaw(Coll c) => _all(c, (j) => j);
 
   /// Grava todas as operações atomicamente (tudo ou nada).
   @override
