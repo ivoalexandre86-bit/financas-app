@@ -153,4 +153,42 @@ void main() {
     expect(find.byKey(const ValueKey('rec-row-sal')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('parcelamentos: alterna para cartões e lembra a escolha', (
+    tester,
+  ) async {
+    final fc = await setup(tester);
+    await tester.binding.setSurfaceSize(const Size(1600, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(app(fc, const InstallmentsScreen()));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('inst-row-tv')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('installments-view-cards')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('inst-row-tv')), findsNothing);
+    expect(find.byKey(const ValueKey('inst-card-tv')), findsOneWidget);
+    expect(find.byKey(const ValueKey('inst-card-fone')), findsOneWidget);
+    expect(find.text('Televisão'), findsOneWidget);
+    expect(fc.gridFilter('installments')?['view'], 'cards');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('recorrências: alterna para cartões e lembra a escolha', (
+    tester,
+  ) async {
+    final fc = await setup(tester);
+    await tester.binding.setSurfaceSize(const Size(1600, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(app(fc, const RecurringScreen()));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('rec-row-sal')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('recurring-view-cards')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('rec-row-sal')), findsNothing);
+    expect(find.byKey(const ValueKey('rec-card-sal')), findsOneWidget);
+    expect(find.byKey(const ValueKey('rec-card-old')), findsNothing);
+    expect(find.text('Salário'), findsOneWidget);
+    expect(fc.gridFilter('recurring')?['view'], 'cards');
+    expect(tester.takeException(), isNull);
+  });
 }
