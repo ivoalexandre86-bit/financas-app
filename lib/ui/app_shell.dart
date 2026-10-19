@@ -10,6 +10,7 @@ import 'menu_layout.dart';
 import 'screens/accounts/accounts_screen.dart';
 import 'screens/assistant/assistant_screen.dart';
 import 'screens/budgets/budgets_screen.dart';
+import 'screens/calendar/calendar_screen.dart';
 import 'screens/cards/cards_screen.dart';
 import 'screens/cards/invoices_screen.dart';
 import 'screens/categories/categories_screen.dart';
@@ -28,6 +29,7 @@ import 'screens/settings/lock_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/shared/shared_screen.dart';
 import 'screens/simulations/simulations_screen.dart';
+import 'screens/subscriptions/subscriptions_screen.dart';
 import 'screens/transactions/transactions_screen.dart';
 import 'screens/users/users_screen.dart';
 import 'widgets/common.dart';
@@ -241,6 +243,12 @@ const menuGroups = <MenuGroup>[
     ),
     MenuDest('invoices', Icons.receipt_outlined, 'Faturas', InvoicesScreen()),
     MenuDest(
+      'calendar',
+      Icons.calendar_month_outlined,
+      'Calendário',
+      CalendarScreen(),
+    ),
+    MenuDest(
       'other-entries',
       Icons.call_split,
       'Outras despesas',
@@ -277,6 +285,12 @@ const menuGroups = <MenuGroup>[
     ),
     MenuDest('budgets', Icons.savings_outlined, 'Orçamentos', BudgetsScreen()),
     MenuDest('goals', Icons.emoji_events_outlined, 'Metas', GoalsScreen()),
+    MenuDest(
+      'subscriptions',
+      Icons.subscriptions_outlined,
+      'Assinaturas',
+      SubscriptionsScreen(),
+    ),
     MenuDest('projects', Icons.flag_outlined, 'Projetos', ProjectsScreen()),
     MenuDest(
       'simulations',
