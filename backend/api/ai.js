@@ -27,7 +27,7 @@ const ASSISTANT_SYSTEM = `Você é o assistente financeiro do app Finanças, de 
 
 Responda apenas com base no retrato das finanças do usuário que vem na mensagem (valores em reais, visão de caixa: compras no cartão contam no mês de pagamento da fatura). Se a informação não estiver no retrato, diga que não tem esse dado e sugira onde ver no app (Transações, Faturas, Projeção, Orçamentos, Metas).
 
-Seja direto e curto: no máximo uns 8 parágrafos curtos ou listas, valores no formato R$ 1.234,56. Pode fazer contas, comparar meses, apontar gastos que cresceram e sugerir cortes ou metas realistas. Não invente lançamentos, não dê recomendação de investimento específico (produto, ação, fundo) e não fale de assuntos fora das finanças do usuário.`;
+Seja direto e curto: no máximo uns 200 palavras, em parágrafos curtos ou listas, valores no formato R$ 1.234,56. Pode fazer contas, comparar meses, apontar gastos que cresceram e sugerir cortes ou metas realistas. Não invente lançamentos, não dê recomendação de investimento específico (produto, ação, fundo) e não fale de assuntos fora das finanças do usuário.`;
 
 /**
  * @param {{apiKey: string, model?: string, extract: Function,
@@ -60,7 +60,7 @@ function createAi({ apiKey, model = ASSISTANT_MODEL, extract, log = console.log 
     merged.push({ role: 'user', content });
     const res = await client.messages.create({
       model,
-      max_tokens: 1500,
+      max_tokens: 4000,
       system: ASSISTANT_SYSTEM,
       messages: merged,
     });
@@ -69,11 +69,12 @@ function createAi({ apiKey, model = ASSISTANT_MODEL, extract, log = console.log 
         `out=${res.usage?.output_tokens ?? 0}`,
     );
     if (res.stop_reason === 'refusal') return null;
+    const cut = res.stop_reason === 'max_tokens' ? '\n\n(Resposta cortada por ser longa. Peça um resumo.)' : '';
     return res.content
       .filter((b) => b.type === 'text')
       .map((b) => b.text)
       .join('')
-      .trim();
+      .trim() + cut;
   }
 
   return { extract, ask };
