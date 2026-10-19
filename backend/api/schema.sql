@@ -250,3 +250,11 @@ create table if not exists share_audit (
   at         timestamptz not null default now()
 );
 create index if not exists share_audit_group_idx on share_audit (group_id, at desc);
+
+-- Usos da IA no app (leitura de comprovante e assistente) por mês.
+create table if not exists ai_usage (
+  user_id uuid not null references users (id) on delete cascade,
+  month   text not null,
+  calls   int not null default 0,
+  primary key (user_id, month)
+);

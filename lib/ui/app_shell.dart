@@ -8,6 +8,7 @@ import '../state/finance_controller.dart';
 import '../state/shared_controller.dart';
 import 'menu_layout.dart';
 import 'screens/accounts/accounts_screen.dart';
+import 'screens/assistant/assistant_screen.dart';
 import 'screens/budgets/budgets_screen.dart';
 import 'screens/cards/cards_screen.dart';
 import 'screens/cards/invoices_screen.dart';
@@ -267,6 +268,12 @@ const menuGroups = <MenuGroup>[
       Icons.table_chart_outlined,
       'Projeção',
       ProjectionScreen(),
+    ),
+    MenuDest(
+      'assistant',
+      Icons.auto_awesome_outlined,
+      'Assistente IA',
+      AssistantScreen(),
     ),
     MenuDest('budgets', Icons.savings_outlined, 'Orçamentos', BudgetsScreen()),
     MenuDest('goals', Icons.emoji_events_outlined, 'Metas', GoalsScreen()),

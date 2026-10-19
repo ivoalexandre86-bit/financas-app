@@ -3,6 +3,7 @@ const { createApp, migrate } = require('./app');
 const { createPluggy } = require('./pluggy');
 const { createMetaClient, createSignup } = require('./whatsapp/meta');
 const { createExtractor } = require('./whatsapp/extract');
+const { createAi } = require('./ai');
 const { createTranscriber } = require('./whatsapp/transcribe');
 const { createRevenueCat } = require('./billing');
 
@@ -92,6 +93,19 @@ migrate(pool)
         ? createRevenueCat({ secretKey: process.env.REVENUECAT_SECRET_KEY })
         : null,
       revenuecatWebhookAuth: process.env.REVENUECAT_WEBHOOK_AUTH,
+      // IA no app (comprovante por foto e assistente): mesma chave do
+      // WhatsApp.
+      ai: process.env.ANTHROPIC_API_KEY
+        ? createAi({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+            model: process.env.ANTHROPIC_ASSISTANT_MODEL || undefined,
+            extract: createExtractor({
+              apiKey: process.env.ANTHROPIC_API_KEY,
+              model: process.env.ANTHROPIC_MODEL || undefined,
+              mediaModel: process.env.ANTHROPIC_MEDIA_MODEL || undefined,
+            }),
+          })
+        : null,
     });
     app.set('trust proxy', 1);
     const port = Number(process.env.PORT ?? 3000);
