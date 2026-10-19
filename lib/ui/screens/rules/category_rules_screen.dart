@@ -9,18 +9,49 @@ import '../../theme.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
+import '../../widgets/remembered_filters.dart';
+import '../../widgets/sort_grid.dart';
+import '../../widgets/tx_grid.dart';
+import '../../widgets/view_mode.dart';
 
 /// Regras de categorização: "descrição contém X → categoria Y". Valem ao
 /// lançar no app, ao importar planilhas e no Open Finance.
-class CategoryRulesScreen extends StatelessWidget {
+class CategoryRulesScreen extends StatefulWidget {
   const CategoryRulesScreen({super.key});
+
+  @override
+  State<CategoryRulesScreen> createState() => _CategoryRulesScreenState();
+}
+
+class _CategoryRulesScreenState extends State<CategoryRulesScreen>
+    with RememberedFilters {
+  ViewMode view = ViewMode.cards;
+
+  @override
+  String get filterKey => 'rules';
+
+  @override
+  Map<String, Object?> filtersToJson() => {'view': view.name};
+
+  @override
+  void restoreFilters(Map<String, Object?> saved, FinanceController fc) =>
+      view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
 
   @override
   Widget build(BuildContext context) {
     final fc = context.watch<FinanceController>();
     final rules = fc.categoryRules;
     return Scaffold(
-      appBar: AppBar(title: const Text('Regras de categoria')),
+      appBar: AppBar(
+        title: const Text('Regras de categoria'),
+        actions: [
+          ViewModeToggle(
+            keyPrefix: 'rules',
+            mode: view,
+            onChanged: (v) => setFilters(() => view = v),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab-rule',
         onPressed: () => showRuleDialog(context),
@@ -37,6 +68,11 @@ class CategoryRulesScreen extends StatelessWidget {
                   'importação de planilhas e no Open Finance.',
               actionLabel: 'Criar regra',
               onAction: () => showRuleDialog(context),
+            )
+          : view == ViewMode.grid
+          ? ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+              children: [RulesGrid(rules: rules)],
             )
           : ListView.separated(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
@@ -69,6 +105,152 @@ class CategoryRulesScreen extends StatelessWidget {
                 );
               },
             ),
+    );
+  }
+}
+
+/// Regras no padrão de grade de Faturas: ordenável.
+class RulesGrid extends StatelessWidget {
+  final List<CategoryRule> rules;
+  const RulesGrid({super.key, required this.rules});
+
+  @override
+  Widget build(BuildContext context) {
+    final fc = context.watch<FinanceController>();
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    int text(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
+    FinCategory? cat(CategoryRule r) => fc.data.categoryById[r.categoryId];
+    String label(CategoryRule r) => fc.engine.categoryLabel(r.categoryId);
+    String kind(CategoryRule r) => cat(r)?.kind.label ?? '—';
+    Color color(CategoryRule r) {
+      final c = cat(r);
+      return c == null ? context.fin.subtle : Color(c.color);
+    }
+
+    Widget delete(CategoryRule r) => IconButton(
+      key: ValueKey('rules-delete-${r.id}'),
+      tooltip: 'Excluir regra',
+      visualDensity: VisualDensity.compact,
+      iconSize: 18,
+      icon: const Icon(Icons.delete_outline),
+      onPressed: () => runAction(
+        context,
+        () => fc.deleteCategoryRule(r),
+        success: 'Regra excluída',
+      ),
+    );
+
+    return SortGrid<CategoryRule>(
+      keyPrefix: 'rules',
+      rows: rules,
+      rowId: (r) => r.id,
+      accent: (context, r) => color(r),
+      onOpen: (r) => showRuleDialog(context, rule: r),
+      initialSort: 'pattern',
+      tieBreak: (a, b) => text(a.pattern, b.pattern),
+      columns: [
+        SortCol(
+          id: 'pattern',
+          label: 'Contém o texto',
+          width: 220,
+          minWidth: 140,
+          flexible: true,
+          fill: true,
+          compare: (a, b) => text(a.pattern, b.pattern),
+          cell: (context, r) => GridCell(
+            child: Text(
+              '“${r.pattern}”',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'category',
+          label: 'Categoria',
+          width: 240,
+          minWidth: 140,
+          flexible: true,
+          compare: (a, b) => text(label(a), label(b)),
+          cell: (context, r) => GridCell(
+            child: Row(
+              children: [
+                Icon(categoryIcon(cat(r)?.icon), size: 18, color: color(r)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label(r),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'kind',
+          label: 'Tipo',
+          width: 110,
+          compare: (a, b) => text(kind(a), kind(b)),
+          cell: (context, r) => GridCell(
+            child: NeonStatus(
+              label: kind(r),
+              color: cat(r)?.kind == CategoryKind.income
+                  ? context.fin.positive
+                  : cat(r) == null
+                  ? context.fin.subtle
+                  : context.fin.expense,
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'delete',
+          label: '',
+          width: 52,
+          cell: (context, r) => Center(child: delete(r)),
+        ),
+      ],
+      compactRow: (context, r) => Row(
+        children: [
+          Icon(categoryIcon(cat(r)?.icon), size: 20, color: color(r)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '“${r.pattern}”',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '→ ${label(r)} · ${kind(r)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: subtle,
+                ),
+              ],
+            ),
+          ),
+          delete(r),
+        ],
+      ),
+      footerLabel: (context, l) => Text(
+        '${l.length} ${l.length == 1 ? 'regra' : 'regras'}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: gridFooterLabelStyle(context),
+      ),
+      compactFooter: (context, l) => const SizedBox.shrink(),
     );
   }
 }
