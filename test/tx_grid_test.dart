@@ -1,6 +1,7 @@
 import 'package:financas_app/core/money.dart';
 import 'package:financas_app/domain/models/entities.dart';
 import 'package:financas_app/state/finance_controller.dart';
+import 'package:financas_app/ui/screens/transactions/transaction_details_screen.dart';
 import 'package:financas_app/ui/screens/transactions/transactions_screen.dart';
 import 'package:financas_app/ui/theme.dart';
 import 'package:financas_app/ui/widgets/tx_grid.dart';
@@ -263,5 +264,34 @@ void main() {
     // Tela estreita: colunas de texto encolhem antes de rolar.
     final l = GridLayout.of(900, GridColumnsConfig.standard);
     expect(l.totalWidth, closeTo(900, 0.01));
+  });
+
+  testWidgets('modo cartões: lançamentos agrupados por dia', (tester) async {
+    await setup(tester, const Size(1200, 800));
+    expect(find.text('DATA'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('tx-view-cards')));
+    await tester.pump();
+    expect(find.text('DATA'), findsNothing);
+    final card = find.byWidgetPredicate(
+      (w) =>
+          w.key is ValueKey<String> &&
+          (w.key! as ValueKey<String>).value.startsWith('tx-card-t1-'),
+    );
+    expect(card, findsOneWidget);
+    expect(
+      find.descendant(of: card, matching: find.text('Aluguel')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: card, matching: find.text('Pendente')),
+      findsOneWidget,
+    );
+    expect(find.text('Mercado'), findsOneWidget);
+
+    // Tocar no cartão abre os detalhes, como na grade.
+    await tester.tap(find.text('Aluguel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TransactionDetailsScreen), findsOneWidget);
   });
 }

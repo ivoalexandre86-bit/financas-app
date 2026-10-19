@@ -9,11 +9,13 @@ import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../import/expense_import_screen.dart';
+import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/invoice_tile.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
 import '../../widgets/tx_inline_edit.dart';
+import '../../widgets/view_mode.dart';
 import '../cards/invoice_details_screen.dart';
 import 'transaction_details_screen.dart';
 import 'transaction_form_screen.dart';
@@ -87,6 +89,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
   TxListFilter filter = const TxListFilter();
   QuickStatus quickStatus = QuickStatus.all;
   QuickType quickType = QuickType.all;
+  ViewMode view = ViewMode.grid;
   final searchCtrl = TextEditingController();
 
   /// Fatura selecionada com clique simples (desktop).
@@ -123,6 +126,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     'quickType': quickType.name,
     'sort': sort.name,
     'asc': ascending,
+    'view': view.name,
   };
 
   @override
@@ -149,6 +153,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
         FilterJson.enumOrNull(QuickType.values, j['quickType']) ?? quickType;
     sort = FilterJson.enumOrNull(GridColumn.values, j['sort']) ?? sort;
     ascending = j['asc'] as bool? ?? ascending;
+    view = FilterJson.enumOrNull(ViewMode.values, j['view']) ?? view;
   }
 
   @override
@@ -364,6 +369,11 @@ class _TransactionsScreenState extends State<TransactionsScreen>
               if (f != null) setFilters(() => filter = f);
             },
           ),
+          ViewModeToggle(
+            keyPrefix: 'tx',
+            mode: view,
+            onChanged: (v) => setFilters(() => view = v),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -420,14 +430,15 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                       child: const Text('Mostrar recorrências previstas'),
                     ),
                     const PopupMenuDivider(),
-                    const PopupMenuItem(
-                      value: 'columns',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.view_column_outlined),
-                        title: Text('Configurar colunas'),
+                    if (view == ViewMode.grid)
+                      const PopupMenuItem(
+                        value: 'columns',
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.view_column_outlined),
+                          title: Text('Configurar colunas'),
+                        ),
                       ),
-                    ),
                     const PopupMenuItem(
                       value: 'import',
                       child: ListTile(
@@ -484,6 +495,8 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                     onAction: () =>
                         push(context, const TransactionFormScreen()),
                   )
+                : view == ViewMode.cards
+                ? _cardsList(context, fc, items)
                 : LayoutBuilder(
                     builder: (context, box) {
                       final pad = box.maxWidth < 640 ? 8.0 : 16.0;
@@ -690,6 +703,154 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     },
   };
 
+  /// Rótulo e cor do status de um lançamento (grade e cartões).
+  static (String, Color) _txStatus(
+    BuildContext context,
+    FinancialEngine e,
+    FinTransaction tx,
+  ) {
+    final isIncome = tx.type == TransactionType.income;
+    return switch (tx.status) {
+      TransactionStatus.cancelled => ('Cancelada', context.fin.subtle),
+      TransactionStatus.completed => (
+        tx.isTransfer ? 'Concluída' : (isIncome ? 'Recebida' : 'Paga'),
+        context.fin.positive,
+      ),
+      _ when e.isOverdue(tx) => ('Atrasada', context.fin.negative),
+      TransactionStatus.planned => ('Prevista', context.colors.primary),
+      TransactionStatus.pending => ('Pendente', context.fin.warning),
+    };
+  }
+
+  /// Modo cartões: lançamentos agrupados por dia, um cartão por item.
+  Widget _cardsList(
+    BuildContext context,
+    FinanceController fc,
+    List<_Entry> items,
+  ) {
+    final e = fc.engine;
+    final days = <DateTime, List<_Entry>>{};
+    for (final it in items) {
+      days.putIfAbsent(Dates.dateOnly(it.date), () => []).add(it);
+    }
+    const wd = [
+      'segunda-feira',
+      'terça-feira',
+      'quarta-feira',
+      'quinta-feira',
+      'sexta-feira',
+      'sábado',
+      'domingo',
+    ];
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+      children: [
+        for (final MapEntry(key: day, value: list) in days.entries) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 8, 4, 4),
+            child: Text(
+              '${Dates.format(day)} · ${wd[day.weekday - 1]}',
+              style: context.text.labelLarge?.copyWith(
+                color: context.fin.subtle,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          for (final it in list)
+            switch (it) {
+              final _TxEntry it => _txCard(context, e, it),
+              final _InvoiceEntry it => Card(
+                margin: const EdgeInsets.symmetric(vertical: 3),
+                clipBehavior: Clip.antiAlias,
+                child: InvoiceTile(
+                  invoice: it.invoice,
+                  slice: it.slice,
+                  selected: selectedInvoice == it.key,
+                  onOpen: () => _openInvoice(it.invoice),
+                  onSelect: () => _select(it),
+                ),
+              ),
+            },
+        ],
+      ],
+    );
+  }
+
+  Widget _txCard(BuildContext context, FinancialEngine e, _TxEntry it) {
+    final tx = it.tx;
+    final cat = e.data.categoryById[tx.categoryId];
+    final isIncome = tx.type == TransactionType.income;
+    final color = tx.isTransfer
+        ? context.fin.subtle
+        : Color(cat?.color ?? context.fin.subtle.toARGB32());
+    final icon = tx.isTransfer ? Icons.swap_horiz : categoryIcon(cat?.icon);
+    final cancelled = tx.status == TransactionStatus.cancelled;
+    final (statusLabel, statusColor) = _txStatus(context, e, tx);
+    final subtitle = [
+      tx.isTransfer ? 'Transferência' : e.categoryLabel(tx.categoryId),
+      e.locationLabel(tx),
+      if (tx.isInstallment) 'Parcela ${tx.installmentLabel}',
+    ].join(' · ');
+    return Card(
+      key: ValueKey('tx-card-${tx.id}-${tx.date.toIso8601String()}'),
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        onTap: () => push(context, TransactionDetailsScreen(tx: tx)),
+        leading: CircleAvatar(
+          backgroundColor: color.withValues(alpha: 0.12),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                tx.description,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  decoration: cancelled ? TextDecoration.lineThrough : null,
+                ),
+              ),
+            ),
+            if (tx.isRecurring) ...[
+              const SizedBox(width: 6),
+              Icon(Icons.autorenew, size: 14, color: context.fin.subtle),
+            ],
+          ],
+        ),
+        subtitle: Text(
+          subtitle,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: context.text.bodySmall?.copyWith(color: context.fin.subtle),
+        ),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            MoneyText(
+              isIncome || tx.isTransfer ? it.amount : -it.amount,
+              showPlus: isIncome,
+              color: tx.isTransfer
+                  ? context.fin.subtle
+                  : isIncome
+                  ? context.fin.positive
+                  : context.fin.expense,
+              style: context.text.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                decoration: cancelled ? TextDecoration.lineThrough : null,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Pill(statusLabel, color: statusColor),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _txRow(
     BuildContext context,
     FinanceController fc,
@@ -714,18 +875,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     final cancelled = tx.status == TransactionStatus.cancelled;
     final completed = tx.status == TransactionStatus.completed;
     final overdue = e.isOverdue(tx);
-    final (statusLabel, statusColor) = cancelled
-        ? ('Cancelada', context.fin.subtle)
-        : completed
-        ? (
-            tx.isTransfer ? 'Concluída' : (isIncome ? 'Recebida' : 'Paga'),
-            context.fin.positive,
-          )
-        : overdue
-        ? ('Atrasada', context.fin.negative)
-        : tx.status == TransactionStatus.planned
-        ? ('Prevista', context.colors.primary)
-        : ('Pendente', context.fin.warning);
+    final (statusLabel, statusColor) = _txStatus(context, e, tx);
     // Status direto na grade, em lista suspensa. Compras no cartão seguem
     // o status da fatura.
     final canPick = tx.cardId == null;
