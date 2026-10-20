@@ -9,9 +9,10 @@ const crypto = require('crypto');
 const { validSignature } = require('./meta');
 const {
   buildContext,
-  normalizeDraft,
+  normalizeDrafts,
   buildDocs,
   formatSummary,
+  formatBatch,
   todayIso,
 } = require('./ledger');
 const {
@@ -400,8 +401,25 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
       previous: editing ? toPrompt(editing.draft) : undefined,
       ctx,
     });
-    const { draft, error } = normalizeDraft(raw, ctx);
-    if (!draft) return meta.sendText(from, error || HELP);
+    const read = normalizeDrafts(raw, ctx);
+    if (!read.drafts) return meta.sendText(from, read.error || HELP);
+
+    // Print com várias compras: as que já estão no app ficam de fora.
+    let drafts = read.drafts;
+    let duplicates = 0;
+    if (drafts.length > 1) {
+      const known = await existing(user.id, drafts);
+      const fresh = drafts.filter((d) => !known.has(`${d.date}|${d.amount}`));
+      duplicates = drafts.length - fresh.length;
+      if (!fresh.length) {
+        return meta.sendText(
+          from,
+          'Todos os lançamentos desse print já estão no app. Nada novo para lançar.',
+        );
+      }
+      drafts = fresh;
+    }
+    const draft = drafts.length === 1 ? drafts[0] : { items: drafts };
 
     let id;
     if (editing) {
@@ -416,6 +434,21 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
       await pool.query(
         `insert into whatsapp_drafts (id, user_id, wa_id, draft) values ($1, $2, $3, $4)`,
         [id, user.id, from, draft],
+      );
+    }
+    if (draft.items) {
+      // O corpo da mensagem com botões tem limite de 1.024 caracteres:
+      // a lista vai num texto e os botões numa mensagem curta.
+      await meta.sendText(from, formatBatch(draft.items, ctx, duplicates));
+      return meta.sendButtons(
+        from,
+        `Lançar os ${draft.items.length}? Para mudar algum, toque em Corrigir ` +
+          '(ex.: "tira o 3", "o 2 é Lazer").',
+        [
+          { id: `ok:${id}`, title: 'Lançar todos' },
+          { id: `edit:${id}`, title: 'Corrigir' },
+          { id: `no:${id}`, title: 'Cancelar' },
+        ],
       );
     }
     // Despesa à vista de quem administra um grupo: pode ir só para o
@@ -439,9 +472,30 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
     ]);
   }
 
+  /// "data|valor" dos lançamentos que já existem no app nas datas do print
+  /// (compras parceladas contam pelo total e pela data da compra).
+  async function existing(userId, drafts) {
+    const dates = [...new Set(drafts.map((d) => d.date))];
+    const { rows } = await pool.query(
+      `select coll, data from app_docs
+       where user_id = $1 and not deleted
+         and ((coll = 'transactions' and data->>'installmentGroupId' is null
+               and data->>'date' = any($2))
+           or (coll = 'installmentGroups' and data->>'purchaseDate' = any($2)))`,
+      [userId, dates],
+    );
+    return new Set(
+      rows.map(({ coll, data }) =>
+        coll === 'transactions'
+          ? `${data.date}|${data.amount}`
+          : `${data.purchaseDate}|${data.totalAmount}`,
+      ),
+    );
+  }
+
   /// Grupos/categorias onde o rascunho pode ser compartilhado.
   async function shareChoices(userId, draft) {
-    if (!shared || draft.type !== 'expense' || draft.installments > 1) return [];
+    if (!shared || draft.items || draft.type !== 'expense' || draft.installments > 1) return [];
     return shared.shareOptions(userId, draft.categoryId);
   }
 
@@ -554,7 +608,8 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
       }
       if (action === 'ok' || option) {
         const ctx = await loadContext(user.id);
-        const docs = buildDocs(d.draft, ctx.today);
+        const items = d.draft.items ?? [d.draft];
+        const docs = items.flatMap((item) => buildDocs(item, ctx.today));
         for (const doc of docs) {
           await client.query(
             `insert into app_docs (user_id, coll, id, data) values ($1, $2, $3, $4)`,
@@ -567,7 +622,11 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
         );
         await client.query('commit');
         if (option) return shareSaved(from, user, docs[0].data, option);
-        return meta.sendText(from, 'Lançado ✅ Já aparece no app (atualize a tela se ele estiver aberto).');
+        return meta.sendText(
+          from,
+          `${items.length > 1 ? `${items.length} lançamentos gravados` : 'Lançado'} ✅ ` +
+            'Já aparece no app (atualize a tela se ele estiver aberto).',
+        );
       }
       const state = action === 'edit' ? 'editing' : 'cancelled';
       if (state === 'editing') {
@@ -586,7 +645,9 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
       return meta.sendText(
         from,
         state === 'editing'
-          ? 'O que devo corrigir? Ex.: "valor 50", "categoria Transporte", "no cartão Nubank", "data 03/10", "em 2x".'
+          ? d.draft.items
+            ? 'O que devo corrigir? Ex.: "tira o 3", "o 2 é Lazer", "todos no cartão Nubank", "o 5 é em 3x".'
+            : 'O que devo corrigir? Ex.: "valor 50", "categoria Transporte", "no cartão Nubank", "data 03/10", "em 2x".'
           : 'Cancelado. Nada foi lançado.',
       );
     } catch (e) {
@@ -599,7 +660,9 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
 }
 
 /// Rascunho no vocabulário do esquema da IA (valor em reais).
-const toPrompt = (d) => ({
+const toPrompt = (d) => (d.items ? { items: d.items.map(itemPrompt) } : itemPrompt(d));
+
+const itemPrompt = (d) => ({
   type: d.type,
   amount: d.amount / 100,
   description: d.description,

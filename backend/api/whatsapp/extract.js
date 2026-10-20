@@ -5,12 +5,11 @@ const Anthropic = require('@anthropic-ai/sdk');
 
 const nullable = (schema) => ({ anyOf: [schema, { type: 'null' }] });
 
-const SCHEMA = {
+/** Um lançamento lido pela IA (valor em reais). */
+const ITEM = {
   type: 'object',
   additionalProperties: false,
   required: [
-    'is_transaction',
-    'reply',
     'type',
     'amount',
     'description',
@@ -22,8 +21,6 @@ const SCHEMA = {
     'notes',
   ],
   properties: {
-    is_transaction: { type: 'boolean' },
-    reply: { type: 'string' },
     type: { type: 'string', enum: ['expense', 'income'] },
     amount: { type: 'number' },
     description: { type: 'string' },
@@ -36,9 +33,22 @@ const SCHEMA = {
   },
 };
 
+const SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['is_transaction', 'reply', 'items'],
+  properties: {
+    is_transaction: { type: 'boolean' },
+    reply: { type: 'string' },
+    items: { type: 'array', items: ITEM },
+  },
+};
+
 const SYSTEM = `Você registra despesas e receitas no app de finanças pessoais do usuário a partir de mensagens de WhatsApp em português do Brasil (texto, áudio transcrito, foto de cupom fiscal, nota, comprovante de Pix ou boleto pago).
 
-Extraia um único lançamento:
+Extraia os lançamentos em items. Um gasto citado, um cupom ou um comprovante viram um único item. Print de extrato, fatura ou app do banco com várias compras vira um item por compra, cada uma com a sua data (a do cabeçalho do dia, quando houver), na ordem em que aparecem. Fique de fora: pagamento de fatura, saldo, limite, totais e subtotais. IOF e tarifas que aparecem como linha própria são itens próprios. Valores em dólar: use o valor em reais mostrado.
+
+Em cada item:
 - type: "expense" para gastos/pagamentos, "income" para salário, recebimentos, Pix recebido, reembolsos.
 - amount: valor total em reais, positivo (ex.: 45.9). Em cupom fiscal, use o TOTAL pago (com descontos), não a soma de itens nem o troco.
 - description: curta e útil, como o usuário escreveria (ex.: "Mercado Pão de Açúcar", "Uber", "Salário"). Em cupom, use o nome do estabelecimento.
@@ -46,10 +56,10 @@ Extraia um único lançamento:
 - category_id: o id da categoria mais adequada da lista do usuário, do mesmo tipo (despesa/receita). null se nenhuma servir.
 - card_id: id do cartão quando o usuário falar em cartão/crédito/fatura ou citar o nome de um cartão da lista; o comprovante mostrar compra no crédito também conta. Só para despesas.
 - account_id: id da conta citada (débito, Pix, dinheiro, nome do banco). null se não der para saber.
-- installments: número de parcelas ("em 3x", "parcelado em 10") ou 1.
+- installments: número de parcelas ("em 3x", "parcelado em 10", "EM 2X" no extrato) ou 1. amount é sempre o total da compra; se só aparecer o valor da parcela ("2x de 60,57"), multiplique.
 - notes: detalhes úteis que não couberam na descrição (pode ficar vazio).
 
-Use somente ids que aparecem nas listas. Se a mensagem não for um lançamento (cumprimento, pergunta, assunto sem relação) ou não der para identificar o valor, responda is_transaction=false e escreva em reply uma resposta curta em português explicando que você registra despesas e receitas, com um exemplo ("gastei 45,90 no mercado no cartão Nubank"), e que "resumo" mostra como está o mês. Nesse caso preencha os demais campos com valores neutros (amount 0, textos vazios, ids null, installments 1, type "expense", date de hoje). Não responda a outros assuntos.`;
+Use somente ids que aparecem nas listas. Se a mensagem não for um lançamento (cumprimento, pergunta, assunto sem relação) ou não der para identificar o valor, responda is_transaction=false e escreva em reply uma resposta curta em português explicando que você registra despesas e receitas, com um exemplo ("gastei 45,90 no mercado no cartão Nubank"), e que "resumo" mostra como está o mês. Nesse caso deixe items vazio. Não responda a outros assuntos.`;
 
 function contextText(ctx) {
   const list = (items, fmt) =>
@@ -115,12 +125,16 @@ function createExtractor({
       }
     }
     if (previous) {
+      const many = Array.isArray(previous.items) && previous.items.length > 1;
       content.push({
         type: 'text',
         text:
-          'Lançamento em edição (JSON):\n' +
+          `${many ? 'Lançamentos em edição, numerados a partir de 1' : 'Lançamento em edição'} (JSON):\n` +
           JSON.stringify(previous) +
-          '\n\nAplique a correção do usuário abaixo e devolva o lançamento completo atualizado.',
+          '\n\nAplique a correção do usuário abaixo e devolva ' +
+          (many
+            ? 'a lista completa atualizada em items (sem os itens que ele pedir para tirar).'
+            : 'o lançamento completo atualizado.'),
       });
     }
     content.push({
@@ -131,7 +145,7 @@ function createExtractor({
     const chosen = media ? mediaModel : model;
     const res = await client.beta.messages.create({
       model: chosen,
-      max_tokens: 4000,
+      max_tokens: 8000,
       ...(supportsFallback(chosen)
         ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }
         : {}),
@@ -155,4 +169,4 @@ function createExtractor({
   };
 }
 
-module.exports = { createExtractor, SCHEMA, contextText, TEXT_MODEL, MEDIA_MODEL };
+module.exports = { createExtractor, SCHEMA, ITEM, contextText, TEXT_MODEL, MEDIA_MODEL };
