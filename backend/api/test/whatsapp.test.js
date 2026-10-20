@@ -12,8 +12,10 @@ const {
   splitCents,
   buildContext,
   normalizeDraft,
+  normalizeDrafts,
   buildDocs,
   formatSummary,
+  formatBatch,
   todayIso,
 } = require('../whatsapp/ledger');
 
@@ -40,6 +42,35 @@ const raw = (over = {}) => ({
   installments: 1,
   notes: '',
   ...over,
+});
+
+const batch = (...items) => ({ is_transaction: true, reply: '', items: items.map((i) => {
+  const { is_transaction: _t, reply: _r, ...item } = raw(i);
+  return item;
+}) });
+
+test('print com várias compras vira vários rascunhos', () => {
+  const { drafts, skipped } = normalizeDrafts(
+    batch(
+      { description: 'Posto', amount: 131.98, card_id: 'card_1', date: '2026-10-04' },
+      { description: 'Farmácia', amount: 121.14, card_id: 'card_1', installments: 2 },
+      { description: 'Sem valor', amount: 0 },
+    ),
+    ctx,
+  );
+  assert.equal(skipped, 1);
+  assert.deepEqual(drafts.map((d) => [d.description, d.amount, d.installments]), [
+    ['Posto', 13198, 1],
+    ['Farmácia', 12114, 2],
+  ]);
+  const text = formatBatch(drafts, ctx, 2);
+  assert.match(text, /2 lançamentos\* · total R\$\s?253,12 · 💳 Nubank/);
+  assert.match(text, /1\. 04\/10 Posto · \*R\$\s?131,98\* · Alimentação/);
+  assert.match(text, /2\. 05\/10 Farmácia · \*R\$\s?121,14\* em 2x/);
+  assert.match(text, /2 lançamentos já estavam no app e ficaram de fora/);
+  // normalizeDraft (leitura no app) fica com o primeiro item.
+  assert.equal(normalizeDraft(batch({ amount: 10 }, { amount: 20 }), ctx).draft.amount, 1000);
+  assert.ok(normalizeDrafts({ is_transaction: true, reply: 'Nada', items: [] }, ctx).error);
 });
 
 test('datas e divisão em parcelas seguem o app', () => {
@@ -339,6 +370,45 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
     assert.equal(extracted.at(-1).text, 'almoço');
     await deliver('5511999990000', { type: 'audio', audio: { id: 'm2' } });
     assert.match(sent[0].text, /Áudio ainda não está ativado/);
+  });
+
+  await t.test('print com várias compras: lista, pula as já lançadas e grava todas', async () => {
+    const before = await pool.query(`select count(*)::int as n from app_docs where coll = 'transactions'`);
+    nextRaw = batch(
+      { description: 'Tênis', amount: 120, card_id: 'card_1', installments: 3 },
+      { description: 'Posto', amount: 131.98, card_id: 'card_1', date: '2026-10-04' },
+      { description: 'Farmácia', amount: 121.14, card_id: 'card_1', installments: 2 },
+      { description: 'Padaria', amount: 37.66, card_id: 'card_1' },
+    );
+    await deliver('5511999990000', { type: 'image', image: { id: 'm9' } });
+    assert.match(sent[0].text, /3 lançamentos\* · total R\$\s?290,78 · 💳 Nubank/);
+    assert.match(sent[0].text, /1 lançamento já estava no app/);
+    assert.doesNotMatch(sent[0].text, /Tênis/);
+    assert.deepEqual(sent[1].buttons.map((b) => b.title), ['Lançar todos', 'Corrigir', 'Cancelar']);
+    const id = sent[1].buttons[1].id.split(':')[1];
+
+    await deliver('5511999990000', button(`edit:${id}`));
+    assert.match(sent[0].text, /tira o 3/);
+    nextRaw = batch(
+      { description: 'Posto', amount: 131.98, card_id: 'card_1', date: '2026-10-04' },
+      { description: 'Farmácia', amount: 121.14, card_id: 'card_1', installments: 2 },
+    );
+    await deliver('5511999990000', text('tira o 3'));
+    assert.deepEqual(extracted.at(-1).previous.items.map((i) => i.description), ['Posto', 'Farmácia', 'Padaria']);
+    assert.match(sent[0].text, /2 lançamentos\*/);
+
+    await deliver('5511999990000', button(`ok:${id}`));
+    assert.match(sent[0].text, /2 lançamentos gravados ✅/);
+    const after = await pool.query(`select count(*)::int as n from app_docs where coll = 'transactions'`);
+    assert.equal(after.rows[0].n - before.rows[0].n, 3); // 1 à vista + 2 parcelas
+
+    // O mesmo print de novo: nada novo.
+    nextRaw = batch(
+      { description: 'Posto', amount: 131.98, card_id: 'card_1', date: '2026-10-04' },
+      { description: 'Farmácia', amount: 121.14, card_id: 'card_1', installments: 2 },
+    );
+    await deliver('5511999990000', { type: 'image', image: { id: 'm10' } });
+    assert.match(sent[0].text, /já estão no app/);
   });
 
   await t.test('reentrega da mesma mensagem é ignorada', async () => {

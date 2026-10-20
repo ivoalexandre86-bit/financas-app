@@ -76,14 +76,50 @@ function buildContext(docs, now = new Date()) {
   };
 }
 
+/** Máximo de lançamentos lidos de uma mensagem (print de extrato). */
+const MAX_ITEMS = 40;
+
+/// Itens devolvidos pela IA; aceita também o formato antigo, de um só.
+const itemsOf = (raw) => (Array.isArray(raw?.items) ? raw.items : [raw]);
+
 /**
- * Confere e completa o que a IA devolveu. Retorna `{draft}` pronto para
- * confirmar ou `{error}` com uma mensagem para o usuário.
+ * Confere e completa o primeiro lançamento que a IA devolveu. Retorna
+ * `{draft}` pronto para confirmar ou `{error}` com uma mensagem para o usuário.
  */
 function normalizeDraft(raw, ctx) {
   if (!raw || raw.is_transaction !== true) {
     return { error: String(raw?.reply ?? '').trim() || null };
   }
+  const [first] = itemsOf(raw);
+  if (!first) return { error: String(raw.reply ?? '').trim() || null };
+  return normalizeItem(first, ctx);
+}
+
+/**
+ * Todos os lançamentos da mensagem. Retorna `{drafts, skipped}` (itens sem
+ * valor ficam de fora) ou `{error}`.
+ */
+function normalizeDrafts(raw, ctx) {
+  if (!raw || raw.is_transaction !== true) {
+    return { error: String(raw?.reply ?? '').trim() || null };
+  }
+  const drafts = [];
+  let error = null;
+  let skipped = 0;
+  for (const item of itemsOf(raw).slice(0, MAX_ITEMS)) {
+    const r = normalizeItem(item, ctx);
+    if (r.draft) drafts.push(r.draft);
+    else {
+      skipped++;
+      error ??= r.error;
+    }
+  }
+  if (!drafts.length) return { error: error || String(raw.reply ?? '').trim() || null };
+  return { drafts, skipped };
+}
+
+function normalizeItem(raw, ctx) {
+  if (!raw) return { error: null };
   const type = raw.type === 'income' ? 'income' : 'expense';
   const amount = Math.round(Number(raw.amount) * 100);
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -226,6 +262,38 @@ const brl = (cents) =>
 
 const brDate = (iso) => iso.split('-').reverse().join('/');
 
+/// Lista de vários lançamentos (print de extrato) para conferir.
+/// `duplicates`: quantos já existiam no app e ficaram de fora.
+function formatBatch(drafts, ctx, duplicates = 0) {
+  const total = drafts.reduce((s, d) => s + (d.type === 'income' ? -d.amount : d.amount), 0);
+  const where = (d) =>
+    d.cardId
+      ? `💳 ${ctx.cards.find((x) => x.id === d.cardId)?.name ?? 'Cartão'}`
+      : `🏦 ${ctx.accounts.find((x) => x.id === d.accountId)?.name ?? 'Conta'}`;
+  const places = new Set(drafts.map(where));
+  const same = places.size === 1 ? [...places][0] : null;
+  const lines = [`📋 *${drafts.length} lançamentos* · total ${brl(Math.abs(total))}${same ? ` · ${same}` : ''}`, ''];
+  drafts.forEach((d, i) => {
+    const cat = ctx.categories.find((c) => c.id === d.categoryId);
+    const parts = [
+      `${i + 1}. ${brDate(d.date).slice(0, 5)} ${d.description}`,
+      `*${d.type === 'income' ? '+' : ''}${brl(d.amount)}*${d.installments > 1 ? ` em ${d.installments}x` : ''}`,
+      cat ? cat.name : 'Sem categoria',
+    ];
+    if (!same) parts.push(where(d));
+    lines.push(parts.join(' · '));
+  });
+  if (duplicates) {
+    lines.push(
+      '',
+      duplicates === 1
+        ? '1 lançamento já estava no app e ficou de fora.'
+        : `${duplicates} lançamentos já estavam no app e ficaram de fora.`,
+    );
+  }
+  return lines.join('\n');
+}
+
 /// Resumo mostrado no WhatsApp antes de confirmar.
 function formatSummary(draft, ctx) {
   const lines = [
@@ -257,7 +325,9 @@ module.exports = {
   splitCents,
   buildContext,
   normalizeDraft,
+  normalizeDrafts,
   buildDocs,
   formatSummary,
+  formatBatch,
   brl,
 };
