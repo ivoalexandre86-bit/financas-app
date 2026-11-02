@@ -62,6 +62,17 @@ function whatsAppFromEnv(env) {
     // aprovado (nome em WHATSAPP_REMINDER_TEMPLATE, um parâmetro no corpo).
     startReminders: env.WHATSAPP_REMINDERS !== 'false',
     reminderTemplate: env.WHATSAPP_REMINDER_TEMPLATE || undefined,
+    // Lembrete de boleto com botões Pagar agora / Já paguei (modelo com 3
+    // parâmetros: descrição, valor, vencimento; 2 botões de resposta rápida).
+    boletoTemplate: env.WHATSAPP_BOLETO_TEMPLATE || undefined,
+    // Página de pagamento e retorno do Open Finance.
+    publicUrl: env.PUBLIC_API_URL || env.RENDER_EXTERNAL_URL || undefined,
+    // Pagamento do Pix do boleto pelo Open Finance: precisa que a Pluggy
+    // libere a iniciação de pagamentos para o cliente.
+    payments: {
+      enabled: env.PLUGGY_PAYMENTS === 'true',
+      sandbox: env.PLUGGY_PAYMENTS_SANDBOX === 'true',
+    },
     monthlyLimit: Number(env.WHATSAPP_MONTHLY_LIMIT) || undefined,
     freeMonthlyLimit: Number(env.WHATSAPP_FREE_MONTHLY_LIMIT) || undefined,
     transcribe: env.OPENAI_API_KEY

@@ -6,7 +6,7 @@
 // whatsappBudgetAlerts). Cada aviso é enviado uma única vez
 // (tabela whatsapp_reminders_sent).
 
-const { brl, todayIso } = require('./ledger');
+const { brl, brDate, todayIso } = require('./ledger');
 const { computeSummary, invoiceForTx } = require('./summary');
 
 const SEND_HOUR = 8; // horário de Brasília
@@ -64,6 +64,41 @@ function nextYm(key) {
   return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}`;
 }
 
+/** Despesa em conta com código para pagar (boleto ou Pix), em aberto. */
+const isOpenBoleto = (t) =>
+  (t.boletoCode || t.pixCode) && t.type === 'expense' && !t.cardId &&
+  t.status !== 'completed' && t.status !== 'cancelled';
+
+/** Dias depois do vencimento em que ainda vale lembrar uma vez. */
+const OVERDUE_DAYS = 5;
+
+/**
+ * Boletos para lembrar hoje, um aviso por boleto e fase: na véspera, no
+ * dia e uma vez depois de vencido.
+ * @returns {{key: string, tx: object, text: string}[]}
+ */
+function buildBoletoReminders(docs, today) {
+  const tomorrow = addDays(today, 1);
+  const out = [];
+  for (const t of docs.transactions ?? []) {
+    if (!isOpenBoleto(t)) continue;
+    const due = t.dueDate ?? t.date;
+    let phase;
+    let when;
+    if (due === tomorrow) [phase, when] = ['antes', `vence *amanhã* (${brDate(due).slice(0, 5)})`];
+    else if (due === today) [phase, when] = ['hoje', 'vence *hoje*'];
+    else if (due < today && due >= addDays(today, -OVERDUE_DAYS)) {
+      [phase, when] = ['atraso', `venceu em ${brDate(due).slice(0, 5)} e ainda está em aberto`];
+    } else continue;
+    out.push({
+      key: `boleto:${t.id}:${due}:${phase}`,
+      tx: t,
+      text: `🧾 O boleto *${t.description}* de *${brl(t.amount)}* ${when}. Quer pagar agora?`,
+    });
+  }
+  return out.sort((a, b) => (a.tx.dueDate ?? a.tx.date).localeCompare(b.tx.dueDate ?? b.tx.date));
+}
+
 /**
  * Avisos do dia para um usuário.
  * @returns {{key: string, text: string}[]} cada aviso com sua chave única
@@ -71,7 +106,9 @@ function nextYm(key) {
 function buildReminders(docs, today, { bills = true, budgets = true } = {}) {
   const out = [];
   if (bills) {
-    const s = computeSummary(docs, ym(today), today);
+    // Boletos com código têm aviso próprio, com botão de pagar.
+    const rest = { ...docs, transactions: (docs.transactions ?? []).filter((t) => !isOpenBoleto(t)) };
+    const s = computeSummary(rest, ym(today), today);
     const tomorrow = addDays(today, 1);
     const soon = s.upcoming.filter((u) => u.date <= tomorrow);
     if (soon.length || s.overdue.count) {
@@ -113,12 +150,54 @@ function buildReminders(docs, today, { bills = true, budgets = true } = {}) {
  * 8h (Brasília). Idempotente: pode rodar em mais de uma instância.
  * @param {{pool: import('pg').Pool, getMeta: () => any, template?: string}} deps
  */
-function createReminderJob({ pool, getMeta, template, now = () => new Date() }) {
+function createReminderJob({
+  pool,
+  getMeta,
+  template,
+  boletoTemplate,
+  payments,
+  now = () => new Date(),
+}) {
+  const oneLine = (text) => text.replace(/\s*\n+\s*/g, ' · ');
+
   async function send(meta, to, text) {
     if (!template) return meta.sendText(to, text);
     // Fora da janela de 24h a Meta só entrega modelos aprovados. O parâmetro
     // não aceita quebras de linha.
-    return meta.sendTemplate(to, template, [text.replace(/\s*\n+\s*/g, ' · ')]);
+    return meta.sendTemplate(to, template, [oneLine(text)]);
+  }
+
+  /// Dentro da janela de 24h vão botões; fora dela, o modelo de boleto
+  /// (com botões de resposta rápida) ou o modelo genérico com instruções.
+  async function sendBoleto(meta, link, item) {
+    const t = item.tx;
+    const open = link.last_inbound_at &&
+      now() - new Date(link.last_inbound_at) < 23 * 3600 * 1000;
+    if (open || (!template && !boletoTemplate)) {
+      return meta.sendButtons(link.wa_id, item.text, [
+        { id: `bpay:${t.id}`, title: 'Pagar agora' },
+        { id: `bpaid:${t.id}`, title: 'Já paguei' },
+      ]);
+    }
+    if (boletoTemplate) {
+      return meta.sendTemplateComponents(link.wa_id, boletoTemplate, [
+        {
+          type: 'body',
+          parameters: [t.description, brl(t.amount), brDate(t.dueDate ?? t.date)].map((v) => ({
+            type: 'text',
+            text: String(v).slice(0, 100),
+          })),
+        },
+        { type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: `bpay:${t.id}` }] },
+        { type: 'button', sub_type: 'quick_reply', index: '1', parameters: [{ type: 'payload', payload: `bpaid:${t.id}` }] },
+      ]);
+    }
+    return send(
+      meta,
+      link.wa_id,
+      `${item.text.replace(/\*/g, '').replace(' Quer pagar agora?', '')} ` +
+        'Para pagar por aqui, responda pagar. Se já pagou, responda paguei.',
+    );
   }
 
   async function runOnce() {
@@ -134,8 +213,11 @@ function createReminderJob({ pool, getMeta, template, now = () => new Date() }) 
     );
     if (hour < SEND_HOUR) return 0;
     const today = todayIso(at);
+    if (payments?.checkPending) {
+      await payments.checkPending().catch((e) => console.error('Boletos:', e.message));
+    }
     const { rows: links } = await pool.query(
-      `select l.wa_id, l.user_id, d.data as settings
+      `select l.wa_id, l.user_id, l.last_inbound_at, d.data as settings
          from whatsapp_links l
          join app_docs d on d.user_id = l.user_id and d.coll = 'settings'
                         and d.id = 'app' and not d.deleted
@@ -163,10 +245,13 @@ function createReminderJob({ pool, getMeta, template, now = () => new Date() }) 
     );
     const docs = {};
     for (const r of rows) (docs[r.coll] ??= []).push(r.data);
+    const bills = link.settings?.whatsappReminders === true;
     const items = buildReminders(docs, today, {
-      bills: link.settings?.whatsappReminders === true,
+      bills,
       budgets: link.settings?.whatsappBudgetAlerts === true,
     });
+    const boletos = bills ? buildBoletoReminders(docs, today) : [];
+    items.push(...boletos);
     if (!items.length) return 0;
     const { rows: done } = await pool.query(
       'select key from whatsapp_reminders_sent where user_id = $1 and key = any($2)',
@@ -182,19 +267,37 @@ function createReminderJob({ pool, getMeta, template, now = () => new Date() }) 
       [link.user_id, fresh.map((i) => i.key)],
     );
     const mine = new Set(claimed.map((r) => r.key));
-    const text = fresh.filter((i) => mine.has(i.key)).map((i) => i.text);
-    if (!text.length) return 0;
-    try {
-      await send(meta, link.wa_id, `⏰ ${text.join('\n')}`);
-    } catch (e) {
-      // Não enviado: libera para tentar de novo na próxima rodada.
-      await pool.query(
+    const ours = fresh.filter((i) => mine.has(i.key));
+    const release = (keys) =>
+      pool.query(
         'delete from whatsapp_reminders_sent where user_id = $1 and key = any($2)',
-        [link.user_id, [...mine]],
+        [link.user_id, keys],
       );
-      throw e;
+    let sent = 0;
+    let error = null;
+    const plain = ours.filter((i) => !i.tx);
+    if (plain.length) {
+      try {
+        await send(meta, link.wa_id, `⏰ ${plain.map((i) => i.text).join('\n')}`);
+        sent++;
+      } catch (e) {
+        // Não enviado: libera para tentar de novo na próxima rodada.
+        await release(plain.map((i) => i.key));
+        error = e;
+      }
     }
-    return 1;
+    for (const item of ours.filter((i) => i.tx)) {
+      try {
+        await sendBoleto(meta, link, item);
+        sent++;
+      } catch (e) {
+        await release([item.key]);
+        error ??= e;
+      }
+    }
+    if (error && !sent) throw error;
+    if (error) console.error(`Lembretes: falha parcial para ${link.user_id}`, error.message);
+    return sent;
   }
 
   return {
@@ -207,4 +310,10 @@ function createReminderJob({ pool, getMeta, template, now = () => new Date() }) 
   };
 }
 
-module.exports = { buildReminders, createReminderJob, realizedByRoot };
+module.exports = {
+  buildReminders,
+  buildBoletoReminders,
+  createReminderJob,
+  realizedByRoot,
+  isOpenBoleto,
+};

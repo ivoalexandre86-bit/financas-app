@@ -505,7 +505,7 @@ function createApp({
   }));
 
   const shared = mountShared(app, { pool, authed, wrap, HttpError, accessOf });
-  mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared });
+  mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, jwtSecret, pluggy });
   mountAi(app, { pool, authed, wrap, HttpError, ai });
 
   // Erros -------------------------------------------------------------------
