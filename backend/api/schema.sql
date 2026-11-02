@@ -60,6 +60,22 @@ create table if not exists whatsapp_links (
   created_at timestamptz not null default now()
 );
 
+-- Última mensagem recebida do número: dentro de 24 h o bot pode mandar
+-- botões; fora disso, só modelos aprovados.
+alter table whatsapp_links add column if not exists last_inbound_at timestamptz;
+
+-- Pagamentos de boleto iniciados pelo Open Finance (Pluggy).
+create table if not exists boleto_payments (
+  request_id  text primary key,
+  user_id     uuid not null references users (id) on delete cascade,
+  tx_id       text not null,
+  wa_id       text,
+  status      text not null default 'CREATED',
+  payment_url text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
 -- Código de vínculo gerado no app e enviado pelo WhatsApp ("VINCULAR 123456").
 create table if not exists whatsapp_link_codes (
   user_id    uuid primary key references users (id) on delete cascade,

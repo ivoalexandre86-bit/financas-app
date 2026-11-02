@@ -19,6 +19,8 @@ const ITEM = {
     'card_id',
     'installments',
     'notes',
+    'boleto_code',
+    'pix_code',
   ],
   properties: {
     type: { type: 'string', enum: ['expense', 'income'] },
@@ -30,6 +32,8 @@ const ITEM = {
     card_id: nullable({ type: 'string' }),
     installments: { type: 'integer' },
     notes: { type: 'string' },
+    boleto_code: nullable({ type: 'string' }),
+    pix_code: nullable({ type: 'string' }),
   },
 };
 
@@ -58,6 +62,7 @@ Em cada item:
 - account_id: id da conta citada (débito, Pix, dinheiro, nome do banco). null se não der para saber.
 - installments: número de parcelas ("em 3x", "parcelado em 10", "EM 2X" no extrato) ou 1. amount é sempre o total da compra; se só aparecer o valor da parcela ("2x de 60,57"), multiplique.
 - notes: detalhes úteis que não couberam na descrição (pode ficar vazio).
+- boleto_code e pix_code: só para conta A PAGAR (boleto, fatura de concessionária, cobrança com Pix ainda não paga; não para comprovante de pagamento). boleto_code = a linha digitável completa, só os dígitos (47 no boleto bancário, 48 em água/luz/telefone/impostos, começando com 8), copiada dígito a dígito; se não der para ler todos com certeza, null. pix_code = o texto do Pix copia e cola, se aparecer escrito (começa com 000201), exatamente como está; senão null. Também vale quando o usuário colar a linha digitável ou o Pix por texto. Nesses casos: type "expense", date = data de VENCIMENTO, amount = valor do documento, card_id null. Em qualquer outro lançamento, os dois ficam null.
 
 Use somente ids que aparecem nas listas. Se a mensagem não for um lançamento (cumprimento, pergunta, assunto sem relação) ou não der para identificar o valor, responda is_transaction=false e escreva em reply uma resposta curta em português explicando que você registra despesas e receitas, com um exemplo ("gastei 45,90 no mercado no cartão Nubank"), e que "resumo" mostra como está o mês. Nesse caso deixe items vazio. Não responda a outros assuntos.`;
 

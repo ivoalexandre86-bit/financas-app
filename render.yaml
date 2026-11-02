@@ -30,6 +30,10 @@ services:
         sync: false
       - key: PLUGGY_CLIENT_SECRET
         sync: false
+      # Pagar o Pix do boleto pelo Open Finance: "true" depois que a Pluggy
+      # liberar a iniciação de pagamentos para o cliente.
+      - key: PLUGGY_PAYMENTS
+        sync: false
       # Lançamentos pelo WhatsApp (opcional; preencha no painel do Render).
       - key: WHATSAPP_TOKEN
         sync: false
