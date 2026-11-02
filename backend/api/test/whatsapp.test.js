@@ -351,6 +351,15 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
     assert.match(sent[0].text, /Resumo de março\/2030/);
   });
 
+  await t.test('pergunta de compra parcelada responde sem passar pela IA', async () => {
+    const before = extracted.length;
+    await deliver('5511999990000', text('Cabe uma TV de 2.400 em 12x?'));
+    assert.equal(extracted.length, before);
+    assert.match(sent[0].text, /Compra de R\$\s?2\.400,00 em 12x de R\$\s?200,00/);
+    await deliver('5511999990000', text('posso comprar um sofá em 10x?'));
+    assert.match(sent[0].text, /Qual o valor da compra/);
+  });
+
   await t.test('Cancelar e mensagens que não são lançamento', async () => {
     nextRaw = raw();
     await deliver('5511999990000', text('mercado 45,90'));
