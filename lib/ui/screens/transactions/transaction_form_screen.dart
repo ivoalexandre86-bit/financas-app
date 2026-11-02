@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/dates.dart';
@@ -7,6 +8,7 @@ import '../../../core/ids.dart';
 import '../../../core/money.dart';
 import '../../../data/cloud/ai_api.dart';
 import '../../../domain/models/entities.dart';
+import '../../../domain/models/pay_code.dart';
 import '../../../state/finance_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
@@ -63,6 +65,9 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   late final TextEditingController amount;
   late final TextEditingController description;
   late final TextEditingController notes;
+
+  /// Linha digitável ou Pix copia e cola da conta a pagar.
+  late final TextEditingController payCode;
   final installmentsCtrl = TextEditingController(text: '2');
   final intervalCtrl = TextEditingController(text: '1');
   String? categoryId;
@@ -130,6 +135,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     );
     description = TextEditingController(text: t?.description ?? '');
     notes = TextEditingController(text: t?.notes ?? '');
+    payCode = TextEditingController(text: t?.boletoCode ?? t?.pixCode ?? '');
     categoryId = t?.categoryId;
     tags = t?.tags ?? const [];
     date = t?.date ?? widget.initialDate ?? fc.today;
@@ -166,6 +172,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     amount.dispose();
     description.dispose();
     notes.dispose();
+    payCode.dispose();
     installmentsCtrl.dispose();
     intervalCtrl.dispose();
     super.dispose();
@@ -383,8 +390,15 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
               ? null
               : _due,
         );
-        await fc.saveTransaction(tx);
-        saved = tx;
+        final codes = _payCodes(base);
+        final withCodes = tx.copyWith(
+          boletoCode: codes.$1,
+          pixCode: codes.$2,
+          // Com código o vencimento fica gravado (o lembrete usa ele).
+          dueDate: codes.$1 != null || codes.$2 != null ? _due : tx.dueDate,
+        );
+        await fc.saveTransaction(withCodes);
+        saved = withCodes;
       },
       success: installment
           ? (isEdit ? 'Compra parcelada' : 'Compra parcelada registrada')
@@ -397,6 +411,22 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     if (!mounted) return;
     setState(() => saving = false);
     if (ok) Navigator.pop(context, widget.sharing ? saved : true);
+  }
+
+  /// Campo de código só para conta a pagar avulsa.
+  bool get _showsPayCode => _dueRequired && !recurring && !installment;
+
+  /// (boleto, pix) a gravar a partir do campo. Vazio limpa os dois; o
+  /// outro código já salvo continua.
+  (String?, String?) _payCodes(FinTransaction base) {
+    if (!_showsPayCode) return (null, null);
+    final text = payCode.text.trim();
+    if (text.isEmpty) return (null, null);
+    final kind = payCodeKind(text);
+    if (kind == PayCodeKind.boleto) {
+      return (text.replaceAll(RegExp(r'\D'), ''), base.pixCode);
+    }
+    return (base.boletoCode, text.replaceAll(RegExp(r'\s'), ''));
   }
 
   @override
@@ -585,6 +615,40 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
+              const SizedBox(height: 12),
+            ],
+            if (_showsPayCode) ...[
+              TextFormField(
+                key: const ValueKey('tx-form-pay-code'),
+                controller: payCode,
+                decoration: InputDecoration(
+                  labelText: 'Código do boleto ou Pix copia e cola (opcional)',
+                  helperText: 'Com o código, o WhatsApp lembra na véspera e no vencimento e ajuda a pagar.',
+                  helperMaxLines: 2,
+                  suffixIcon: payCode.text.trim().isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Copiar código',
+                          icon: const Icon(Icons.copy_outlined),
+                          onPressed: () {
+                            Clipboard.setData(
+                              ClipboardData(text: payCode.text.trim()),
+                            );
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Código copiado')),
+                            );
+                          },
+                        ),
+                ),
+                onChanged: (_) => setState(() {}),
+                validator: (v) {
+                  final text = v?.trim() ?? '';
+                  if (text.isEmpty) return null;
+                  return payCodeKind(text) == null
+                      ? 'Cole a linha digitável (47 ou 48 dígitos) ou o Pix copia e cola'
+                      : null;
+                },
+              ),
               const SizedBox(height: 12),
             ],
             if (isTransfer) ...[

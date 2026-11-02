@@ -31,6 +31,8 @@ const {
 const { allocate: allocateLine } = require('../shared/allocation');
 const { accessOf } = require('../billing');
 const { createReminderJob } = require('./reminders');
+const { mountBoletoPayments } = require('./payments');
+const { isPayable } = require('./ledger');
 
 const CODE_MINUTES = 10;
 /** Leituras da IA por mês por usuário (administradores não têm limite). */
@@ -45,13 +47,14 @@ const HELP =
   'Se você participa de despesas compartilhadas, eu pergunto se o gasto é só seu ou dividido no grupo.\n\n' +
   'Para ver como está o mês, mande *resumo* (ou "resumo mês passado", "resumo novembro").\n\n' +
   'Pensando numa compra? Pergunte: *cabe uma TV de 3.000 em 12x?* ou ' +
-  '"posso comprar um celular de 2 mil em 10x no Nubank a partir de janeiro?"';
+  '"posso comprar um celular de 2 mil em 10x no Nubank a partir de janeiro?"\n\n' +
+  'Boletos: mande a foto, o PDF ou a linha digitável. Eu lanço, te lembro na véspera e no vencimento e ajudo a pagar. Mande *boletos* para ver os que estão em aberto.';
 
 /**
  * @param {import('express').Express} app
  * @param {object} deps
  */
-function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared }) {
+function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, jwtSecret, pluggy }) {
   const cfg = whatsapp?.config ?? {};
   const { extract, transcribe } = whatsapp ?? {};
   const digits = (n) => String(n ?? '').replace(/\D/g, '') || null;
@@ -75,11 +78,25 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
     })
     .catch((e) => console.error('WhatsApp: falha ao ler a configuração salva', e));
 
+  // Pagamento de boletos (código para copiar ou Open Finance).
+  const boletos = mountBoletoPayments(app, {
+    pool,
+    wrap,
+    jwtSecret,
+    pluggy,
+    payments: whatsapp?.payments,
+    publicUrl: whatsapp?.publicUrl,
+    getMeta: () => (isEnabled() ? meta : null),
+  });
+  app.locals.boletos = boletos;
+
   // Lembretes diários (só no servidor; os testes chamam runOnce direto).
   const reminders = createReminderJob({
     pool,
     getMeta: () => (isEnabled() ? meta : null),
     template: whatsapp?.reminderTemplate,
+    boletoTemplate: whatsapp?.boletoTemplate,
+    payments: boletos,
   });
   app.locals.reminders = reminders;
   if (whatsapp?.startReminders) loaded.then(() => reminders.start());
@@ -250,7 +267,12 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
     // resposta e sem marcar como lidas.
     if (!user) return;
     meta.markRead(m.id);
+    await pool.query('update whatsapp_links set last_inbound_at = now() where wa_id = $1', [from]);
 
+    // Botão de resposta rápida de um modelo (lembrete de boleto).
+    if (m.type === 'button') {
+      return onButton(from, user, String(m.button?.payload ?? ''));
+    }
     if (m.type === 'interactive' && m.interactive?.type === 'button_reply') {
       return onButton(from, user, String(m.interactive.button_reply?.id ?? ''));
     }
@@ -258,6 +280,12 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
       return onButton(from, user, String(m.interactive.list_reply?.id ?? ''));
     }
     if (/^cancelar$/i.test(text)) return cancelLatest(from, user);
+    if (/^(meus\s+)?boletos?$/i.test(text)) return boletos.list(from, user, todayIso());
+    if (/^(pagar|quero pagar|pagar agora)$/i.test(text) || /^(paguei|já paguei|ja paguei)$/i.test(text)) {
+      const txId = await lastRemindedBoleto(user.id);
+      if (!txId) return boletos.list(from, user, todayIso());
+      return /pague/i.test(text) ? boletos.paid(from, user, txId) : boletos.pay(from, user, txId);
+    }
     if (/^(ajuda|menu|help|oi|olá|ola)$/i.test(text)) {
       return meta.sendText(from, `Olá, ${firstName(user.name)}! ${HELP}`);
     }
@@ -309,6 +337,17 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
         return meta.sendText(from, `Ainda não leio esse tipo de mensagem.\n\n${HELP}`);
     }
     return newOrCorrection(from, user, input);
+  }
+
+  /// Último boleto lembrado (para as respostas "pagar" e "paguei").
+  async function lastRemindedBoleto(userId) {
+    const { rows } = await pool.query(
+      `select key from whatsapp_reminders_sent
+        where user_id = $1 and key like 'boleto:%' and sent_at > now() - interval '7 days'
+        order by sent_at desc limit 1`,
+      [userId],
+    );
+    return rows[0]?.key.split(':')[1] ?? null;
   }
 
   async function linkNumber(from, code) {
@@ -594,6 +633,8 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
 
   async function onButton(from, user, payload) {
     const [action, id] = payload.split(':');
+    if (action === 'bpay') return boletos.pay(from, user, id);
+    if (action === 'bpaid') return boletos.paid(from, user, id);
     const client = await pool.connect();
     try {
       await client.query('begin');
@@ -653,6 +694,15 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
         );
         await client.query('commit');
         if (option) return shareSaved(from, user, docs[0].data, option);
+        const bill = items.length === 1 && isPayable(items[0]) ? docs[0].data : null;
+        if (bill) {
+          return meta.sendButtons(
+            from,
+            'Lançado ✅ Vou te lembrar na véspera e no dia do vencimento. ' +
+              'Se quiser, já dá para pagar agora.',
+            [{ id: `bpay:${bill.id}`, title: 'Pagar agora' }],
+          );
+        }
         return meta.sendText(
           from,
           `${items.length > 1 ? `${items.length} lançamentos gravados` : 'Lançado'} ✅ ` +
@@ -703,6 +753,8 @@ const itemPrompt = (d) => ({
   card_id: d.cardId,
   installments: d.installments,
   notes: d.notes,
+  boleto_code: d.boletoCode ?? null,
+  pix_code: d.pixCode ?? null,
 });
 
 const firstName = (name) => String(name ?? '').trim().split(/\s+/)[0] || '';

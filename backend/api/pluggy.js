@@ -70,6 +70,24 @@ function createPluggy({ clientId, clientSecret, baseUrl = DEFAULT_BASE, fetch: f
       if (!r.accessToken) throw new PluggyError(502, 'Pluggy não devolveu o token de conexão');
       return r.accessToken;
     },
+    // Iniciação de pagamento (Open Finance). Precisa ser liberada pela
+    // Pluggy para o cliente; o pagador escolhe o banco em paymentUrl e
+    // autoriza o Pix no app do banco.
+    /** Destinatário a partir de um Pix copia e cola (BR Code). */
+    createPixQrRecipient: (pixQrCode) =>
+      request('POST', '/payments/recipients/pix-qr', { body: { pixQrCode } }),
+    /** Pedido de pagamento; devolve { id, status, paymentUrl }. */
+    createPaymentRequest: ({ amount, description, recipientId, callbackUrls, isSandbox }) =>
+      request('POST', '/payments/requests', {
+        body: {
+          amount,
+          description,
+          recipientId,
+          ...(callbackUrls ? { callbackUrls } : {}),
+          ...(isSandbox ? { isSandbox: true } : {}),
+        },
+      }),
+    getPaymentRequest: (id) => request('GET', `/payments/requests/${encodeURIComponent(id)}`),
     getItem: (id) => request('GET', `/items/${encodeURIComponent(id)}`),
     getAccount: (id) => request('GET', `/accounts/${encodeURIComponent(id)}`),
     async listAccounts(itemId) {

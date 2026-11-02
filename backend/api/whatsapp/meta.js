@@ -87,6 +87,22 @@ function createMetaClient({ token, phoneNumberId, apiVersion = 'v23.0' }) {
         },
       }),
 
+    /// Mensagem com um botão que abre um link (dentro da janela de 24h).
+    sendCta: (to, text, label, url) =>
+      send(to, {
+        type: 'interactive',
+        interactive: {
+          type: 'cta_url',
+          body: { text: text.slice(0, 1024) },
+          action: { name: 'cta_url', parameters: { display_text: label.slice(0, 20), url } },
+        },
+      }),
+
+    /// Modelo com componentes livres (corpo com vários parâmetros, botões
+    /// de resposta rápida com payload).
+    sendTemplateComponents: (to, name, components, language = 'pt_BR') =>
+      send(to, { type: 'template', template: { name, language: { code: language }, components } }),
+
     /// Modelo aprovado na Meta (pode ser enviado fora da janela de 24h).
     sendTemplate: (to, name, params = [], language = 'pt_BR') =>
       send(to, {

@@ -389,6 +389,13 @@ class FinTransaction {
   /// é ela que define se o lançamento pendente está atrasado.
   final DateTime? dueDate;
 
+  /// Linha digitável do boleto a pagar (só dígitos), quando informada.
+  /// Com ela o WhatsApp lembra do vencimento e ajuda a pagar.
+  final String? boletoCode;
+
+  /// Pix copia e cola da conta a pagar (pode coexistir com o boleto).
+  final String? pixCode;
+
   /// Marcadores livres ("Viagem", "Reforma") que atravessam categorias.
   final List<String> tags;
 
@@ -418,6 +425,8 @@ class FinTransaction {
     this.installmentCount,
     this.externalId,
     this.dueDate,
+    this.boletoCode,
+    this.pixCode,
     this.tags = const [],
     this.isVirtual = false,
     DateTime? createdAt,
@@ -465,6 +474,8 @@ class FinTransaction {
     Object? installmentCount = _unset,
     Object? externalId = _unset,
     Object? dueDate = _unset,
+    Object? boletoCode = _unset,
+    Object? pixCode = _unset,
     List<String>? tags,
     bool? isVirtual,
   }) => FinTransaction(
@@ -507,6 +518,10 @@ class FinTransaction {
         ? this.externalId
         : externalId as String?,
     dueDate: identical(dueDate, _unset) ? this.dueDate : dueDate as DateTime?,
+    boletoCode: identical(boletoCode, _unset)
+        ? this.boletoCode
+        : boletoCode as String?,
+    pixCode: identical(pixCode, _unset) ? this.pixCode : pixCode as String?,
     tags: tags ?? this.tags,
     isVirtual: isVirtual ?? this.isVirtual,
     createdAt: createdAt,
@@ -533,6 +548,8 @@ class FinTransaction {
     'installmentCount': installmentCount,
     'externalId': externalId,
     'dueDate': _d(dueDate),
+    if (boletoCode != null) 'boletoCode': boletoCode,
+    if (pixCode != null) 'pixCode': pixCode,
     if (tags.isNotEmpty) 'tags': tags,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
@@ -566,6 +583,8 @@ class FinTransaction {
     installmentCount: j['installmentCount'] as int?,
     externalId: j['externalId'] as String?,
     dueDate: _pd(j['dueDate']),
+    boletoCode: j['boletoCode'] as String?,
+    pixCode: j['pixCode'] as String?,
     tags: [
       for (final t in (j['tags'] as List?) ?? const [])
         if (t is String && t.trim().isNotEmpty) t,

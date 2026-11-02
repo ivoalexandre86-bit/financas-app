@@ -3,6 +3,7 @@
 // formato que o app grava (ver lib/domain/models/entities.dart).
 
 const crypto = require('crypto');
+const { parseBoleto, parsePix, formatBoleto } = require('./boleto');
 
 const TIME_ZONE = 'America/Sao_Paulo';
 const MAX_INSTALLMENTS = 48;
@@ -148,20 +149,56 @@ function normalizeItem(raw, ctx) {
   installments = Math.max(1, Math.min(MAX_INSTALLMENTS, installments));
   if (installments > amount) installments = 1;
 
+  // Boleto ou Pix a pagar (não comprovante): o código vale mais que a
+  // leitura da IA para valor e vencimento. Código com dígito errado é
+  // descartado (não dá para pagar com ele).
+  let boletoCode = null;
+  let pixCode = null;
+  let codeAmount = null;
+  let codeDue = null;
+  let badCode = false;
+  if (type === 'expense' && !card) {
+    if (raw.boleto_code) {
+      const b = parseBoleto(raw.boleto_code, ctx.today);
+      if (b) {
+        boletoCode = b.code;
+        codeAmount = b.amount;
+        codeDue = b.dueDate;
+      } else badCode = true;
+    }
+    if (raw.pix_code) {
+      const p = parsePix(raw.pix_code);
+      if (p) {
+        pixCode = p.code;
+        codeAmount ??= p.amount;
+      } else badCode = true;
+    }
+  }
+  const finalAmount = codeAmount ?? amount;
+  const finalDate = codeDue ?? date;
+  if (installments > finalAmount) installments = 1;
+  if (boletoCode || pixCode) installments = 1;
+
   return {
     draft: {
       type,
-      amount,
+      amount: finalAmount,
       description,
-      date,
+      date: finalDate,
       categoryId: category?.id ?? null,
       accountId: account?.id ?? null,
       cardId: card?.id ?? null,
       installments,
       notes: String(raw.notes ?? '').trim().slice(0, 500),
+      ...(boletoCode ? { boletoCode } : {}),
+      ...(pixCode ? { pixCode } : {}),
+      ...(badCode ? { badCode: true } : {}),
     },
   };
 }
+
+/// Lançamento com código para pagar (boleto ou Pix copia e cola).
+const isPayable = (d) => !!(d.boletoCode || d.pixCode);
 
 function baseTx(draft, now) {
   const ts = now.toISOString();
@@ -181,6 +218,9 @@ function baseTx(draft, now) {
     installmentNumber: null,
     installmentCount: null,
     externalId: null,
+    ...(isPayable(draft)
+      ? { dueDate: draft.date, boletoCode: draft.boletoCode ?? null, pixCode: draft.pixCode ?? null }
+      : {}),
     createdAt: ts,
     updatedAt: ts,
   };
@@ -193,8 +233,9 @@ function baseTx(draft, now) {
  */
 function buildDocs(draft, today, now = new Date()) {
   const isCard = draft.cardId != null;
+  // Boleto a pagar nunca nasce pago: vencido ou do dia fica pendente.
   const statusFor = (date) =>
-    isCard ? 'pending' : date > today ? 'planned' : 'completed';
+    isCard ? 'pending' : date > today ? 'planned' : isPayable(draft) ? 'pending' : 'completed';
 
   if (draft.installments < 2) {
     const id = newId('tx_');
@@ -314,6 +355,14 @@ function formatSummary(draft, ctx) {
     const first = splitCents(draft.amount, draft.installments)[0];
     lines.push(`🔢 ${draft.installments}x de ${brl(first)}`);
   }
+  if (draft.boletoCode) lines.push(`🧾 Boleto ${formatBoleto(draft.boletoCode)}`);
+  if (draft.pixCode) lines.push('🔑 Pix copia e cola lido');
+  if (isPayable(draft)) {
+    lines.push(`⏰ Vence ${brDate(draft.date)}: aviso no dia anterior e no vencimento, com opção de pagar por aqui.`);
+  }
+  if (draft.badCode) {
+    lines.push('⚠️ Não consegui ler o código de pagamento com segurança. Se quiser o lembrete com o código, mande a linha digitável por texto.');
+  }
   if (draft.notes) lines.push(`🗒️ ${draft.notes}`);
   return lines.join('\n');
 }
@@ -330,4 +379,6 @@ module.exports = {
   formatSummary,
   formatBatch,
   brl,
+  brDate,
+  isPayable,
 };
