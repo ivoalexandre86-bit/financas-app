@@ -23,6 +23,11 @@ const {
   invoiceForTx,
 } = require('./summary');
 const { brl } = require('./ledger');
+const {
+  parsePurchaseQuestion,
+  analyzePurchase,
+  formatAnalysis,
+} = require('./affordability');
 const { allocate: allocateLine } = require('../shared/allocation');
 const { accessOf } = require('../billing');
 const { createReminderJob } = require('./reminders');
@@ -38,7 +43,9 @@ const HELP =
   'Mande um gasto ou recebimento e eu lanço no app. Pode ser texto, foto do cupom/comprovante ou áudio.\n\n' +
   'Exemplos:\n• gastei 45,90 no mercado\n• uber 23 ontem no cartão Nubank\n• tênis 600 em 3x no cartão\n• recebi 3500 de salário\n\n' +
   'Se você participa de despesas compartilhadas, eu pergunto se o gasto é só seu ou dividido no grupo.\n\n' +
-  'Para ver como está o mês, mande *resumo* (ou "resumo mês passado", "resumo novembro").';
+  'Para ver como está o mês, mande *resumo* (ou "resumo mês passado", "resumo novembro").\n\n' +
+  'Pensando numa compra? Pergunte: *cabe uma TV de 3.000 em 12x?* ou ' +
+  '"posso comprar um celular de 2 mil em 10x no Nubank a partir de janeiro?"';
 
 /**
  * @param {import('express').Express} app
@@ -257,6 +264,9 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
     if (text && parseSummaryRequest(text, todayIso())) {
       return sendSummary(from, user, text);
     }
+    if (text && parsePurchaseQuestion(text, todayIso())) {
+      return sendPurchaseAnalysis(from, user, text);
+    }
 
     // Grátis: só texto. Recusa antes de baixar ou transcrever (sem custo) e
     // sem contar no limite do mês.
@@ -291,6 +301,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
         const said = await transcribe(await meta.downloadMedia(m.audio.id));
         if (!said) return meta.sendText(from, 'Não entendi o áudio. Pode repetir ou escrever?');
         if (parseSummaryRequest(said, todayIso())) return sendSummary(from, user, said);
+        if (parsePurchaseQuestion(said, todayIso())) return sendPurchaseAnalysis(from, user, said);
         input = { text: `(áudio transcrito) ${said}` };
         break;
       }
@@ -328,19 +339,39 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared })
     );
   }
 
-  async function sendSummary(from, user, text) {
-    const today = todayIso();
-    const month = parseSummaryRequest(text, today);
+  async function budgetDocs(userId) {
     const { rows } = await pool.query(
       `select coll, data from app_docs
        where user_id = $1 and not deleted
          and coll in ('transactions', 'recurringTransactions', 'cards',
-                      'categories', 'invoicePayments')`,
-      [user.id],
+                      'categories', 'invoicePayments', 'budgets')`,
+      [userId],
     );
     const docs = {};
     for (const r of rows) (docs[r.coll] ??= []).push(r.data);
+    return docs;
+  }
+
+  async function sendSummary(from, user, text) {
+    const today = todayIso();
+    const month = parseSummaryRequest(text, today);
+    const docs = await budgetDocs(user.id);
     return meta.sendText(from, formatMonthSummary(computeSummary(docs, month, today), today));
+  }
+
+  /// "Cabe uma compra de X em N parcelas?": responde com a análise do orçamento.
+  async function sendPurchaseAnalysis(from, user, text) {
+    const today = todayIso();
+    const q = parsePurchaseQuestion(text, today);
+    if (q.missing) {
+      return meta.sendText(
+        from,
+        'Qual o valor da compra? Me pergunte assim: *cabe 2.400 em 12x?* ' +
+          '(pode dizer o cartão e o mês da 1ª parcela).',
+      );
+    }
+    const docs = await budgetDocs(user.id);
+    return meta.sendText(from, formatAnalysis(analyzePurchase(docs, q, today)));
   }
 
   async function loadContext(userId) {

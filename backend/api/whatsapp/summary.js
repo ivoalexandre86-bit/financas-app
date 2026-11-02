@@ -307,6 +307,7 @@ function parseSummaryRequest(text, today) {
 }
 
 module.exports = {
+  expand,
   computeSummary,
   formatMonthSummary,
   parseSummaryRequest,
