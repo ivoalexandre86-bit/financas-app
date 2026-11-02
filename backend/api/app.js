@@ -13,6 +13,7 @@ const { mountWhatsApp } = require('./whatsapp/routes');
 const { mountShared } = require('./shared/routes');
 const { mountAi } = require('./ai');
 const { accessOf, mountBilling } = require('./billing');
+const { mountGrowth } = require('./growth');
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const TOKEN_DAYS = 30;
@@ -78,7 +79,8 @@ function loginLimiter({ max = 10, windowMs = 15 * 60 * 1000 } = {}) {
  *   pluggy?: ReturnType<typeof import('./pluggy').createPluggy> | null,
  *   whatsapp?: object, openSignup?: boolean,
  *   revenuecat?: ReturnType<typeof import('./billing').createRevenueCat>|null,
- *   revenuecatWebhookAuth?: string}} opts  `whatsapp`: ver
+ *   revenuecatWebhookAuth?: string, prices?: {basico: number, premium: number}}} opts
+ *   `prices`: preço mensal (centavos) de cada plano, para o MRR.  `whatsapp`: ver
  *   whatsapp/routes.js (opcional). `openSignup`: qualquer pessoa cria a
  *   própria conta; sem ele, só a 1ª conta (administradora).
  */
@@ -92,6 +94,7 @@ function createApp({
   revenuecat = null,
   revenuecatWebhookAuth,
   ai = null,
+  prices,
 }) {
   if (!jwtSecret || jwtSecret.length < 32) {
     throw new Error('JWT_SECRET ausente ou curto demais (mínimo 32 caracteres)');
@@ -157,6 +160,20 @@ function createApp({
       next();
     });
 
+  /// Com token: como `authed`; sem token: segue anônimo.
+  const optionalAuthed = (req, res, next) =>
+    req.get('authorization') ? authed(req, res, next) : next();
+
+  const growth = mountGrowth(app, {
+    pool,
+    authed,
+    admin,
+    optionalAuthed,
+    wrap,
+    HttpError,
+    prices,
+  });
+
   const billing = mountBilling(app, {
     pool,
     authed,
@@ -164,6 +181,7 @@ function createApp({
     HttpError,
     revenuecat,
     webhookAuth: revenuecatWebhookAuth,
+    growth,
   });
 
   async function insertUser(client, { name, email, password, isAdmin, freeAccess = false }) {
@@ -245,7 +263,15 @@ function createApp({
       if (rows[0].e && !openSignup) {
         throw new HttpError(403, 'Novas contas são criadas pelo administrador, em Usuários.');
       }
-      return insertUser(c, { ...req.body, isAdmin: !rows[0].e, freeAccess: false });
+      const u = await insertUser(c, { ...req.body, isAdmin: !rows[0].e, freeAccess: false });
+      // Canal de aquisição, convite (indicação) e eventos do funil.
+      const b = req.body ?? {};
+      return growth.onSignup(c, u, {
+        channel: b.channel,
+        ref: b.ref,
+        deviceId: b.deviceId,
+        ip: req.ip,
+      });
     });
     res.status(201).json({ token: sign(user), user: toUser(user) });
   }));

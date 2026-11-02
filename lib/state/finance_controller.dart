@@ -11,6 +11,7 @@ import '../data/cloud/cloud_finance_repository.dart';
 import '../data/default_categories.dart';
 import '../data/default_dashboards.dart' as seed;
 import '../data/finance_repository.dart';
+import '../data/growth.dart';
 import '../data/open_finance.dart';
 import '../data/sample_data.dart';
 import '../domain/engine/billing_cycle.dart';
@@ -673,8 +674,10 @@ class FinanceController extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   // Recorrências
 
-  Future<void> createRule(RecurringRule r) =>
-      _commit([WriteOp.put(Coll.recurringTransactions, r.id, r.toJson())]);
+  Future<void> createRule(RecurringRule r) async {
+    await _commit([WriteOp.put(Coll.recurringTransactions, r.id, r.toJson())]);
+    if (!isDemo) Growth.track('first_budget', {'from': 'recurring'});
+  }
 
   /// Torna recorrente um lançamento já salvo (ex.: assinatura lançada na
   /// fatura): cria a regra a partir da data dele e vincula o lançamento como
@@ -1063,6 +1066,7 @@ class FinanceController extends ChangeNotifier {
     budgets = [...budgets.where((x) => x.id != b.id), b];
     notifyListeners();
     await repo.write([WriteOp.put(Coll.budgets, b.id, b.toJson())]);
+    if (!isDemo) Growth.track('first_budget', {'from': 'budget'});
   }
 
   Future<void> deleteBudget(Budget b) async {
@@ -1371,6 +1375,7 @@ class FinanceController extends ChangeNotifier {
       people: base?.people ?? const [],
     );
     await saveSimulation(s, touch: false);
+    if (!isDemo) Growth.track('first_simulation');
     return s;
   }
 

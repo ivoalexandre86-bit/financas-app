@@ -258,3 +258,50 @@ create table if not exists ai_usage (
   calls   int not null default 0,
   primary key (user_id, month)
 );
+
+-- Crescimento ----------------------------------------------------------------
+-- Canal de aquisição (utm_source do link, "indicacao" ou "organico"),
+-- aparelho do cadastro (antifraude das indicações), código de convite,
+-- quem indicou e dias de Premium ganhos por indicação.
+alter table users add column if not exists channel text;
+alter table users add column if not exists device_id text;
+alter table users add column if not exists signup_ip text;
+alter table users add column if not exists referral_code text unique;
+alter table users add column if not exists referred_by uuid references users (id) on delete set null;
+alter table users add column if not exists bonus_until timestamptz;
+
+-- Eventos do funil (instalação, cadastro, 1º orçamento, 1ª simulação, teste,
+-- cobranças, renovações, cancelamentos). Ficam mesmo se a conta for
+-- excluída (sem o vínculo com ela), para os números do negócio.
+create table if not exists funnel_events (
+  id         bigserial primary key,
+  name       text not null,
+  user_id    uuid references users (id) on delete set null,
+  device_id  text,
+  channel    text,
+  props      jsonb not null default '{}'::jsonb,
+  dedupe     text unique,
+  created_at timestamptz not null default now()
+);
+create index if not exists funnel_events_name_time on funnel_events (name, created_at);
+create index if not exists funnel_events_user on funnel_events (user_id, name);
+
+-- Indicações: pending (aguarda a 1ª cobrança do indicado), rewarded ou
+-- rejected (motivo em reason).
+create table if not exists referrals (
+  referred_id uuid primary key references users (id) on delete cascade,
+  referrer_id uuid not null references users (id) on delete cascade,
+  status      text not null default 'pending',
+  reason      text,
+  created_at  timestamptz not null default now(),
+  rewarded_at timestamptz
+);
+create index if not exists referrals_referrer on referrals (referrer_id, status);
+
+-- Investimento em divulgação por mês (AAAA-MM) e canal, para o CAC.
+create table if not exists marketing_spend (
+  month        text not null,
+  channel      text not null,
+  amount_cents bigint not null,
+  primary key (month, channel)
+);

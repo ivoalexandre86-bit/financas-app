@@ -93,6 +93,11 @@ migrate(pool)
         ? createRevenueCat({ secretKey: process.env.REVENUECAT_SECRET_KEY })
         : null,
       revenuecatWebhookAuth: process.env.REVENUECAT_WEBHOOK_AUTH,
+      // Preço mensal de cada plano (centavos), para o MRR do painel.
+      prices: {
+        basico: Number(process.env.PRICE_BASICO_CENTS) || 999,
+        premium: Number(process.env.PRICE_PREMIUM_CENTS) || 1999,
+      },
       // IA no app (comprovante por foto e assistente): mesma chave do
       // WhatsApp.
       ai: process.env.ANTHROPIC_API_KEY

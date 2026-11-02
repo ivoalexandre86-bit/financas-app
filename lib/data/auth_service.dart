@@ -31,7 +31,8 @@ class AppUser {
 
 /// Situação da assinatura vinda do servidor.
 class Access {
-  /// admin, free (cortesia), active (paga), trial (teste grátis) ou expired.
+  /// admin, free (cortesia), active (paga), trial (teste grátis), bonus
+  /// (Premium ganho por indicação) ou expired.
   final String status;
 
   /// Plano liberado pelo servidor: premium (admin, cortesia, teste grátis e
@@ -40,6 +41,9 @@ class Access {
   final DateTime? trialEndsAt;
   final DateTime? paidUntil;
 
+  /// Fim dos dias de Premium ganhos por indicação.
+  final DateTime? bonusUntil;
+
   /// Plano Premium (Open Finance).
   final bool premium;
   const Access({
@@ -47,6 +51,7 @@ class Access {
     this.plan = 'basico',
     this.trialEndsAt,
     this.paidUntil,
+    this.bonusUntil,
     this.premium = false,
   });
 
@@ -56,7 +61,7 @@ class Access {
     if (status == 'admin' || status == 'free') return false;
     final now = DateTime.now();
     bool future(DateTime? d) => d != null && d.isAfter(now);
-    return !future(trialEndsAt) && !future(paidUntil);
+    return !future(trialEndsAt) && !future(paidUntil) && !future(bonusUntil);
   }
 
   bool get trial => status == 'trial' && !expired;
@@ -95,6 +100,7 @@ class Access {
           : 'basico',
       trialEndsAt: date(json['trialEndsAt']),
       paidUntil: date(json['paidUntil']),
+      bonusUntil: date(json['bonusUntil']),
       premium: premium,
     );
   }

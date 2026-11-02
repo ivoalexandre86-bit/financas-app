@@ -4,6 +4,7 @@ import 'package:sembast/sembast.dart';
 
 import '../auth_service.dart';
 import '../db_factory.dart';
+import '../growth.dart';
 import 'api_client.dart';
 
 /// Login pela API na nuvem: a mesma conta e os mesmos dados em qualquer
@@ -128,14 +129,19 @@ class CloudAuthService implements AuthService {
   }
 
   @override
-  Future<AppUser> register(String name, String email, String password) async =>
-      _start(
-        await api.post('auth/register', {
-          'name': name,
-          'email': email,
-          'password': password,
-        }),
-      );
+  Future<AppUser> register(String name, String email, String password) async {
+    final user = await _start(
+      await api.post('auth/register', {
+        'name': name,
+        'email': email,
+        'password': password,
+        // Canal de aquisição, convite e aparelho (funil e indicação).
+        ...Growth.signupExtras(),
+      }),
+    );
+    await Growth.clearRef();
+    return user;
+  }
 
   @override
   Future<AppUser> login(String email, String password) async => _start(

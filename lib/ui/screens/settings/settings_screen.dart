@@ -8,6 +8,7 @@ import '../../../state/auth_controller.dart';
 import '../../../state/finance_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../referral/referral_screen.dart';
 import '../users/users_screen.dart';
 import 'cloud_import.dart';
 import 'lock_screen.dart';
@@ -135,6 +136,18 @@ class SettingsScreen extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
                 ),
               ),
+            ListTile(
+              key: const ValueKey('referral'),
+              leading: const Icon(Icons.card_giftcard_outlined),
+              title: const Text('Indique e ganhe'),
+              subtitle: const Text(
+                'Ganhe 30 dias de Premium por amigo que assinar',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const ReferralScreen())),
+            ),
             ListTile(
               key: const ValueKey('cloud-refresh'),
               leading: const Icon(Icons.cloud_sync_outlined),

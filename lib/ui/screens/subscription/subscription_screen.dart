@@ -6,6 +6,7 @@ import '../../../core/dates.dart';
 import '../../../core/legal_links.dart';
 import '../../../data/auth_service.dart';
 import '../../../data/billing.dart';
+import '../../../data/growth.dart';
 import '../../../state/auth_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
@@ -19,6 +20,9 @@ String accessSummary(Access a) {
     final days = a.trialDaysLeft(now);
     return 'Teste do Premium: ${days == 1 ? 'falta 1 dia' : 'faltam $days dias'} '
         '(até ${Dates.format(a.trialEndsAt!.toLocal())})';
+  }
+  if (a.status == 'bonus' && a.bonusUntil != null) {
+    return 'Premium por indicação até ${Dates.format(a.bonusUntil!.toLocal())}';
   }
   final until = a.paidUntil;
   return '${a.premium ? 'Premium' : 'Plano básico'} ativo'
@@ -42,6 +46,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     super.initState();
     final id = context.read<AuthController>().user?.id;
     if (Billing.available && id != null) _plans = Billing.plans(id);
+    Growth.track('paywall_view');
   }
 
   Future<void> _run(Future<void> Function() action, {String? success}) async {
@@ -52,6 +57,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Future<void> _buy(StorePlan plan) => _run(() async {
     final auth = context.read<AuthController>();
+    Growth.track('purchase_start', {
+      'plan': plan.premium ? 'premium' : 'basico',
+    });
     if (!await Billing.buy(auth.user!.id, plan)) return;
     await auth.refreshSubscription();
   }, success: 'Assinatura confirmada. Obrigado!');

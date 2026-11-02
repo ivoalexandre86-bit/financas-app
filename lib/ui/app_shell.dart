@@ -3,11 +3,13 @@ import 'package:provider/provider.dart';
 
 import '../app.dart';
 import '../core/money.dart';
+import '../data/growth.dart';
 import '../state/auth_controller.dart';
 import '../state/finance_controller.dart';
 import '../state/shared_controller.dart';
 import 'menu_layout.dart';
 import 'screens/accounts/accounts_screen.dart';
+import 'screens/admin/business_screen.dart';
 import 'screens/assistant/assistant_screen.dart';
 import 'screens/budgets/budgets_screen.dart';
 import 'screens/calculators/calculators_screen.dart';
@@ -70,6 +72,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Uso do dia (retenção); o servidor conta uma vez por dia.
+    Growth.track('active');
   }
 
   @override
@@ -88,6 +92,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       return;
     }
     if (state != AppLifecycleState.resumed) return;
+    Growth.track('active');
     final fc = context.read<FinanceController>();
     final left = _leftAt;
     _leftAt = null;
@@ -356,6 +361,13 @@ const menuGroups = <MenuGroup>[
       Icons.manage_accounts_outlined,
       'Usuários',
       UsersScreen(),
+      adminOnly: true,
+    ),
+    MenuDest(
+      'business',
+      Icons.query_stats,
+      'Painel do negócio',
+      BusinessScreen(),
       adminOnly: true,
     ),
   ]),
