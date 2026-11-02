@@ -14,7 +14,8 @@ const iso = (d) => (d ? new Date(d).toISOString() : null);
 /**
  * Situação de acesso de um usuário (linha de `users`).
  * admin: dono do servidor · free: cortesia (conta criada pelo administrador)
- * · active: assinatura paga em dia · trial: teste grátis · expired: vencido.
+ * · active: assinatura paga em dia · trial: teste grátis · bonus: Premium
+ * ganho por indicação · expired: vencido.
  *
  * `plan` é o que o usuário pode usar: premium (admin, cortesia, teste grátis
  * e assinatura Premium), basico (assinatura Básico) ou gratis (sem
@@ -23,6 +24,8 @@ const iso = (d) => (d ? new Date(d).toISOString() : null);
 function accessOf(u, now = new Date()) {
   const paid = !!u.paid_until && new Date(u.paid_until) > now;
   const trial = !!u.trial_ends_at && new Date(u.trial_ends_at) > now;
+  // Dias de Premium ganhos por indicação (valem sem assinatura ativa).
+  const bonus = !!u.bonus_until && new Date(u.bonus_until) > now;
   const status = u.is_admin
     ? 'admin'
     : u.free_access
@@ -31,10 +34,13 @@ function accessOf(u, now = new Date()) {
         ? 'active'
         : trial
           ? 'trial'
-          : 'expired';
+          : bonus
+            ? 'bonus'
+            : 'expired';
+  // Assinante do Básico com dias ganhos por indicação usa o Premium.
   const plan = status === 'expired'
     ? 'gratis'
-    : status === 'active' && u.plan !== PREMIUM
+    : status === 'active' && u.plan !== PREMIUM && !bonus
       ? 'basico'
       : PREMIUM;
   return {
@@ -42,6 +48,7 @@ function accessOf(u, now = new Date()) {
     plan,
     trialEndsAt: iso(u.trial_ends_at),
     paidUntil: iso(u.paid_until),
+    bonusUntil: iso(u.bonus_until),
     premium: plan === PREMIUM,
   };
 }
@@ -84,9 +91,9 @@ function sameSecret(a, b) {
  * @param {import('express').Express} app
  * @param {{pool: import('pg').Pool, authed: Function, wrap: Function,
  *   HttpError: Function, revenuecat?: ReturnType<typeof createRevenueCat>|null,
- *   webhookAuth?: string}} deps
+ *   webhookAuth?: string, growth?: {storeEvent: Function}}} deps
  */
-function mountBilling(app, { pool, authed, wrap, HttpError, revenuecat, webhookAuth }) {
+function mountBilling(app, { pool, authed, wrap, HttpError, revenuecat, webhookAuth, growth }) {
   async function save(userId, { paidUntil, plan }) {
     const { rows } = await pool.query(
       `update users set paid_until = $2, plan = $3 where id = $1 returning *`,
@@ -118,9 +125,19 @@ function mountBilling(app, { pool, authed, wrap, HttpError, revenuecat, webhookA
     }
     const ev = req.body?.event ?? {};
     const ids = [ev.app_user_id, ...(ev.aliases ?? [])].filter((id) => UUID.test(String(id)));
+    let recorded = false;
     for (const id of new Set(ids)) {
       const { rows } = await pool.query('select id from users where id = $1', [id]);
       if (!rows.length) continue;
+      // Funil: 1ª cobrança, renovação, cancelamento… (uma vez por evento).
+      if (growth && !recorded) {
+        recorded = true;
+        try {
+          await growth.storeEvent(id, ev);
+        } catch (e) {
+          console.error('Funil: falha ao gravar evento da loja', e);
+        }
+      }
       if (revenuecat) {
         await save(id, fromEntitlements(await revenuecat.entitlements(id)));
       } else if (ev.expiration_at_ms) {

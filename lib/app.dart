@@ -11,6 +11,7 @@ import 'data/cloud/cloud_finance_repository.dart';
 import 'data/cloud/pluggy_open_finance.dart';
 import 'data/cloud/shared_api.dart';
 import 'data/finance_repository.dart';
+import 'data/growth.dart';
 import 'state/auth_controller.dart';
 import 'state/finance_controller.dart';
 import 'state/shared_controller.dart';
@@ -39,6 +40,9 @@ class FinancasApp extends StatelessWidget {
           return AuthController(LocalAuthService())..init();
         }
         final api = ApiClient(CloudConfig.apiUrl);
+        // Funil: instalação, canal do link e convite.
+        Growth.attach(api);
+        Growth.init().ignore();
         final auth = AuthController(CloudAuthService(api));
         api.onUnauthorized = auth.sessionExpired;
         return auth..init();
