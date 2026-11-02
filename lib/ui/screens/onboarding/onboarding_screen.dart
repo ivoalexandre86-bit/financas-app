@@ -108,6 +108,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final access = context.watch<AuthController>().user?.access;
     final subtle = context.text.bodyMedium?.copyWith(color: context.fin.subtle);
     final left = _income - _expenses;
+    // Em tela larga, a coluna fica com largura de leitura.
+    final width = MediaQuery.sizeOf(context).width;
+    final side = width > 720 ? (width - 680) / 2 : 0.0;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Seu orçamento em 1 minuto'),
@@ -119,7 +122,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        padding: EdgeInsets.fromLTRB(24 + side, 16, 24 + side, 32),
         children: [
           Text(
             'Responda três perguntas e veja quanto vai sobrar nos próximos '
@@ -221,12 +224,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 /// 1º acesso e assinatura).
 class TrialTerms extends StatelessWidget {
   final DateTime? endsAt;
-  const TrialTerms(this.endsAt, {super.key});
+
+  /// Duração do teste quando ainda não há data (cadastro).
+  final int days;
+  const TrialTerms(this.endsAt, {super.key, this.days = 30});
 
   @override
   Widget build(BuildContext context) {
     final until = endsAt == null
-        ? 'por 30 dias'
+        ? 'por $days dias'
         : 'até ${Dates.format(endsAt!.toLocal())}';
     return Container(
       padding: const EdgeInsets.all(14),

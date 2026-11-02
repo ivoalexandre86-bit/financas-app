@@ -108,7 +108,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             if (CloudConfig.enabled) ...[
               const SizedBox(height: 16),
-              const TrialTerms(null),
+              TrialTerms(null, days: inviter == null ? 30 : 45),
             ],
             const SizedBox(height: 8),
             CheckboxListTile(
