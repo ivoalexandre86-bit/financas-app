@@ -1039,6 +1039,93 @@ class FinanceController extends ChangeNotifier {
     return _pinHash(lock.substring(0, i), pin) == lock.substring(i + 1);
   }
 
+  /// Conta nova, sem nada cadastrado e já conferida com a nuvem: mostra o
+  /// "monte seu orçamento" (uma vez).
+  bool get needsOnboarding =>
+      !isDemo &&
+      !loading &&
+      cloudSynced &&
+      !data.settings.onboardingDone &&
+      !data.settings.isSampleData &&
+      data.accounts.isEmpty &&
+      data.transactions.isEmpty &&
+      data.recurringRules.isEmpty;
+
+  /// Primeiro orçamento em um passo: conta com o saldo de hoje, a renda
+  /// mensal e os gastos fixos como recorrências. Depois disso a projeção já
+  /// mostra os próximos meses.
+  Future<void> completeOnboarding({
+    required Money balance,
+    Money income = Money.zero,
+    int incomeDay = 5,
+    List<({String categoryId, String description, Money amount, int day})>
+        expenses =
+        const [],
+    DateTime? today,
+  }) async {
+    final now = today ?? DateTime.now();
+    final start = DateTime(now.year, now.month, 1);
+    final account = Account(
+      id: newId('acc_'),
+      name: 'Conta principal',
+      initialBalance: balance,
+    );
+    RecurringRule rule(
+      TransactionType type,
+      String? cat,
+      String desc,
+      Money amount,
+      int day,
+    ) {
+      final d = day.clamp(1, 28);
+      // Começa no mês atual se o dia ainda não passou; senão, no próximo.
+      final first = d >= now.day ? start : DateTime(now.year, now.month + 1, 1);
+      return RecurringRule(
+        id: newId('rec_'),
+        type: type,
+        amount: amount,
+        description: desc,
+        categoryId: cat,
+        accountId: account.id,
+        dayOfMonth: d,
+        startDate: DateTime(first.year, first.month, d),
+      );
+    }
+
+    final rules = [
+      if (income.isPositive)
+        rule(
+          TransactionType.income,
+          'cat_salary',
+          'Salário',
+          income,
+          incomeDay,
+        ),
+      for (final e in expenses)
+        if (e.amount.isPositive)
+          rule(
+            TransactionType.expense,
+            data.categoryById[e.categoryId] == null ? null : e.categoryId,
+            e.description,
+            e.amount,
+            e.day,
+          ),
+    ];
+    await repo.write([
+      WriteOp.put(Coll.accounts, account.id, account.toJson()),
+      for (final r in rules)
+        WriteOp.put(Coll.recurringTransactions, r.id, r.toJson()),
+    ]);
+    await repo.saveSettings(data.settings.copyWith(onboardingDone: true));
+    _set(await repo.load());
+    notifyListeners();
+    Growth.track('first_budget', {'from': 'onboarding', 'items': rules.length});
+  }
+
+  /// "Agora não" no 1º acesso: não mostra de novo.
+  Future<void> skipOnboarding() =>
+      saveSettings(data.settings.copyWith(onboardingDone: true));
+
   Future<void> saveSettings(AppSettings s) async {
     await repo.saveSettings(s);
     _set(await repo.load());

@@ -10,6 +10,7 @@ import '../../../data/growth.dart';
 import '../../../state/auth_controller.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../onboarding/onboarding_screen.dart';
 
 /// Situação da assinatura em uma linha (Configurações).
 String accessSummary(Access a) {
@@ -87,6 +88,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         children: [
           if (access != null)
             Text(accessSummary(access), style: context.text.titleMedium),
+          if (access != null && access.trial) ...[
+            const SizedBox(height: 12),
+            TrialTerms(access.trialEndsAt),
+          ],
           if (access?.isGratis ?? false) ...[
             const SizedBox(height: 8),
             Text(
@@ -103,6 +108,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             items: const [
               'Contas, cartões e lançamentos ilimitados, sincronizados',
               'Projeção de 3 meses',
+              '1 simulação de orçamento',
               'WhatsApp: 5 lançamentos por mês, só por texto',
               '1 grupo de despesas compartilhadas',
               '3 orçamentos por categoria e 1 meta de economia',
@@ -117,6 +123,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             items: const [
               'Contas, cartões e lançamentos ilimitados, sincronizados',
               'Projeção de 12 meses',
+              'Simulações e comparação de cenários sem limite',
               'WhatsApp: 300 lançamentos por mês, com fotos, PDFs e áudios',
               'Grupos de despesas compartilhadas ilimitados',
               'Orçamentos e metas ilimitados',
@@ -193,8 +200,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             ),
           const SizedBox(height: 16),
           Text(
-            'A assinatura renova todo mês e pode ser cancelada a qualquer '
-            'momento nas assinaturas da sua loja.',
+            'O pagamento é cobrado na sua conta da App Store ou do Google '
+            'Play ao confirmar a compra. A assinatura renova sozinha todo mês, '
+            'pelo mesmo preço, a menos que seja cancelada até 24 horas antes '
+            'do fim do período; cancele quando quiser nas assinaturas da sua '
+            'loja. Trocou de aparelho? Use Restaurar compras com a mesma conta.',
             style: context.text.bodySmall?.copyWith(color: context.fin.subtle),
             textAlign: TextAlign.center,
           ),

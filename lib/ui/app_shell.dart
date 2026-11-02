@@ -24,6 +24,7 @@ import 'screens/home/home_screen.dart';
 import 'screens/import/expense_import_screen.dart';
 import 'screens/networth/networth_screen.dart';
 import 'screens/installments/installments_screen.dart';
+import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/open_finance/open_finance_screen.dart';
 import 'screens/projection/projection_screen.dart';
 import 'screens/projects/projects_screen.dart';
@@ -67,6 +68,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   static const relockAfter = Duration(minutes: 2);
 
   void lock() => setState(() => _locked = true);
+
+  bool _onboardingShown = false;
 
   @override
   void initState() {
@@ -145,6 +148,18 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       );
     }
     Money.hidden = fc.data.settings.hideValues;
+    // Conta nova na nuvem: "monte seu orçamento em 1 minuto" (uma vez por
+    // sessão; sem nuvem, o convite fica no Início).
+    if (fc.isCloud && fc.needsOnboarding && !_onboardingShown) {
+      _onboardingShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        OnboardingScreen.open(
+          context,
+          showProjection: () => select('projection'),
+        );
+      });
+    }
     _locked ??= fc.hasPin && !context.read<AuthController>().freshLogin;
     final wideScreen = MediaQuery.sizeOf(context).width >= 600;
     final shell = Scaffold(

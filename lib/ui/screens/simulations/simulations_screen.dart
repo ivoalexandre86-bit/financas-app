@@ -7,6 +7,7 @@ import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/plan_upsell.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
 import '../../widgets/tx_grid.dart';
@@ -16,6 +17,9 @@ import '../../../domain/models/entities.dart';
 import 'other_entries.dart';
 import 'sim_common.dart';
 import 'simulation_screen.dart';
+
+/// Simulações no plano Grátis (o teste do Premium libera todas).
+const gratisSimulationLimit = 1;
 
 /// Gestão de simulações (cenários de orçamento).
 class SimulationsScreen extends StatefulWidget {
@@ -412,6 +416,15 @@ class _SimulationsScreenState extends State<SimulationsScreen>
 
   Future<void> _create(BuildContext context) async {
     final fc = context.read<FinanceController>();
+    if (isGratisPlan(context, listen: false) &&
+        fc.simulations.length >= gratisSimulationLimit) {
+      return showPlanUpsell(
+        context,
+        feature:
+            'No plano Grátis você pode ter $gratisSimulationLimit simulação. '
+            'Assine para criar quantas quiser e comparar cenários lado a lado.',
+      );
+    }
     final r = await showDialog<SimulationFormResult>(
       context: context,
       builder: (_) => SimulationFormDialog(simulations: fc.simulations),
@@ -433,8 +446,18 @@ class _SimulationsScreenState extends State<SimulationsScreen>
     }
   }
 
-  void _compare(BuildContext context, List<String> ids) =>
-      push(context, ScenarioCompareScreen(initialIds: ids));
+  void _compare(BuildContext context, List<String> ids) {
+    if (isGratisPlan(context, listen: false)) {
+      showPlanUpsell(
+        context,
+        feature:
+            'Comparar cenários lado a lado é um recurso dos planos pagos. '
+            'Durante o teste do Premium ele fica liberado.',
+      );
+      return;
+    }
+    push(context, ScenarioCompareScreen(initialIds: ids));
+  }
 
   Future<void> _action(BuildContext context, Simulation s, _Act a) async {
     final fc = context.read<FinanceController>();

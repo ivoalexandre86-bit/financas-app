@@ -4,8 +4,11 @@ import 'package:provider/provider.dart';
 import '../../../core/cloud_config.dart';
 import '../../../core/legal_links.dart';
 import '../../../data/auth_service.dart';
+import '../../../data/cloud/cloud_auth_service.dart';
+import '../../../data/growth.dart';
 import '../../../state/auth_controller.dart';
 import '../../theme.dart';
+import '../onboarding/onboarding_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -18,8 +21,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final name = TextEditingController();
   final email = TextEditingController();
   final password = TextEditingController();
-  final confirm = TextEditingController();
   bool accepted = false;
+  bool hidden = true;
+  String? inviter;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInvite();
+  }
+
+  /// Convite no link (?ref=): mostra de quem é e o bônus de teste.
+  Future<void> _loadInvite() async {
+    final code = Growth.ref;
+    final service = context.read<AuthController>().service;
+    if (code == null || service is! CloudAuthService) return;
+    try {
+      final r = await service.api.get('referral/$code');
+      if (mounted) setState(() => inviter = r['name'] as String?);
+    } catch (_) {
+      // Convite inválido ou sem internet: segue o cadastro normal.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,6 +65,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 color: context.fin.subtle,
               ),
             ),
+            if (inviter != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Convite de $inviter: você ganha 15 dias a mais de teste do '
+                'Premium.',
+                key: const ValueKey('invite'),
+                style: context.text.titleSmall,
+              ),
+            ],
             const SizedBox(height: 16),
             TextFormField(
               controller: name,
@@ -60,21 +92,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: 12),
             TextFormField(
               controller: password,
-              obscureText: true,
-              decoration: const InputDecoration(
+              obscureText: hidden,
+              decoration: InputDecoration(
                 labelText: 'Senha',
                 helperText: 'Mínimo de 8 caracteres, com letras e números',
+                suffixIcon: IconButton(
+                  tooltip: hidden ? 'Mostrar senha' : 'Esconder senha',
+                  onPressed: () => setState(() => hidden = !hidden),
+                  icon: Icon(
+                    hidden ? Icons.visibility_outlined : Icons.visibility_off,
+                  ),
+                ),
               ),
               validator: (v) => LocalAuthService.validatePassword(v ?? ''),
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: confirm,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Confirmar senha'),
-              validator: (v) =>
-                  v != password.text ? 'As senhas não conferem' : null,
-            ),
+            if (CloudConfig.enabled) ...[
+              const SizedBox(height: 16),
+              TrialTerms(null, days: inviter == null ? 30 : 45),
+            ],
             const SizedBox(height: 8),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,

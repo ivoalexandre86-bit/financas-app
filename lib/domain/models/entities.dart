@@ -1109,6 +1109,9 @@ class AppSettings {
   /// sem bloqueio.
   final String? pinLock;
 
+  /// Já passou (ou pulou) o "monte seu orçamento" do 1º acesso.
+  final bool onboardingDone;
+
   const AppSettings({
     this.themeMode = 'system',
     this.cardExpenseBasis = CardExpenseBasis.invoiceDue,
@@ -1122,6 +1125,7 @@ class AppSettings {
     this.whatsappBudgetAlerts = false,
     this.hideValues = false,
     this.pinLock,
+    this.onboardingDone = false,
   });
 
   /// [resetMenuLayout] volta o menu lateral ao padrão.
@@ -1139,6 +1143,7 @@ class AppSettings {
     bool? whatsappBudgetAlerts,
     bool? hideValues,
     String? pinLock,
+    bool? onboardingDone,
     bool clearPin = false,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
@@ -1153,6 +1158,7 @@ class AppSettings {
     whatsappBudgetAlerts: whatsappBudgetAlerts ?? this.whatsappBudgetAlerts,
     hideValues: hideValues ?? this.hideValues,
     pinLock: clearPin ? null : pinLock ?? this.pinLock,
+    onboardingDone: onboardingDone ?? this.onboardingDone,
   );
 
   Map<String, Object?> toJson() => {
@@ -1168,6 +1174,7 @@ class AppSettings {
     'whatsappBudgetAlerts': whatsappBudgetAlerts,
     'hideValues': hideValues,
     'pinLock': pinLock,
+    'onboardingDone': onboardingDone,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> j) => AppSettings(
@@ -1191,5 +1198,6 @@ class AppSettings {
     whatsappBudgetAlerts: (j['whatsappBudgetAlerts'] as bool?) ?? false,
     hideValues: (j['hideValues'] as bool?) ?? false,
     pinLock: j['pinLock'] as String?,
+    onboardingDone: (j['onboardingDone'] as bool?) ?? false,
   );
 }
