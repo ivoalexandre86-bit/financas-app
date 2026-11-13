@@ -22,7 +22,11 @@ import 'shared_widgets.dart';
 /// "Despesas compartilhadas": despesas, resumo mensal e grupos.
 class SharedScreen extends StatefulWidget {
   final int initialTab;
-  const SharedScreen({super.key, this.initialTab = 0});
+
+  /// Dentro da tela unificada de lançamentos: sem barra de título; as abas
+  /// e o botão de atualizar ficam numa linha só.
+  final bool embedded;
+  const SharedScreen({super.key, this.initialTab = 0, this.embedded = false});
 
   @override
   State<SharedScreen> createState() => _SharedScreenState();
@@ -43,54 +47,75 @@ class _SharedScreenState extends State<SharedScreen> {
     final sc = context.watch<SharedController>();
     if (!sc.available) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Despesas compartilhadas')),
+        appBar: widget.embedded
+            ? null
+            : AppBar(title: const Text('Despesas compartilhadas')),
         body: const SharedUnavailable(),
       );
     }
+    final actions = <Widget>[
+      if (sc.loading)
+        const Padding(
+          padding: EdgeInsets.all(16),
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        )
+      else
+        IconButton(
+          tooltip: 'Atualizar',
+          icon: const Icon(Icons.refresh),
+          onPressed: sc.refresh,
+        ),
+    ];
+    final tabBar = TabBar(
+      isScrollable: widget.embedded,
+      tabAlignment: widget.embedded ? TabAlignment.start : null,
+      tabs: [
+        const Tab(text: 'Despesas'),
+        const Tab(text: 'Resumo'),
+        Tab(
+          child: Badge(
+            isLabelVisible: sc.state.invites.isNotEmpty,
+            label: Text('${sc.state.invites.length}'),
+            child: const Text('Grupos'),
+          ),
+        ),
+      ],
+    );
+    final body = sc.error != null && !sc.loaded
+        ? ErrorState(message: sc.error!, onRetry: sc.refresh)
+        : !sc.loaded
+        ? const Center(child: CircularProgressIndicator())
+        : const TabBarView(
+            children: [_ExpensesTab(), _SummaryTab(), _GroupsTab()],
+          );
     return DefaultTabController(
       length: 3,
       initialIndex: widget.initialTab,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Despesas compartilhadas'),
-          actions: [
-            if (sc.loading)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+        appBar: widget.embedded
+            ? null
+            : AppBar(
+                title: const Text('Despesas compartilhadas'),
+                actions: actions,
+                bottom: tabBar,
+              ),
+        body: widget.embedded
+            ? Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: tabBar),
+                      ...actions,
+                    ],
+                  ),
+                  Expanded(child: body),
+                ],
               )
-            else
-              IconButton(
-                tooltip: 'Atualizar',
-                icon: const Icon(Icons.refresh),
-                onPressed: sc.refresh,
-              ),
-          ],
-          bottom: TabBar(
-            tabs: [
-              const Tab(text: 'Despesas'),
-              const Tab(text: 'Resumo'),
-              Tab(
-                child: Badge(
-                  isLabelVisible: sc.state.invites.isNotEmpty,
-                  label: Text('${sc.state.invites.length}'),
-                  child: const Text('Grupos'),
-                ),
-              ),
-            ],
-          ),
-        ),
-        body: sc.error != null && !sc.loaded
-            ? ErrorState(message: sc.error!, onRetry: sc.refresh)
-            : !sc.loaded
-            ? const Center(child: CircularProgressIndicator())
-            : const TabBarView(
-                children: [_ExpensesTab(), _SummaryTab(), _GroupsTab()],
-              ),
+            : body,
       ),
     );
   }
