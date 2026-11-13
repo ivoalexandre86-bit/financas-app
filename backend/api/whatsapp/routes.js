@@ -30,6 +30,7 @@ const {
 } = require('./affordability');
 const { allocate: allocateLine } = require('../shared/allocation');
 const { accessOf } = require('../billing');
+const { attachAccount } = require('../account');
 const { createReminderJob } = require('./reminders');
 const { mountBoletoPayments } = require('./payments');
 const { isPayable } = require('./ledger');
@@ -261,7 +262,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
        where l.wa_id = $1`,
       [from],
     );
-    const user = rows[0];
+    const user = rows[0] && (await attachAccount(pool, rows[0]));
     // O número do bot pode ser o mesmo do WhatsApp Business do dono
     // (coexistência): conversas de quem não vinculou ficam intocadas, sem
     // resposta e sem marcar como lidas.
@@ -381,7 +382,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
   async function budgetDocs(userId) {
     const { rows } = await pool.query(
       `select coll, data from app_docs
-       where user_id = $1 and not deleted
+       where user_id = data_owner($1) and not deleted
          and coll in ('transactions', 'recurringTransactions', 'cards',
                       'categories', 'invoicePayments', 'budgets')`,
       [userId],
@@ -416,7 +417,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
   async function loadContext(userId) {
     const { rows } = await pool.query(
       `select coll, data from app_docs
-       where user_id = $1 and not deleted
+       where user_id = data_owner($1) and not deleted
          and coll in ('accounts', 'cards', 'categories')`,
       [userId],
     );
@@ -548,7 +549,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
     const dates = [...new Set(drafts.map((d) => d.date))];
     const { rows } = await pool.query(
       `select coll, data from app_docs
-       where user_id = $1 and not deleted
+       where user_id = data_owner($1) and not deleted
          and ((coll = 'transactions' and data->>'installmentGroupId' is null
                and data->>'date' = any($2))
            or (coll = 'installmentGroups' and data->>'purchaseDate' = any($2)))`,
@@ -623,7 +624,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
   async function dueDateOf(userId, tx) {
     if (!tx.cardId) return tx.date;
     const { rows } = await pool.query(
-      `select data from app_docs where user_id = $1 and coll = 'cards' and id = $2`,
+      `select data from app_docs where user_id = data_owner($1) and coll = 'cards' and id = $2`,
       [userId, tx.cardId],
     );
     const card = rows[0]?.data;
@@ -684,7 +685,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
         const docs = items.flatMap((item) => buildDocs(item, ctx.today));
         for (const doc of docs) {
           await client.query(
-            `insert into app_docs (user_id, coll, id, data) values ($1, $2, $3, $4)`,
+            `insert into app_docs (user_id, coll, id, data) values (data_owner($1), $2, $3, $4)`,
             [user.id, doc.coll, doc.id, JSON.stringify(doc.data)],
           );
         }

@@ -53,7 +53,7 @@ function mountBoletoPayments(app, { pool, wrap, jwtSecret, pluggy, payments = {}
   async function loadTx(userId, txId) {
     const { rows } = await pool.query(
       `select data from app_docs
-        where user_id = $1 and coll = 'transactions' and id = $2 and not deleted`,
+        where user_id = data_owner($1) and coll = 'transactions' and id = $2 and not deleted`,
       [userId, txId],
     );
     return rows[0]?.data ?? null;
@@ -65,7 +65,7 @@ function mountBoletoPayments(app, { pool, wrap, jwtSecret, pluggy, payments = {}
       `update app_docs
           set data = data || jsonb_build_object('status', 'completed', 'updatedAt', $3::text),
               updated_at = now()
-        where user_id = $1 and coll = 'transactions' and id = $2 and not deleted
+        where user_id = data_owner($1) and coll = 'transactions' and id = $2 and not deleted
           and data->>'status' <> 'completed'
         returning data`,
       [userId, txId, new Date().toISOString()],
@@ -162,7 +162,7 @@ function mountBoletoPayments(app, { pool, wrap, jwtSecret, pluggy, payments = {}
   async function openBoletos(userId, today) {
     const { rows } = await pool.query(
       `select data from app_docs
-        where user_id = $1 and coll = 'transactions' and not deleted
+        where user_id = data_owner($1) and coll = 'transactions' and not deleted
           and (data->>'boletoCode' is not null or data->>'pixCode' is not null)
           and data->>'status' not in ('completed', 'cancelled')`,
       [userId],
@@ -267,7 +267,7 @@ function mountBoletoPayments(app, { pool, wrap, jwtSecret, pluggy, payments = {}
     const tx = await loadTx(claims.u, claims.t);
     if (!tx) return res.status(404).type('html').send(page('Boleto', '<p>Esse boleto não está mais no app.</p>'));
     const { rows } = await pool.query(
-      `select data from app_docs where user_id = $1 and coll = 'accounts' and id = $2`,
+      `select data from app_docs where user_id = data_owner($1) and coll = 'accounts' and id = $2`,
       [claims.u, tx.accountId ?? ''],
     );
     const bank = ANDROID_APPS[rows[0]?.data?.institutionCode];

@@ -14,6 +14,7 @@ const { mountShared } = require('./shared/routes');
 const { mountAi } = require('./ai');
 const { accessOf, mountBilling } = require('./billing');
 const { mountGrowth } = require('./growth');
+const { mountAccount, attachAccount, accountOf } = require('./account');
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const TOKEN_DAYS = 30;
@@ -55,6 +56,9 @@ const toUser = (r) => ({
   email: r.email,
   isAdmin: r.is_admin,
   access: accessOf(r),
+  // Conta de outra pessoa em que o usuário entrou (null = a própria).
+  account: accountOf(r),
+  pendingInvites: r.pending_invites ?? 0,
 });
 
 /// Limita tentativas de login por IP + e-mail (proteção contra força bruta).
@@ -148,7 +152,7 @@ function createApp({
         sub,
       ]);
       if (!rows.length) throw expired;
-      req.user = rows[0];
+      req.user = await attachAccount(pool, rows[0]);
     })().then(() => next(), next);
   };
   const admin = (req, res, next) =>
@@ -273,6 +277,7 @@ function createApp({
         ip: req.ip,
       });
     });
+    await attachAccount(pool, user);
     res.status(201).json({ token: sign(user), user: toUser(user) });
   }));
 
@@ -286,7 +291,8 @@ function createApp({
       rows.length &&
       (await bcrypt.compare(String(req.body?.password ?? ''), rows[0].password_hash));
     if (!ok) throw new HttpError(401, 'E-mail ou senha incorretos');
-    res.json({ token: sign(rows[0]), user: toUser(rows[0]) });
+    const user = await attachAccount(pool, rows[0]);
+    res.json({ token: sign(user), user: toUser(user) });
   }));
 
   app.get('/me', authed, (req, res) => res.json({ user: toUser(req.user) }));
@@ -378,7 +384,7 @@ function createApp({
   app.get('/docs', authed, wrap(async (req, res) => {
     const { rows } = await pool.query(
       `select coll, id, data from app_docs
-       where user_id = $1 and not deleted order by coll, id`,
+       where user_id = data_owner($1) and not deleted order by coll, id`,
       [req.user.id],
     );
     res.json({ docs: rows });
@@ -400,7 +406,7 @@ function createApp({
       const deleted = docs.map((d) => d.deleted === true || d.data == null);
       await pool.query(
         `insert into app_docs (user_id, coll, id, data, deleted, updated_at)
-         select $1, t.coll, t.id, t.data, t.deleted, now()
+         select data_owner($1), t.coll, t.id, t.data, t.deleted, now()
          from unnest($2::text[], $3::text[], $4::jsonb[], $5::bool[])
            as t(coll, id, data, deleted)
          on conflict (user_id, coll, id) do update
@@ -530,6 +536,7 @@ function createApp({
     res.json({ transactions: txs.map(toAppTransaction) });
   }));
 
+  mountAccount(app, { pool, authed, wrap, HttpError });
   const shared = mountShared(app, { pool, authed, wrap, HttpError, accessOf });
   mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, jwtSecret, pluggy });
   mountAi(app, { pool, authed, wrap, HttpError, ai });

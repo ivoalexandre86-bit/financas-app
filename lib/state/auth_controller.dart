@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/auth_service.dart';
 import '../data/cloud/api_client.dart';
+import '../data/cloud/cloud_auth_service.dart';
 
 /// Estado de autenticação do app.
 class AuthController extends ChangeNotifier {
@@ -29,6 +30,9 @@ class AuthController extends ChangeNotifier {
       if (user == null) canRegister = await service.canRegister();
       // Renovações e compras feitas em outro aparelho.
       if (user?.access != null) unawaited(_refreshQuietly());
+      // Entrou/saiu de uma conta compartilhada em outro aparelho, ou o
+      // dono a removeu: troca os dados em uso.
+      if (user != null && !user!.isDemo) unawaited(reloadUser());
     } catch (e) {
       error = 'Não foi possível restaurar a sessão';
     }
@@ -75,6 +79,19 @@ class AuthController extends ChangeNotifier {
   String get plan => user?.access?.currentPlan ?? 'premium';
   bool get isGratis => plan == 'gratis';
   bool get isPremium => plan == 'premium';
+
+  /// Relê a conta no servidor (conta em uso, convites). Sem internet,
+  /// mantém a situação atual.
+  Future<void> reloadUser() async {
+    final s = service;
+    if (s is! CloudAuthService || user == null || user!.isDemo) return;
+    try {
+      final u = await s.reloadMe();
+      if (u == null || user == null || u.id != user!.id) return;
+      user = u;
+      notifyListeners();
+    } catch (_) {}
+  }
 
   Future<void> _refreshQuietly() async {
     try {
