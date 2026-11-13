@@ -16,6 +16,7 @@ import 'state/auth_controller.dart';
 import 'state/finance_controller.dart';
 import 'state/shared_controller.dart';
 import 'ui/app_shell.dart';
+import 'ui/screens/account/account_members_screen.dart';
 import 'ui/screens/auth/login_screen.dart';
 import 'ui/screens/settings/cloud_import.dart';
 import 'ui/theme.dart';
@@ -70,13 +71,17 @@ class FinancasApp extends StatelessWidget {
           // O estado financeiro fica acima do Navigator para que todas as
           // rotas o enxerguem; um repositório isolado por usuário.
           return ChangeNotifierProvider(
-            key: ValueKey(user.id),
+            // Entrar ou sair de uma conta compartilhada troca os dados.
+            key: ValueKey(user.dataKey),
             create: (context) {
               final service = context.read<AuthController>().service;
               final cloud = service is CloudAuthService && !user.isDemo;
               return FinanceController(
                 cloud
-                    ? CloudFinanceRepository(user.id, ApiDocStore(service.api))
+                    ? CloudFinanceRepository(
+                        user.dataKey,
+                        ApiDocStore(service.api),
+                      )
                     : LocalFinanceRepository(user.id),
                 isDemo: user.isDemo,
                 // Open Finance real só com a conta na nuvem (o servidor
@@ -129,6 +134,8 @@ class AuthGate extends StatelessWidget {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (auth.user == null) return const LoginScreen();
-    return const CloudImportPrompt(child: AppShell());
+    return const CloudImportPrompt(
+      child: AccountInvitePrompt(child: AppShell()),
+    );
   }
 }

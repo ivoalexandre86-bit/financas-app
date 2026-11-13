@@ -21,7 +21,7 @@ const iso = (d) => (d ? new Date(d).toISOString() : null);
  * e assinatura Premium), basico (assinatura Básico) ou gratis (sem
  * assinatura: o app continua funcionando, com limites).
  */
-function accessOf(u, now = new Date()) {
+function ownAccess(u, now) {
   const paid = !!u.paid_until && new Date(u.paid_until) > now;
   const trial = !!u.trial_ends_at && new Date(u.trial_ends_at) > now;
   // Dias de Premium ganhos por indicação (valem sem assinatura ativa).
@@ -51,6 +51,20 @@ function accessOf(u, now = new Date()) {
     bonusUntil: iso(u.bonus_until),
     premium: plan === PREMIUM,
   };
+}
+
+const RANK = { gratis: 0, basico: 1, premium: 2 };
+
+/**
+ * Como [ownAccess], mas quem usa a conta de outra pessoa (`account_owner`,
+ * ver account.js) fica com o plano do dono quando ele é melhor.
+ */
+function accessOf(u, now = new Date()) {
+  const own = ownAccess(u, now);
+  const o = u.account_owner;
+  if (!o) return own;
+  const theirs = ownAccess(o, now);
+  return RANK[theirs.plan] > RANK[own.plan] ? { ...theirs, sharedBy: o.name } : own;
 }
 
 /// Permissões do RevenueCat → validade da assinatura e plano.
@@ -108,6 +122,7 @@ function mountBilling(app, { pool, authed, wrap, HttpError, revenuecat, webhookA
     if (revenuecat) {
       try {
         user = await save(user.id, fromEntitlements(await revenuecat.entitlements(user.id)));
+        user.account_owner = req.user.account_owner;
       } catch (e) {
         console.error('Assinatura: falha ao consultar o RevenueCat', e);
         throw new HttpError(502, 'Não foi possível confirmar a assinatura agora.');

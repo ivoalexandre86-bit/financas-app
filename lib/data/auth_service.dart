@@ -19,6 +19,14 @@ class AppUser {
 
   /// Assinatura (só contas na nuvem; local e demonstração não têm).
   final Access? access;
+
+  /// Conta de outra pessoa em que o usuário entrou (nulo = a própria): os
+  /// dados vistos e gravados são os dessa conta.
+  final String? accountId;
+  final String? accountOwnerName;
+
+  /// Convites pendentes para entrar na conta de outra pessoa.
+  final int pendingInvites;
   const AppUser({
     required this.id,
     required this.name,
@@ -26,7 +34,16 @@ class AppUser {
     this.isDemo = false,
     this.isAdmin = false,
     this.access,
+    this.accountId,
+    this.accountOwnerName,
+    this.pendingInvites = 0,
   });
+
+  /// Usa a conta de outra pessoa?
+  bool get inSharedAccount => accountId != null && accountId != id;
+
+  /// Chave dos dados no aparelho: muda ao entrar ou sair de uma conta.
+  String get dataKey => inSharedAccount ? '${id}_$accountId' : id;
 }
 
 /// Situação da assinatura vinda do servidor.
@@ -46,6 +63,9 @@ class Access {
 
   /// Plano Premium (Open Finance).
   final bool premium;
+
+  /// Plano vindo do dono da conta em que o usuário entrou.
+  final String? sharedBy;
   const Access({
     required this.status,
     this.plan = 'basico',
@@ -53,6 +73,7 @@ class Access {
     this.paidUntil,
     this.bonusUntil,
     this.premium = false,
+    this.sharedBy,
   });
 
   /// Vencida agora (o teste ou a assinatura podem ter acabado depois da
@@ -102,6 +123,7 @@ class Access {
       paidUntil: date(json['paidUntil']),
       bonusUntil: date(json['bonusUntil']),
       premium: premium,
+      sharedBy: json['sharedBy'] as String?,
     );
   }
 }

@@ -321,3 +321,33 @@ create table if not exists marketing_spend (
   amount_cents bigint not null,
   primary key (month, channel)
 );
+
+-- Conta com vários usuários --------------------------------------------------
+-- O dono convida outras pessoas (pelo e-mail) para usar o mesmo orçamento.
+-- Quem aceita passa a ler e gravar os dados (app_docs) do dono, cada um com
+-- o próprio login. Os dados próprios de quem entrou ficam guardados e voltam
+-- se a pessoa sair. status: invited (aguarda aceite) | active.
+create table if not exists account_members (
+  id          uuid primary key default gen_random_uuid(),
+  account_id  uuid not null references users (id) on delete cascade,
+  email       text not null,
+  user_id     uuid references users (id) on delete cascade,
+  status      text not null default 'invited' check (status in ('invited', 'active')),
+  invited_by  uuid references users (id) on delete set null,
+  created_at  timestamptz not null default now(),
+  accepted_at timestamptz,
+  unique (account_id, email)
+);
+-- Cada pessoa usa no máximo uma conta de outra pessoa.
+create unique index if not exists account_members_active_user
+  on account_members (user_id) where status = 'active';
+create index if not exists account_members_email on account_members (email);
+
+-- Dono dos dados que o usuário enxerga: a conta em que entrou ou a própria.
+create or replace function data_owner(u uuid) returns uuid
+language sql stable as $$
+  select coalesce(
+    (select account_id from account_members
+      where user_id = u and status = 'active' limit 1),
+    u)
+$$;

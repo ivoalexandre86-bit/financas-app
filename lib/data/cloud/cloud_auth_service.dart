@@ -43,13 +43,28 @@ class CloudAuthService implements AuthService {
     return _toUser(user);
   }
 
-  static AppUser _toUser(Map<String, Object?> u) => AppUser(
-    id: u['id'] as String,
-    name: u['name'] as String,
-    email: u['email'] as String,
-    isAdmin: (u['isAdmin'] as bool?) ?? false,
-    access: Access.fromJson(u['access']),
-  );
+  static AppUser _toUser(Map<String, Object?> u) {
+    final account = u['account'];
+    return AppUser(
+      id: u['id'] as String,
+      name: u['name'] as String,
+      email: u['email'] as String,
+      isAdmin: (u['isAdmin'] as bool?) ?? false,
+      access: Access.fromJson(u['access']),
+      accountId: account is Map ? account['id'] as String? : null,
+      accountOwnerName: account is Map ? account['ownerName'] as String? : null,
+      pendingInvites: (u['pendingInvites'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  /// Consulta o servidor de novo (conta em uso, convites, assinatura).
+  /// Sem conexão, devolve a conta guardada.
+  Future<AppUser?> reloadMe() async {
+    if (_demo) return null;
+    final s = await _session.record('current').get(await _database);
+    if (s == null) return null;
+    return _refreshMe(s);
+  }
 
   @override
   Future<AppUser?> refreshSubscription() async {
@@ -228,6 +243,7 @@ class CloudAuthService implements AuthService {
       await _session.record('current').put(await _database, {
         ...s,
         'user': {
+          ...(s['user'] as Map).cast<String, Object?>(),
           'id': u.id,
           'name': u.name,
           'email': u.email,

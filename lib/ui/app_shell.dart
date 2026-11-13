@@ -35,6 +35,7 @@ import 'screens/simulations/simulations_screen.dart';
 import 'screens/subscriptions/subscriptions_screen.dart';
 import 'screens/transactions/entries_screen.dart';
 import 'screens/users/users_screen.dart';
+import 'screens/account/account_members_screen.dart';
 import 'widgets/common.dart';
 
 /// Estrutura principal com o menu lateral recolhível, em seções.
@@ -343,6 +344,12 @@ const menuGroups = <MenuGroup>[
   ]),
   MenuGroup('settings-group', Icons.settings_outlined, 'Configurações', [
     MenuDest('settings', Icons.tune, 'Preferências', SettingsScreen()),
+    MenuDest(
+      'account-members',
+      Icons.group_add_outlined,
+      'Pessoas na conta',
+      AccountMembersScreen(),
+    ),
     MenuDest(
       'categories',
       Icons.category_outlined,
@@ -701,11 +708,19 @@ class _SideMenuState extends State<SideMenu> {
                 if (name.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: entry(
-                      icon: Icons.person,
-                      label: name,
-                      onTap: () => widget.onSelect('settings'),
-                    ),
+                    // Na conta de outra pessoa, mostra de quem é a conta.
+                    child: user?.inSharedAccount ?? false
+                        ? entry(
+                            key: const ValueKey('menu-shared-account'),
+                            icon: Icons.group,
+                            label: '$name · conta de ${user!.accountOwnerName}',
+                            onTap: () => widget.onSelect('account-members'),
+                          )
+                        : entry(
+                            icon: Icons.person,
+                            label: name,
+                            onTap: () => widget.onSelect('settings'),
+                          ),
                   ),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 12),

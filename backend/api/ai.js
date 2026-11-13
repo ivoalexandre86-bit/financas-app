@@ -133,7 +133,7 @@ function mountAi(app, { pool, authed, wrap, HttpError, ai }) {
       await count(req.user);
       const { rows } = await pool.query(
         `select coll, data from app_docs
-         where user_id = $1 and not deleted
+         where user_id = data_owner($1) and not deleted
            and coll in ('accounts', 'cards', 'categories')`,
         [req.user.id],
       );
