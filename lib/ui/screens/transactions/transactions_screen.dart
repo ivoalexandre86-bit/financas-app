@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../../core/dates.dart';
 import '../../../core/money.dart';
 import '../../../domain/engine/financial_engine.dart';
+import '../../../domain/engine/other_entries_engine.dart';
+import '../../../domain/engine/shared_engine.dart';
 import '../../../domain/models/entities.dart';
 import '../../../state/finance_controller.dart';
 import '../../nav.dart';
@@ -74,7 +76,19 @@ enum QuickType {
 }
 
 class TransactionsScreen extends StatefulWidget {
-  const TransactionsScreen({super.key});
+  /// Só as transações do próprio usuário: esconde as linhas geradas por
+  /// Outras despesas/receitas (`oe_`) e por Compartilhadas (`sh_`).
+  final bool ownOnly;
+
+  /// Dentro da tela unificada de lançamentos: sem barra de título; busca,
+  /// filtros e modo de exibição vão para a linha do mês.
+  final bool embedded;
+
+  const TransactionsScreen({
+    super.key,
+    this.ownOnly = false,
+    this.embedded = false,
+  });
   @override
   State<TransactionsScreen> createState() => _TransactionsScreenState();
 }
@@ -190,6 +204,10 @@ class _TransactionsScreenState extends State<TransactionsScreen>
 
     bool matches(FinTransaction t) {
       if (!showForecast && t.isVirtual) return false;
+      if (widget.ownOnly &&
+          (OtherSync.isDerived(t.id) || SharedBudgetSync.isDerived(t.id))) {
+        return false;
+      }
       if (filter.types.isNotEmpty && !filter.types.contains(t.type)) {
         return false;
       }
@@ -326,56 +344,58 @@ class _TransactionsScreenState extends State<TransactionsScreen>
       }
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: searching
-            ? TextField(
-                controller: searchCtrl,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: 'Buscar descrição, categoria, valor…',
-                  border: InputBorder.none,
-                  filled: false,
-                ),
-                onChanged: (v) => setState(() => query = v),
-              )
-            : const Text('Transações'),
-        actions: [
-          IconButton(
-            tooltip: searching ? 'Fechar busca' : 'Buscar',
-            icon: Icon(searching ? Icons.close : Icons.search),
-            onPressed: () => setState(() {
-              searching = !searching;
-              if (!searching) {
-                query = '';
-                searchCtrl.clear();
-              }
-            }),
-          ),
-          IconButton(
-            tooltip: 'Filtros',
-            icon: Badge(
-              isLabelVisible: filter.count > 0,
-              label: Text('${filter.count}'),
-              child: const Icon(Icons.tune),
-            ),
-            onPressed: () async {
-              final f = await showModalBottomSheet<TxListFilter>(
-                context: context,
-                isScrollControlled: true,
-                showDragHandle: true,
-                builder: (_) => _FilterSheet(fc: fc, initial: filter),
-              );
-              if (f != null) setFilters(() => filter = f);
-            },
-          ),
-          ViewModeToggle(
-            keyPrefix: 'tx',
-            mode: view,
-            onChanged: (v) => setFilters(() => view = v),
-          ),
-        ],
+    final actions = <Widget>[
+      IconButton(
+        tooltip: searching ? 'Fechar busca' : 'Buscar',
+        icon: Icon(searching ? Icons.close : Icons.search),
+        onPressed: () => setState(() {
+          searching = !searching;
+          if (!searching) {
+            query = '';
+            searchCtrl.clear();
+          }
+        }),
       ),
+      IconButton(
+        tooltip: 'Filtros',
+        icon: Badge(
+          isLabelVisible: filter.count > 0,
+          label: Text('${filter.count}'),
+          child: const Icon(Icons.tune),
+        ),
+        onPressed: () async {
+          final f = await showModalBottomSheet<TxListFilter>(
+            context: context,
+            isScrollControlled: true,
+            showDragHandle: true,
+            builder: (_) => _FilterSheet(fc: fc, initial: filter),
+          );
+          if (f != null) setFilters(() => filter = f);
+        },
+      ),
+      ViewModeToggle(
+        keyPrefix: 'tx',
+        mode: view,
+        onChanged: (v) => setFilters(() => view = v),
+      ),
+    ];
+    final searchField = TextField(
+      controller: searchCtrl,
+      autofocus: true,
+      decoration: const InputDecoration(
+        hintText: 'Buscar descrição, categoria, valor…',
+        border: InputBorder.none,
+        filled: false,
+      ),
+      onChanged: (v) => setState(() => query = v),
+    );
+    return Scaffold(
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: searching ? searchField : const Text('Transações'),
+              actions: actions,
+            ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab-tx',
         onPressed: () => push(context, const TransactionFormScreen()),
@@ -384,6 +404,11 @@ class _TransactionsScreenState extends State<TransactionsScreen>
       ),
       body: Column(
         children: [
+          if (widget.embedded && searching)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
+              child: searchField,
+            ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Row(
@@ -402,6 +427,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                     ),
                   ),
                 const Spacer(),
+                if (widget.embedded) ...actions,
                 PopupMenuButton<String>(
                   tooltip: 'Opções',
                   onSelected: (v) {

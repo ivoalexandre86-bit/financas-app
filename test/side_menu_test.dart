@@ -55,7 +55,9 @@ void main() {
       expect(find.text(s), findsOneWidget);
     }
     expect(find.text('Mais'), findsNothing);
-    expect(find.text('Transações'), findsOneWidget);
+    expect(find.text('Movimentações'), findsOneWidget);
+    expect(find.text('Outras despesas'), findsNothing);
+    expect(find.text('Compartilhadas'), findsNothing);
     // Só Lançamentos começa aberta; Faturas fica nela.
     expect(find.text('Faturas'), findsOneWidget);
     expect(find.text('Importar planilha'), findsNothing);
@@ -73,7 +75,7 @@ void main() {
     // Recolher uma seção esconde os itens.
     await tester.tap(find.byKey(const ValueKey('side-menu-group-entries')));
     await tester.pumpAndSettle();
-    expect(find.text('Transações'), findsNothing);
+    expect(find.text('Movimentações'), findsNothing);
   });
 
   testWidgets('recolhido: tocar na seção abre a lista dos itens', (

@@ -31,10 +31,9 @@ import 'screens/recurring/recurring_screen.dart';
 import 'screens/rules/category_rules_screen.dart';
 import 'screens/settings/lock_screen.dart';
 import 'screens/settings/settings_screen.dart';
-import 'screens/shared/shared_screen.dart';
 import 'screens/simulations/simulations_screen.dart';
 import 'screens/subscriptions/subscriptions_screen.dart';
-import 'screens/transactions/transactions_screen.dart';
+import 'screens/transactions/entries_screen.dart';
 import 'screens/users/users_screen.dart';
 import 'widgets/common.dart';
 
@@ -122,7 +121,18 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   /// Páginas já abertas (mantêm o estado ao trocar de destino).
   final _visited = <String>{'home'};
 
+  /// Destinos antigos que agora são botões da tela de lançamentos.
+  static const _entriesAliases = {
+    'other-entries': EntriesView.other,
+    'shared': EntriesView.shared,
+  };
+
   void select(String id) => setState(() {
+    final alias = _entriesAliases[id];
+    if (alias != null) {
+      EntriesScreen.requested.value = alias;
+      id = 'transactions';
+    }
     selected = id;
     _visited.add(id);
   });
@@ -235,11 +245,13 @@ const menuHome = MenuDest(
 /// cartões → planejar (inclui importar planilha) → configurar.
 const menuGroups = <MenuGroup>[
   MenuGroup('entries', Icons.receipt_long_outlined, 'Lançamentos', [
+    // Transações, Outras despesas e Compartilhadas numa tela só (o id
+    // 'transactions' fica para não perder menus organizados pelo usuário).
     MenuDest(
       'transactions',
       Icons.receipt_long_outlined,
-      'Transações',
-      TransactionsScreen(),
+      'Movimentações',
+      EntriesScreen(),
     ),
     MenuDest('recurring', Icons.autorenew, 'Recorrências', RecurringScreen()),
     MenuDest(
@@ -255,13 +267,6 @@ const menuGroups = <MenuGroup>[
       'Calendário',
       CalendarScreen(),
     ),
-    MenuDest(
-      'other-entries',
-      Icons.call_split,
-      'Outras despesas',
-      SimulationsScreen(initialTab: 1),
-    ),
-    MenuDest('shared', Icons.groups_outlined, 'Compartilhadas', SharedScreen()),
   ]),
   MenuGroup(
     'wallet',
