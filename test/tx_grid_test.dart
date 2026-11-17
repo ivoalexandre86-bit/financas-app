@@ -262,8 +262,8 @@ void main() {
     expect(one.visible, hasLength(1));
 
     // Tela estreita: colunas de texto encolhem antes de rolar.
-    final l = GridLayout.of(900, GridColumnsConfig.standard);
-    expect(l.totalWidth, closeTo(900, 0.01));
+    final l = GridLayout.of(1000, GridColumnsConfig.standard);
+    expect(l.totalWidth, closeTo(1000, 0.01));
   });
 
   testWidgets('modo cartões: lançamentos agrupados por dia', (tester) async {

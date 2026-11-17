@@ -61,6 +61,7 @@ class GridPalette {
 enum GridColumn {
   date('Data', 96, 72),
   dueDate('Vencimento', 104, 80),
+  kind('Tipo', 116, 72),
   category('Categoria', 170, 90),
   subcategory('Subcategoria', 150, 80),
   description('Descrição', 300, 120),
@@ -83,6 +84,7 @@ enum GridColumn {
 
   /// Colunas de texto, que cedem espaço quando a tela é estreita.
   bool get flexible =>
+      this == kind ||
       this == category ||
       this == subcategory ||
       this == description ||

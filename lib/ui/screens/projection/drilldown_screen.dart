@@ -10,6 +10,7 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
+import '../../widgets/entry_origin.dart';
 import '../../widgets/tx_grid.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_screen.dart'
@@ -525,6 +526,9 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
       if (sort == GridColumn.dueDate) {
         return (_due(e, a.tx) ?? a.date).compareTo(_due(e, b.tx) ?? b.date);
       }
+      if (sort == GridColumn.kind) {
+        return EntryOrigin.of(a.tx).label.compareTo(EntryOrigin.of(b.tx).label);
+      }
       if (sort == GridColumn.status) {
         return _statusRank(e, a.tx).compareTo(_statusRank(e, b.tx));
       }
@@ -775,6 +779,9 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
         );
       }
       if (c == GridColumn.status) return GridCell(child: status);
+      if (c == GridColumn.kind) {
+        return GridCell(child: EntryOriginLabel(EntryOrigin.of(tx)));
+      }
       return const GridCell(child: SizedBox.shrink());
     }
 
