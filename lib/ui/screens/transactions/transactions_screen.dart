@@ -13,6 +13,7 @@ import '../../theme.dart';
 import '../import/expense_import_screen.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
+import '../../widgets/entry_origin.dart';
 import '../../widgets/invoice_tile.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
@@ -45,6 +46,29 @@ class TxListFilter {
       (categoryId == null ? 0 : 1) +
       (projectId == null ? 0 : 1) +
       (tag == null ? 0 : 1);
+
+  TxListFilter _copy({
+    Set<TransactionType>? types,
+    Set<TransactionStatus>? statuses,
+    bool clearLocation = false,
+    bool clearCategory = false,
+    bool clearProject = false,
+    bool clearTag = false,
+  }) => TxListFilter(
+    types: types ?? this.types,
+    statuses: statuses ?? this.statuses,
+    accountOrCard: clearLocation ? null : accountOrCard,
+    categoryId: clearCategory ? null : categoryId,
+    projectId: clearProject ? null : projectId,
+    tag: clearTag ? null : tag,
+  );
+
+  TxListFilter withoutTypes() => _copy(types: const {});
+  TxListFilter withoutStatuses() => _copy(statuses: const {});
+  TxListFilter withoutLocation() => _copy(clearLocation: true);
+  TxListFilter withoutCategory() => _copy(clearCategory: true);
+  TxListFilter withoutProject() => _copy(clearProject: true);
+  TxListFilter withoutTag() => _copy(clearTag: true);
 }
 
 /// Filtro rápido de status (barra acima da lista).
@@ -103,6 +127,11 @@ class _TransactionsScreenState extends State<TransactionsScreen>
   TxListFilter filter = const TxListFilter();
   QuickStatus quickStatus = QuickStatus.all;
   QuickType quickType = QuickType.all;
+
+  /// Filtros rápidos dinâmicos (gerados a partir das linhas do período):
+  /// tipo de lançamento (coluna "Tipo") e categoria raiz.
+  Set<EntryOrigin> origins = {};
+  String? quickCategory;
   ViewMode view = ViewMode.grid;
   final searchCtrl = TextEditingController();
 
@@ -138,6 +167,8 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     'tag': filter.tag,
     'quickStatus': quickStatus.name,
     'quickType': quickType.name,
+    'origins': FilterJson.enums(origins),
+    'quickCategory': quickCategory,
     'sort': sort.name,
     'asc': ascending,
     'view': view.name,
@@ -165,6 +196,8 @@ class _TransactionsScreenState extends State<TransactionsScreen>
         quickStatus;
     quickType =
         FilterJson.enumOrNull(QuickType.values, j['quickType']) ?? quickType;
+    origins = FilterJson.enumSet(EntryOrigin.values, j['origins']);
+    quickCategory = j['quickCategory'] as String?;
     sort = FilterJson.enumOrNull(GridColumn.values, j['sort']) ?? sort;
     ascending = j['asc'] as bool? ?? ascending;
     view = FilterJson.enumOrNull(ViewMode.values, j['view']) ?? view;
@@ -280,6 +313,188 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     return out;
   }
 
+  static EntryOrigin _originOf(_Entry it) => switch (it) {
+    _InvoiceEntry() => EntryOrigin.invoice,
+    _TxEntry(:final tx) => EntryOrigin.of(tx),
+  };
+
+  /// Chave da categoria raiz de uma linha (a mesma da coluna Categoria):
+  /// faturas = 'card', transferências = 'transfer', sem categoria = ''.
+  static String _categoryKey(FinancialEngine e, _Entry it) => switch (it) {
+    _InvoiceEntry() => 'card',
+    _TxEntry(:final tx) when tx.isTransfer => 'transfer',
+    _TxEntry(:final tx) => e.rootCategoryId(tx.categoryId),
+  };
+
+  bool _quickMatches(FinancialEngine e, _Entry it) {
+    if (origins.isNotEmpty && !origins.contains(_originOf(it))) return false;
+    if (quickCategory != null && _categoryKey(e, it) != quickCategory) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Botões gerados a partir do que existe no período: filtros escondidos
+  /// no painel (com X para remover), tipos de lançamento e categorias, cada
+  /// um com a quantidade de linhas.
+  Widget _dynamicFilters(
+    BuildContext context,
+    FinanceController fc,
+    List<_Entry> base,
+  ) {
+    final e = fc.engine;
+    final d = fc.data;
+    final originCount = <EntryOrigin, int>{};
+    final catCount = <String, int>{};
+    final catLabel = <String, String>{};
+    for (final it in base) {
+      final o = _originOf(it);
+      originCount[o] = (originCount[o] ?? 0) + 1;
+      // A contagem de categorias respeita o tipo escolhido.
+      if (origins.isNotEmpty && !origins.contains(o)) continue;
+      final k = _categoryKey(e, it);
+      catCount[k] = (catCount[k] ?? 0) + 1;
+      catLabel[k] ??= _cols(e, it).category;
+    }
+    if (quickCategory != null && !catCount.containsKey(quickCategory)) {
+      catCount[quickCategory!] = 0;
+      catLabel[quickCategory!] = quickCategory == 'card'
+          ? 'Cartão'
+          : quickCategory == 'transfer'
+          ? 'Transferência'
+          : e.categoryLabel(quickCategory);
+    }
+    for (final o in origins) {
+      originCount.putIfAbsent(o, () => 0);
+    }
+    final originList = EntryOrigin.values
+        .where(originCount.containsKey)
+        .toList();
+    final cats = catCount.keys.toList()
+      ..sort((a, b) {
+        final c = catCount[b]!.compareTo(catCount[a]!);
+        return c != 0 ? c : catLabel[a]!.compareTo(catLabel[b]!);
+      });
+
+    final active = <(String, String, VoidCallback)>[
+      if (filter.types.isNotEmpty)
+        (
+          'f-types',
+          'Tipo: ${filter.types.map((t) => t.label).join(', ')}',
+          () => setFilters(() => filter = filter.withoutTypes()),
+        ),
+      if (filter.statuses.isNotEmpty)
+        (
+          'f-statuses',
+          'Status: ${filter.statuses.map((s) => s.label).join(', ')}',
+          () => setFilters(() => filter = filter.withoutStatuses()),
+        ),
+      if (filter.accountOrCard case final loc?)
+        (
+          'f-location',
+          loc.startsWith('a:')
+              ? 'Conta: ${d.accountById[loc.substring(2)]?.name ?? '?'}'
+              : 'Cartão: ${d.cardById[loc.substring(2)]?.name ?? '?'}',
+          () => setFilters(() => filter = filter.withoutLocation()),
+        ),
+      if (filter.categoryId != null)
+        (
+          'f-category',
+          'Categoria: ${e.categoryLabel(filter.categoryId)}',
+          () => setFilters(() => filter = filter.withoutCategory()),
+        ),
+      if (filter.projectId != null)
+        (
+          'f-project',
+          'Projeto: ${d.projectById[filter.projectId]?.name ?? '?'}',
+          () => setFilters(() => filter = filter.withoutProject()),
+        ),
+      if (filter.tag != null)
+        (
+          'f-tag',
+          '#${filter.tag}',
+          () => setFilters(() => filter = filter.withoutTag()),
+        ),
+    ];
+    final showOrigins = originList.length > 1 || origins.isNotEmpty;
+    final showCats = cats.length > 1 || quickCategory != null;
+    if (active.isEmpty && !showOrigins && !showCats) {
+      return const SizedBox.shrink();
+    }
+
+    Widget gap() => Container(
+      width: 1,
+      height: 24,
+      margin: const EdgeInsets.only(left: 2, right: 8),
+      color: context.colors.outlineVariant,
+    );
+    Widget pad(Widget w) =>
+        Padding(padding: const EdgeInsets.only(right: 6), child: w);
+
+    final children = <Widget>[
+      for (final (key, label, onClear) in active)
+        pad(
+          InputChip(
+            key: ValueKey(key),
+            label: Text(label),
+            avatar: const Icon(Icons.filter_alt, size: 16),
+            visualDensity: VisualDensity.compact,
+            onDeleted: onClear,
+            deleteButtonTooltipMessage: 'Remover filtro',
+          ),
+        ),
+      if (active.length > 1)
+        pad(
+          ActionChip(
+            key: const ValueKey('f-clear'),
+            label: const Text('Limpar filtros'),
+            visualDensity: VisualDensity.compact,
+            onPressed: () => setFilters(() => filter = const TxListFilter()),
+          ),
+        ),
+      if (active.isNotEmpty && (showOrigins || showCats)) gap(),
+      if (showOrigins) ...[
+        for (final o in originList)
+          pad(
+            FilterChip(
+              key: ValueKey('qo-${o.name}'),
+              avatar: Icon(o.icon, size: 16),
+              label: Text('${o.label} ${originCount[o]}'),
+              selected: origins.contains(o),
+              showCheckmark: false,
+              visualDensity: VisualDensity.compact,
+              onSelected: (v) => setFilters(() {
+                origins = {...origins};
+                v ? origins.add(o) : origins.remove(o);
+              }),
+            ),
+          ),
+        if (showCats) gap(),
+      ],
+      if (showCats)
+        for (final k in cats)
+          pad(
+            FilterChip(
+              key: ValueKey('qc-$k'),
+              label: Text('${catLabel[k]} ${catCount[k]}'),
+              selected: quickCategory == k,
+              showCheckmark: false,
+              visualDensity: VisualDensity.compact,
+              onSelected: (v) => setFilters(() => quickCategory = v ? k : null),
+            ),
+          ),
+    ];
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        key: const ValueKey('tx-dynamic-filters'),
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        children: children,
+      ),
+    );
+  }
+
   bool _invoiceMatches(Invoice inv, InvoiceSlice slice) {
     if (!showForecast && inv.transactions.every((t) => t.isVirtual)) {
       if (inv.payments.isEmpty) return false;
@@ -320,7 +535,13 @@ class _TransactionsScreenState extends State<TransactionsScreen>
   Widget build(BuildContext context) {
     final fc = context.watch<FinanceController>();
     final e = fc.engine;
-    final items = _items(fc);
+    final base = _items(fc);
+    final items = [
+      for (final it in base)
+        if (_quickMatches(e, it)) it,
+    ];
+    final hiddenFilters =
+        filter.count + origins.length + (quickCategory == null ? 0 : 1);
     var inc = Money.zero, exp = Money.zero;
     var incOpen = Money.zero, expOpen = Money.zero;
     // A fatura conta uma única vez; as compras dentro dela não são somadas
@@ -483,10 +704,19 @@ class _TransactionsScreenState extends State<TransactionsScreen>
             child: _QuickFilters(
               type: quickType,
               status: quickStatus,
-              onType: (v) => setFilters(() => quickType = v),
-              onStatus: (v) => setFilters(() => quickStatus = v),
+              onType: (v) => setFilters(() {
+                quickType = v;
+                // O botão manda: um filtro de tipo esquecido no painel de
+                // filtros escondia, por exemplo, todas as receitas.
+                if (v != QuickType.all) filter = filter.withoutTypes();
+              }),
+              onStatus: (v) => setFilters(() {
+                quickStatus = v;
+                if (v != QuickStatus.all) filter = filter.withoutStatuses();
+              }),
             ),
           ),
+          _dynamicFilters(context, fc, base),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Row(
@@ -511,10 +741,10 @@ class _TransactionsScreenState extends State<TransactionsScreen>
             child: items.isEmpty
                 ? EmptyState(
                     icon: Icons.receipt_long_outlined,
-                    title: query.isNotEmpty || filter.count > 0
+                    title: query.isNotEmpty || hiddenFilters > 0
                         ? 'Nada encontrado'
                         : 'Sem transações neste período',
-                    message: query.isNotEmpty || filter.count > 0
+                    message: query.isNotEmpty || hiddenFilters > 0
                         ? 'Ajuste a busca ou os filtros.'
                         : 'Registre receitas, despesas e transferências.',
                     actionLabel: 'Nova transação',
@@ -656,6 +886,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
       GridColumn.notes => text((c) => c.notes, a, b),
       GridColumn.amount => _amount(a).cents.compareTo(_amount(b).cents),
       GridColumn.status => _statusRank(e, a).compareTo(_statusRank(e, b)),
+      GridColumn.kind => _originOf(a).label.compareTo(_originOf(b).label),
     };
     items.sort((a, b) {
       final c = ascending ? cmp(a, b) : cmp(b, a);
@@ -1256,6 +1487,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
         display: Opacity(opacity: completed ? 1 : 0.8, child: money),
       ),
       GridColumn.status => GridCell(child: status),
+      GridColumn.kind => GridCell(child: EntryOriginLabel(EntryOrigin.of(tx))),
     };
 
     return GridRowShell(
@@ -1459,6 +1691,9 @@ class _TransactionsScreenState extends State<TransactionsScreen>
         child: money,
       ),
       GridColumn.status => GridCell(child: status),
+      GridColumn.kind => const GridCell(
+        child: EntryOriginLabel(EntryOrigin.invoice),
+      ),
     };
 
     return GridRowShell(

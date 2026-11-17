@@ -13,7 +13,10 @@ import 'package:provider/provider.dart';
 import 'controller_test.dart' show MemoryRepo;
 
 void main() {
-  Future<FinanceController> setup(WidgetTester tester) async {
+  Future<FinanceController> setup(
+    WidgetTester tester, {
+    Map<String, Object?>? txFilter,
+  }) async {
     Intl.defaultLocale = 'pt_BR';
     await initializeDateFormatting('pt_BR');
     tester.view.physicalSize = const Size(1280, 800);
@@ -24,17 +27,19 @@ void main() {
       await fc.load();
       await fc.saveAccount(Account(id: 'a', name: 'Conta'));
       final today = fc.engine.today;
-      for (final (id, desc) in [
-        ('t1', 'Aluguel'),
+      for (final (id, desc, type) in [
+        ('t1', 'Aluguel', TransactionType.expense),
+        ('t2', 'Salário', TransactionType.income),
         (
           'oe_expense_${today.year}-${today.month.toString().padLeft(2, '0')}',
           'Outras despesas do mês',
+          TransactionType.expense,
         ),
       ]) {
         await fc.saveTransaction(
           FinTransaction(
             id: id,
-            type: TransactionType.expense,
+            type: type,
             amount: Money(10000),
             description: desc,
             date: today,
@@ -43,6 +48,7 @@ void main() {
           ),
         );
       }
+      if (txFilter != null) await fc.saveGridFilter('transactions', txFilter);
     });
     await tester.pumpWidget(
       ChangeNotifierProvider.value(
@@ -90,5 +96,58 @@ void main() {
     await tester.pump();
     expect(fc.gridFilter('entries'), {'view': 'own'});
     expect(EntriesScreen.requested.value, isNull);
+  });
+
+  testWidgets(
+    'filtro escondido no painel vira botão removível; receitas voltam',
+    (tester) async {
+      // Filtro de tipo "Despesa" esquecido no painel (lembrado entre visitas).
+      final fc = await setup(
+        tester,
+        txFilter: {
+          'types': ['expense'],
+        },
+      );
+      expect(find.text('Salário'), findsNothing);
+      final chip = find.byKey(const ValueKey('f-types'));
+      expect(chip, findsOneWidget);
+      expect(find.text('Tipo: Despesa'), findsOneWidget);
+
+      // Remover o filtro traz a receita de volta.
+      await tester.tap(find.byTooltip('Remover filtro'));
+      await tester.pump();
+      expect(find.text('Salário'), findsOneWidget);
+      expect(find.byKey(const ValueKey('f-types')), findsNothing);
+      expect(fc.gridFilter('transactions')!['types'], isEmpty);
+    },
+  );
+
+  testWidgets('coluna Tipo e botões dinâmicos por tipo e categoria', (
+    tester,
+  ) async {
+    final fc = await setup(tester);
+    // Coluna Tipo: transações do usuário e linha de Outras despesas.
+    expect(find.text('TIPO'), findsOneWidget);
+    expect(find.text('Transação'), findsNWidgets(2));
+    expect(find.text('Outra despesa'), findsOneWidget);
+
+    // Botões gerados a partir das linhas do mês, com a quantidade.
+    expect(find.byKey(const ValueKey('qo-transaction')), findsOneWidget);
+    expect(find.byKey(const ValueKey('qo-otherExpense')), findsOneWidget);
+    expect(find.byKey(const ValueKey('qo-shared')), findsNothing);
+    expect(find.text('Transação 2'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('qo-otherExpense')));
+    await tester.pump();
+    expect(find.text('Aluguel'), findsNothing);
+    expect(find.text('Salário'), findsNothing);
+    expect(find.text('Outras despesas do mês'), findsOneWidget);
+    expect(fc.gridFilter('transactions')!['origins'], ['otherExpense']);
+
+    // Desmarcar volta tudo.
+    await tester.tap(find.byKey(const ValueKey('qo-otherExpense')));
+    await tester.pump();
+    expect(find.text('Aluguel'), findsOneWidget);
+    expect(find.text('Salário'), findsOneWidget);
   });
 }
