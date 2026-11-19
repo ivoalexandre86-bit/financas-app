@@ -9,9 +9,11 @@ import '../../../domain/models/entities.dart';
 import '../../../state/auth_controller.dart';
 import '../../../state/finance_controller.dart';
 import '../../app_shell.dart';
+import '../onboarding/onboarding_screen.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/plan_upsell.dart';
 import '../cards/invoice_details_screen.dart';
 import '../cards/invoices_screen.dart';
 import '../dashboards/dashboard_view.dart';
@@ -67,16 +69,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 onMonth: (m) => setState(() => month = m),
               ),
               const SizedBox(height: 8),
+              const TrialStatusBanner(),
               if (!hasData)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: SectionCard(
                     child: EmptyState(
                       icon: Icons.account_balance_wallet_outlined,
-                      title: 'Comece cadastrando uma conta',
-                      message: 'Seus saldos e projeções são calculados a partir das contas e lançamentos.',
-                      actionLabel: 'Ir para Contas',
-                      onAction: () => AppShell.goTo(context, 'accounts'),
+                      title: 'Monte seu orçamento em 1 minuto',
+                      message: 'Informe o saldo, a renda e os gastos fixos e veja a projeção dos próximos meses.',
+                      actionLabel: 'Começar',
+                      onAction: () => OnboardingScreen.open(
+                        context,
+                        showProjection: () =>
+                            AppShell.goTo(context, 'projection'),
+                      ),
                     ),
                   ),
                 ),

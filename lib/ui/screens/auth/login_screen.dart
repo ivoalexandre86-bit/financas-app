@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/cloud_config.dart';
 import '../../../state/auth_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
@@ -101,7 +102,11 @@ class _LoginScreenState extends State<LoginScreen> {
                           minimumSize: const Size.fromHeight(52),
                         ),
                         onPressed: () => push(context, const RegisterScreen()),
-                        child: const Text('Criar conta'),
+                        child: Text(
+                          CloudConfig.enabled
+                              ? 'Criar conta grátis · 30 dias de Premium'
+                              : 'Criar conta',
+                        ),
                       )
                     else
                       Text(
