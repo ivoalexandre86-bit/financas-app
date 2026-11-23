@@ -45,6 +45,7 @@ class _RecurringFormScreenState extends State<RecurringFormScreen> {
       ? null
       : Funding(accountId: _seed.accountId, cardId: _seed.cardId);
   late String? projectId = _seed?.projectId;
+  late String? holderId = _seed?.holderId;
   late RecurrenceFrequency frequency =
       _seed?.frequency ?? RecurrenceFrequency.monthly;
   late RecurrenceUnit unit = _seed?.unit ?? RecurrenceUnit.months;
@@ -76,6 +77,17 @@ class _RecurringFormScreenState extends State<RecurringFormScreen> {
       accountId: funding?.accountId,
       cardId: funding?.cardId,
       projectId: projectId,
+      holderId:
+          context
+              .read<FinanceController>()
+              .data
+              .dependentsFor(
+                accountId: funding?.accountId,
+                cardId: funding?.cardId,
+              )
+              .any((d) => d.id == holderId)
+          ? holderId
+          : null,
       frequency: frequency,
       interval: int.tryParse(interval.text) ?? 1,
       unit: unit,
@@ -291,6 +303,12 @@ class _RecurringFormScreenState extends State<RecurringFormScreen> {
               fc: fc,
               value: funding,
               onChanged: (f) => setState(() => funding = f),
+            ),
+            HolderDropdown(
+              fc: fc,
+              funding: funding,
+              value: holderId,
+              onChanged: (v) => setState(() => holderId = v),
             ),
             const SizedBox(height: 12),
             ProjectDropdown(

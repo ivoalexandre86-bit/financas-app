@@ -31,6 +31,9 @@ class TxListFilter {
   final String? categoryId;
   final String? projectId;
   final String? tag;
+
+  /// Quem usou: nome do dependente ou [FinanceData.holderTitular].
+  final String? holder;
   const TxListFilter({
     this.types = const {},
     this.statuses = const {},
@@ -38,6 +41,7 @@ class TxListFilter {
     this.categoryId,
     this.projectId,
     this.tag,
+    this.holder,
   });
   int get count =>
       (types.isEmpty ? 0 : 1) +
@@ -45,7 +49,8 @@ class TxListFilter {
       (accountOrCard == null ? 0 : 1) +
       (categoryId == null ? 0 : 1) +
       (projectId == null ? 0 : 1) +
-      (tag == null ? 0 : 1);
+      (tag == null ? 0 : 1) +
+      (holder == null ? 0 : 1);
 
   TxListFilter _copy({
     Set<TransactionType>? types,
@@ -54,6 +59,7 @@ class TxListFilter {
     bool clearCategory = false,
     bool clearProject = false,
     bool clearTag = false,
+    bool clearHolder = false,
   }) => TxListFilter(
     types: types ?? this.types,
     statuses: statuses ?? this.statuses,
@@ -61,6 +67,7 @@ class TxListFilter {
     categoryId: clearCategory ? null : categoryId,
     projectId: clearProject ? null : projectId,
     tag: clearTag ? null : tag,
+    holder: clearHolder ? null : holder,
   );
 
   TxListFilter withoutTypes() => _copy(types: const {});
@@ -69,6 +76,17 @@ class TxListFilter {
   TxListFilter withoutCategory() => _copy(clearCategory: true);
   TxListFilter withoutProject() => _copy(clearProject: true);
   TxListFilter withoutTag() => _copy(clearTag: true);
+  TxListFilter withoutHolder() => _copy(clearHolder: true);
+}
+
+/// Opções do filtro "Quem usou": o titular e os nomes dos dependentes de
+/// todas as contas e cartões (o mesmo nome em vários junta tudo).
+List<String> holderNames(FinanceData d) {
+  final names = <String>{
+    for (final a in d.accounts) ...a.dependents.map((x) => x.name),
+    for (final c in d.cards) ...c.dependents.map((x) => x.name),
+  }.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return [FinanceData.holderTitular, ...names];
 }
 
 /// Filtro rápido de status (barra acima da lista).
@@ -165,6 +183,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     'category': filter.categoryId,
     'project': filter.projectId,
     'tag': filter.tag,
+    'holder': filter.holder,
     'quickStatus': quickStatus.name,
     'quickType': quickType.name,
     'origins': FilterJson.enums(origins),
@@ -190,6 +209,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
       categoryId: FilterJson.id(j['category'], d.categories.map((c) => c.id)),
       projectId: FilterJson.id(j['project'], d.projects.map((p) => p.id)),
       tag: FilterJson.id(j['tag'], fc.allTags),
+      holder: FilterJson.id(j['holder'], holderNames(d)),
     );
     quickStatus =
         FilterJson.enumOrNull(QuickStatus.values, j['quickStatus']) ??
@@ -233,6 +253,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
         cats.isNotEmpty ||
         filter.projectId != null ||
         filter.tag != null ||
+        filter.holder != null ||
         q.isNotEmpty;
 
     bool matches(FinTransaction t) {
@@ -262,6 +283,9 @@ class _TransactionsScreenState extends State<TransactionsScreen>
         return false;
       }
       if (filter.tag != null && !t.tags.contains(filter.tag)) return false;
+      if (filter.holder != null && fc.data.holderName(t) != filter.holder) {
+        return false;
+      }
       if (q.isNotEmpty) {
         final hay = [
           t.description,
@@ -269,6 +293,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
           ...t.tags,
           e.categoryLabel(t.categoryId),
           e.locationLabel(t),
+          if (t.holderId != null) fc.data.holderName(t),
           t.amount.formatPlain(),
         ].join(' ').toLowerCase();
         if (!hay.contains(q)) return false;
@@ -312,6 +337,11 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     });
     return out;
   }
+
+  static String _holderOf(FinancialEngine e, _Entry it) => switch (it) {
+    _InvoiceEntry() => '',
+    _TxEntry(:final tx) => e.data.holderName(tx).toLowerCase(),
+  };
 
   static EntryOrigin _originOf(_Entry it) => switch (it) {
     _InvoiceEntry() => EntryOrigin.invoice,
@@ -414,6 +444,12 @@ class _TransactionsScreenState extends State<TransactionsScreen>
           'f-tag',
           '#${filter.tag}',
           () => setFilters(() => filter = filter.withoutTag()),
+        ),
+      if (filter.holder != null)
+        (
+          'f-holder',
+          'Quem usou: ${filter.holder}',
+          () => setFilters(() => filter = filter.withoutHolder()),
         ),
     ];
     final showOrigins = originList.length > 1 || origins.isNotEmpty;
@@ -758,7 +794,9 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                       final pad = box.maxWidth < 640 ? 8.0 : 16.0;
                       final layout = GridLayout.of(
                         box.maxWidth - 2 * pad - 2,
-                        _columns(fc),
+                        _columns(
+                          fc,
+                        ).showingIf(GridColumn.holder, fc.data.hasDependents),
                       );
                       _lastLayout = layout;
                       _sortItems(items, e);
@@ -887,6 +925,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
       GridColumn.amount => _amount(a).cents.compareTo(_amount(b).cents),
       GridColumn.status => _statusRank(e, a).compareTo(_statusRank(e, b)),
       GridColumn.kind => _originOf(a).label.compareTo(_originOf(b).label),
+      GridColumn.holder => _holderOf(e, a).compareTo(_holderOf(e, b)),
     };
     items.sort((a, b) {
       final c = ascending ? cmp(a, b) : cmp(b, a);
@@ -1488,6 +1527,20 @@ class _TransactionsScreenState extends State<TransactionsScreen>
       ),
       GridColumn.status => GridCell(child: status),
       GridColumn.kind => GridCell(child: EntryOriginLabel(EntryOrigin.of(tx))),
+      GridColumn.holder =>
+        tx.isTransfer
+            ? GridCell(child: Text('—', style: subtle))
+            : InlinePickerCell(
+                key: ValueKey('tx-edit-holder-$key'),
+                tooltip: 'Alterar quem usou',
+                onPick: (cell) => pickTxHolder(cell, fc, tx),
+                display: Text(
+                  fc.data.holderName(tx),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: tx.holderId == null ? subtle : context.text.bodyMedium,
+                ),
+              ),
     };
 
     return GridRowShell(
@@ -1694,6 +1747,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
       GridColumn.kind => const GridCell(
         child: EntryOriginLabel(EntryOrigin.invoice),
       ),
+      GridColumn.holder => GridCell(child: Text('—', style: subtle)),
     };
 
     return GridRowShell(
@@ -1952,6 +2006,7 @@ class _FilterSheetState extends State<_FilterSheet> {
   late String? cat = widget.initial.categoryId;
   late String? prj = widget.initial.projectId;
   late String? tag = widget.initial.tag;
+  late String? holder = widget.initial.holder;
 
   @override
   Widget build(BuildContext context) {
@@ -2052,6 +2107,21 @@ class _FilterSheetState extends State<_FilterSheet> {
                 onChanged: (v) => setState(() => tag = v),
               ),
             ],
+            if (fc.data.hasDependents) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String?>(
+                key: const ValueKey('filter-holder'),
+                initialValue: holder,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Quem usou'),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Todos')),
+                  for (final n in holderNames(fc.data))
+                    DropdownMenuItem(value: n, child: Text(n)),
+                ],
+                onChanged: (v) => setState(() => holder = v),
+              ),
+            ],
             const SizedBox(height: 20),
             Row(
               children: [
@@ -2070,6 +2140,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                       categoryId: cat,
                       projectId: prj,
                       tag: tag,
+                      holder: holder,
                     ),
                   ),
                   child: const Text('Aplicar'),

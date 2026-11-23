@@ -577,6 +577,7 @@ class FinanceController extends ChangeNotifier {
         accountId: updated.accountId,
         cardId: updated.cardId,
         projectId: updated.projectId,
+        holderId: updated.holderId,
         notes: updated.notes,
         status: first?.status ?? TransactionStatus.pending,
         externalId: first?.externalId,
@@ -1992,6 +1993,11 @@ class FinanceController extends ChangeNotifier {
   // Utilidades para formulários
 
   DateTime get today => engine.today;
+
+  /// Lançamentos (e regras/parcelamentos) marcados com o dependente.
+  int dependentUsage(String dependentId) =>
+      data.transactions.where((t) => t.holderId == dependentId).length +
+      data.recurringRules.where((r) => r.holderId == dependentId).length;
 
   List<Account> get activeAccounts =>
       data.accounts.where((a) => a.active).toList()

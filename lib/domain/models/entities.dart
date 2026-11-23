@@ -15,6 +15,47 @@ DateTime _ts(Object? s) =>
 /// Sentinela para `copyWith` permitir atribuir `null` explicitamente.
 const Object _unset = Object();
 
+// Dependente ----------------------------------------------------------------
+
+/// Pessoa que usa uma conta ou um cartão do titular (cartão adicional,
+/// cartão de dependente, conta conjunta). É só um rótulo: não tem login.
+/// Lançamentos com `holderId` nulo são do titular.
+class Dependent {
+  final String id;
+  final String name;
+
+  /// Final do cartão adicional (opcional; só faz sentido em cartões).
+  final String lastFour;
+
+  const Dependent({required this.id, required this.name, this.lastFour = ''});
+
+  Dependent copyWith({String? name, String? lastFour}) => Dependent(
+    id: id,
+    name: name ?? this.name,
+    lastFour: lastFour ?? this.lastFour,
+  );
+
+  /// "Ana" ou "Ana •• 1234".
+  String get label => lastFour.isEmpty ? name : '$name •• $lastFour';
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    if (lastFour.isNotEmpty) 'lastFour': lastFour,
+  };
+
+  factory Dependent.fromJson(Map<String, Object?> j) => Dependent(
+    id: j['id'] as String,
+    name: (j['name'] as String?) ?? '',
+    lastFour: (j['lastFour'] as String?) ?? '',
+  );
+
+  static List<Dependent> listFromJson(Object? v) => [
+    for (final d in (v as List?) ?? const [])
+      if (d is Map) Dependent.fromJson(Map<String, Object?>.from(d)),
+  ];
+}
+
 // Conta ----------------------------------------------------------------------
 
 class Account {
@@ -29,6 +70,9 @@ class Account {
   final Money initialBalance;
   final bool active;
   final int color;
+
+  /// Dependentes / portadores adicionais (ver [Dependent]).
+  final List<Dependent> dependents;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -41,6 +85,7 @@ class Account {
     this.initialBalance = Money.zero,
     this.active = true,
     this.color = 0xFF2457D6,
+    this.dependents = const [],
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : createdAt = createdAt ?? DateTime.now(),
@@ -54,6 +99,7 @@ class Account {
     Money? initialBalance,
     bool? active,
     int? color,
+    List<Dependent>? dependents,
   }) => Account(
     id: id,
     name: name ?? this.name,
@@ -63,6 +109,7 @@ class Account {
     initialBalance: initialBalance ?? this.initialBalance,
     active: active ?? this.active,
     color: color ?? this.color,
+    dependents: dependents ?? this.dependents,
     createdAt: createdAt,
     updatedAt: DateTime.now(),
   );
@@ -76,6 +123,8 @@ class Account {
     'initialBalance': initialBalance.cents,
     'active': active,
     'color': color,
+    if (dependents.isNotEmpty)
+      'dependents': dependents.map((d) => d.toJson()).toList(),
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -93,9 +142,18 @@ class Account {
     initialBalance: Money((j['initialBalance'] as int?) ?? 0),
     active: (j['active'] as bool?) ?? true,
     color: (j['color'] as int?) ?? 0xFF2457D6,
+    dependents: Dependent.listFromJson(j['dependents']),
     createdAt: _ts(j['createdAt']),
     updatedAt: _ts(j['updatedAt']),
   );
+
+  Dependent? dependentById(String? id) {
+    if (id == null) return null;
+    for (final d in dependents) {
+      if (d.id == id) return d;
+    }
+    return null;
+  }
 }
 
 // Cartão de crédito -----------------------------------------------------------
@@ -119,6 +177,9 @@ class CreditCard {
   final bool active;
   final String? paymentAccountId;
   final int color;
+
+  /// Dependentes / portadores adicionais (ver [Dependent]).
+  final List<Dependent> dependents;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -135,6 +196,7 @@ class CreditCard {
     this.active = true,
     this.paymentAccountId,
     this.color = 0xFF1B2A4A,
+    this.dependents = const [],
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : createdAt = createdAt ?? DateTime.now(),
@@ -152,6 +214,7 @@ class CreditCard {
     bool? active,
     Object? paymentAccountId = _unset,
     int? color,
+    List<Dependent>? dependents,
   }) => CreditCard(
     id: id,
     name: name ?? this.name,
@@ -167,6 +230,7 @@ class CreditCard {
         ? this.paymentAccountId
         : paymentAccountId as String?,
     color: color ?? this.color,
+    dependents: dependents ?? this.dependents,
     createdAt: createdAt,
     updatedAt: DateTime.now(),
   );
@@ -184,6 +248,8 @@ class CreditCard {
     'active': active,
     'paymentAccountId': paymentAccountId,
     'color': color,
+    if (dependents.isNotEmpty)
+      'dependents': dependents.map((d) => d.toJson()).toList(),
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -201,9 +267,18 @@ class CreditCard {
     active: (j['active'] as bool?) ?? true,
     paymentAccountId: j['paymentAccountId'] as String?,
     color: (j['color'] as int?) ?? 0xFF1B2A4A,
+    dependents: Dependent.listFromJson(j['dependents']),
     createdAt: _ts(j['createdAt']),
     updatedAt: _ts(j['updatedAt']),
   );
+
+  Dependent? dependentById(String? id) {
+    if (id == null) return null;
+    for (final d in dependents) {
+      if (d.id == id) return d;
+    }
+    return null;
+  }
 }
 
 // Categoria -----------------------------------------------------------------
@@ -376,6 +451,9 @@ class FinTransaction {
   final String? cardId;
   final String? destinationAccountId;
   final String? projectId;
+
+  /// Dependente da conta/cartão que fez o lançamento; `null` = titular.
+  final String? holderId;
   final String notes;
   final TransactionStatus status;
   final String? recurringId;
@@ -416,6 +494,7 @@ class FinTransaction {
     this.cardId,
     this.destinationAccountId,
     this.projectId,
+    this.holderId,
     this.notes = '',
     this.status = TransactionStatus.completed,
     this.recurringId,
@@ -465,6 +544,7 @@ class FinTransaction {
     Object? cardId = _unset,
     Object? destinationAccountId = _unset,
     Object? projectId = _unset,
+    Object? holderId = _unset,
     String? notes,
     TransactionStatus? status,
     Object? recurringId = _unset,
@@ -497,6 +577,7 @@ class FinTransaction {
     projectId: identical(projectId, _unset)
         ? this.projectId
         : projectId as String?,
+    holderId: identical(holderId, _unset) ? this.holderId : holderId as String?,
     notes: notes ?? this.notes,
     status: status ?? this.status,
     recurringId: identical(recurringId, _unset)
@@ -539,6 +620,7 @@ class FinTransaction {
     'cardId': cardId,
     'destinationAccountId': destinationAccountId,
     'projectId': projectId,
+    if (holderId != null) 'holderId': holderId,
     'notes': notes,
     'status': status.name,
     'recurringId': recurringId,
@@ -570,6 +652,7 @@ class FinTransaction {
     cardId: j['cardId'] as String?,
     destinationAccountId: j['destinationAccountId'] as String?,
     projectId: j['projectId'] as String?,
+    holderId: j['holderId'] as String?,
     notes: (j['notes'] as String?) ?? '',
     status: enumByName(
       TransactionStatus.values,
@@ -618,6 +701,9 @@ class RecurringRule {
   final String? accountId;
   final String? cardId;
   final String? projectId;
+
+  /// Dependente da conta/cartão que fez o lançamento; `null` = titular.
+  final String? holderId;
   final RecurrenceFrequency frequency;
 
   /// Intervalo para frequência personalizada (ex.: a cada 2 meses).
@@ -649,6 +735,7 @@ class RecurringRule {
     this.accountId,
     this.cardId,
     this.projectId,
+    this.holderId,
     this.frequency = RecurrenceFrequency.monthly,
     this.interval = 1,
     this.unit = RecurrenceUnit.months,
@@ -676,6 +763,7 @@ class RecurringRule {
     Object? accountId = _unset,
     Object? cardId = _unset,
     Object? projectId = _unset,
+    Object? holderId = _unset,
     RecurrenceFrequency? frequency,
     int? interval,
     RecurrenceUnit? unit,
@@ -701,6 +789,7 @@ class RecurringRule {
     projectId: identical(projectId, _unset)
         ? this.projectId
         : projectId as String?,
+    holderId: identical(holderId, _unset) ? this.holderId : holderId as String?,
     frequency: frequency ?? this.frequency,
     interval: interval ?? this.interval,
     unit: unit ?? this.unit,
@@ -728,6 +817,7 @@ class RecurringRule {
     'accountId': accountId,
     'cardId': cardId,
     'projectId': projectId,
+    if (holderId != null) 'holderId': holderId,
     'frequency': frequency.name,
     'interval': interval,
     'unit': unit.name,
@@ -755,6 +845,7 @@ class RecurringRule {
     accountId: j['accountId'] as String?,
     cardId: j['cardId'] as String?,
     projectId: j['projectId'] as String?,
+    holderId: j['holderId'] as String?,
     frequency: enumByName(
       RecurrenceFrequency.values,
       j['frequency'] as String?,
@@ -792,6 +883,9 @@ class InstallmentGroup {
   final String? cardId;
   final String? categoryId;
   final String? projectId;
+
+  /// Dependente da conta/cartão que fez o lançamento; `null` = titular.
+  final String? holderId;
   final String notes;
 
   /// Dias entre a data de cada parcela em conta e o seu vencimento.
@@ -809,6 +903,7 @@ class InstallmentGroup {
     this.cardId,
     this.categoryId,
     this.projectId,
+    this.holderId,
     this.notes = '',
     this.dueOffsetDays = 0,
     DateTime? createdAt,
@@ -826,6 +921,7 @@ class InstallmentGroup {
     'cardId': cardId,
     'categoryId': categoryId,
     'projectId': projectId,
+    if (holderId != null) 'holderId': holderId,
     'notes': notes,
     'dueOffsetDays': dueOffsetDays,
     'createdAt': createdAt.toIso8601String(),
@@ -842,6 +938,7 @@ class InstallmentGroup {
     cardId: j['cardId'] as String?,
     categoryId: j['categoryId'] as String?,
     projectId: j['projectId'] as String?,
+    holderId: j['holderId'] as String?,
     notes: (j['notes'] as String?) ?? '',
     dueOffsetDays: (j['dueOffsetDays'] as int?) ?? 0,
     createdAt: _ts(j['createdAt']),

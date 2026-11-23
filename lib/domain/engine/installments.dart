@@ -55,6 +55,7 @@ class Installments {
             accountId: group.accountId,
             cardId: group.cardId,
             projectId: group.projectId,
+            holderId: group.holderId,
             notes: group.notes,
             status: status,
             installmentGroupId: group.id,

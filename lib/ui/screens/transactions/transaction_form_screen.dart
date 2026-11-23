@@ -85,6 +85,9 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   String? fromAccount;
   String? toAccount;
   String? projectId;
+
+  /// Dependente da conta/cartão que fez o lançamento (nulo = titular).
+  String? holderId;
   late TransactionStatus status;
 
   bool recurring = false;
@@ -142,6 +145,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     dueDate = t?.dueDate;
     dueTouched = t?.dueDate != null && Dates.dateOnly(t!.dueDate!) != date;
     projectId = t?.projectId ?? widget.initialProjectId;
+    holderId = t?.holderId;
     status = t?.status ?? TransactionStatus.completed;
     if (t == null || TransactionFormScreen.canConvert(t)) {
       recurring = widget.initialRecurring;
@@ -287,6 +291,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             cardId: funding?.cardId,
             categoryId: categoryId,
             projectId: projectId,
+            holderId: _holder,
             notes: notes.text.trim(),
             dueOffsetDays: _dueOffset,
           );
@@ -310,6 +315,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             accountId: funding?.accountId,
             cardId: funding?.cardId,
             projectId: projectId,
+            holderId: _holder,
             frequency: frequency,
             interval: int.tryParse(intervalCtrl.text) ?? 1,
             unit: unit,
@@ -329,6 +335,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 accountId: rule.accountId,
                 cardId: rule.cardId,
                 projectId: projectId,
+                holderId: _holder,
                 notes: rule.notes,
                 status: status,
                 dueDate: _due,
@@ -353,6 +360,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 accountId: rule.accountId,
                 cardId: rule.cardId,
                 projectId: projectId,
+                holderId: _holder,
                 notes: rule.notes,
                 status: status,
                 recurringId: rule.id,
@@ -382,6 +390,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
           cardId: isTransfer ? null : funding?.cardId,
           destinationAccountId: isTransfer ? toAccount : null,
           projectId: projectId,
+          holderId: isTransfer ? null : _holder,
           notes: notes.text.trim(),
           tags: tags,
           status: status,
@@ -411,6 +420,15 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     if (!mounted) return;
     setState(() => saving = false);
     if (ok) Navigator.pop(context, widget.sharing ? saved : true);
+  }
+
+  /// Dependente válido para a conta/cartão escolhido (some se trocar).
+  String? get _holder {
+    final deps = context.read<FinanceController>().data.dependentsFor(
+      accountId: funding?.accountId,
+      cardId: funding?.cardId,
+    );
+    return deps.any((d) => d.id == holderId) ? holderId : null;
   }
 
   /// Campo de código só para conta a pagar avulsa.
@@ -671,6 +689,12 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 fc: fc,
                 value: funding,
                 onChanged: (f) => setState(() => funding = f),
+              ),
+              HolderDropdown(
+                fc: fc,
+                funding: funding,
+                value: holderId,
+                onChanged: (v) => setState(() => holderId = v),
               ),
               if (funding?.cardId != null)
                 Padding(

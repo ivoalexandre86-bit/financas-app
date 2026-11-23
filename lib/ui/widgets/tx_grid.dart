@@ -67,7 +67,8 @@ enum GridColumn {
   description('Descrição', 300, 120),
   notes('Observações', 220, 90),
   amount('Valor', 136, 96, right: true),
-  status('Status', 116, 96);
+  status('Status', 116, 96),
+  holder('Quem usou', 120, 80);
 
   final String label;
   final double defaultWidth;
@@ -88,7 +89,8 @@ enum GridColumn {
       this == category ||
       this == subcategory ||
       this == description ||
-      this == notes;
+      this == notes ||
+      this == holder;
 }
 
 /// Preferência de uma coluna: visível ou não e largura em pixels.
@@ -138,6 +140,15 @@ class GridColumnsConfig {
     if (!v && visible.length <= 1) return this;
     return _map(c, (s) => s.copyWith(visible: v));
   }
+
+  /// Esconde [c] só para desenhar (não grava), quando [show] é falso. Usado
+  /// para a coluna "Quem usou" enquanto não há dependentes.
+  GridColumnsConfig showingIf(GridColumn c, bool show) => show
+      ? this
+      : GridColumnsConfig([
+          for (final s in columns)
+            s.column == c ? s.copyWith(visible: false) : s,
+        ]);
 
   /// Move a coluna da posição [from] para a posição final [to].
   GridColumnsConfig moved(int from, int to) {

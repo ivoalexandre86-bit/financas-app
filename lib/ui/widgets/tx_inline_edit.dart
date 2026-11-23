@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/dates.dart';
 import '../../core/money.dart';
 import '../../domain/models/entities.dart';
+import '../../domain/engine/financial_engine.dart';
 import '../../state/finance_controller.dart';
 import 'tx_grid.dart';
 
@@ -87,6 +88,38 @@ Future<void> pickTxCategory(
   // Mesma categoria principal: mantém a subcategoria escolhida.
   if (picked == tx.categoryId || (onlyRoots && picked == rootId)) return;
   await saveTxInline(cell, fc, tx.copyWith(categoryId: picked));
+}
+
+/// Troca quem usou (titular ou dependente da conta/cartão).
+Future<void> pickTxHolder(
+  BuildContext cell,
+  FinanceController fc,
+  FinTransaction tx,
+) async {
+  final deps = fc.data.dependentsFor(
+    accountId: tx.accountId,
+    cardId: tx.cardId,
+  );
+  if (deps.isEmpty) {
+    ScaffoldMessenger.of(cell).showSnackBar(
+      const SnackBar(
+        content: Text('Esta conta/cartão não tem dependentes cadastrados'),
+      ),
+    );
+    return;
+  }
+  final current = fc.data.holderOf(tx)?.id ?? '';
+  final picked = await showCellMenu(cell, [
+    CellMenuOption('', FinanceData.holderTitular, selected: current == ''),
+    for (final d in deps)
+      CellMenuOption(d.id, d.label, selected: d.id == current),
+  ]);
+  if (picked == null || picked == current || !cell.mounted) return;
+  await saveTxInline(
+    cell,
+    fc,
+    tx.copyWith(holderId: picked.isEmpty ? null : picked),
+  );
 }
 
 Future<void> pickTxSubcategory(

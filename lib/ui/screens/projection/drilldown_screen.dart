@@ -377,7 +377,10 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
     return LayoutBuilder(
       builder: (context, box) {
         final pad = box.maxWidth < 640 ? 8.0 : 16.0;
-        final layout = GridLayout.of(box.maxWidth - 2 * pad - 2, _columns(fc));
+        final layout = GridLayout.of(
+          box.maxWidth - 2 * pad - 2,
+          _columns(fc).showingIf(GridColumn.holder, fc.data.hasDependents),
+        );
         _lastLayout = layout;
         final list = ListView.builder(
           padding: const EdgeInsets.only(bottom: 32),
@@ -531,6 +534,9 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
       }
       if (sort == GridColumn.status) {
         return _statusRank(e, a.tx).compareTo(_statusRank(e, b.tx));
+      }
+      if (sort == GridColumn.holder) {
+        return e.data.holderName(a.tx).compareTo(e.data.holderName(b.tx));
       }
       return a.date.compareTo(b.date);
     }
@@ -781,6 +787,12 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
       if (c == GridColumn.status) return GridCell(child: status);
       if (c == GridColumn.kind) {
         return GridCell(child: EntryOriginLabel(EntryOrigin.of(tx)));
+      }
+      if (c == GridColumn.holder) {
+        return text(
+          tx.isTransfer ? '—' : fc.data.holderName(tx),
+          style: tx.holderId == null ? subtle : null,
+        );
       }
       return const GridCell(child: SizedBox.shrink());
     }
