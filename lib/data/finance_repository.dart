@@ -3,6 +3,7 @@ import 'package:sembast/sembast.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
+import '../domain/models/month_closing.dart';
 import '../domain/models/other_entry.dart';
 import '../domain/models/simulation.dart';
 import 'db_factory.dart';
@@ -28,6 +29,7 @@ enum Coll {
   goals,
   categoryRules,
   assets,
+  monthClosings,
 }
 
 /// Nome da "coleção" das configurações do app na nuvem (registro `app`).
@@ -111,6 +113,7 @@ class LocalFinanceRepository implements FinanceRepository {
       settings: s == null
           ? const AppSettings()
           : AppSettings.fromJson(Map<String, Object?>.from(s)),
+      monthClosings: await _all(Coll.monthClosings, MonthClosing.fromJson),
     );
   }
 

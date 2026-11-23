@@ -5,6 +5,7 @@ import 'package:financas_app/data/finance_repository.dart';
 import 'package:financas_app/domain/engine/financial_engine.dart';
 import 'package:financas_app/domain/models/dashboard.dart';
 import 'package:financas_app/domain/models/entities.dart';
+import 'package:financas_app/domain/models/month_closing.dart';
 import 'package:financas_app/domain/models/other_entry.dart';
 import 'package:financas_app/domain/models/simulation.dart';
 import 'package:financas_app/state/finance_controller.dart';
@@ -31,6 +32,7 @@ class MemoryRepo implements FinanceRepository {
     installmentGroups: _all(Coll.installmentGroups, InstallmentGroup.fromJson),
     invoicePayments: _all(Coll.invoicePayments, InvoicePayment.fromJson),
     settings: settings,
+    monthClosings: _all(Coll.monthClosings, MonthClosing.fromJson),
   );
   @override
   Future<List<OpenFinanceConnection>> loadConnections() async =>
