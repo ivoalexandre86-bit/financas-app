@@ -27,6 +27,7 @@ import '../domain/import/expense_import.dart';
 import '../domain/models/asset.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
+import '../domain/models/month_closing.dart';
 import '../domain/models/other_entry.dart';
 import '../domain/models/planning.dart';
 import '../domain/models/shared.dart';
@@ -1143,6 +1144,69 @@ class FinanceController extends ChangeNotifier {
     assets = [...assets.where((x) => x.id != a.id), next]..sort(_byAssetName);
     notifyListeners();
     await repo.write([WriteOp.put(Coll.assets, next.id, next.toJson())]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fechamento e ajuste manual do resultado do mês
+
+  /// Meses fechados/ajustados, do mais recente para o mais antigo.
+  List<MonthClosing> get monthClosings =>
+      [...data.monthClosings]..sort((a, b) => b.month.compareTo(a.month));
+
+  MonthClosing? closingOf(YearMonth month) => data.closingByMonth[month];
+
+  /// Fecha o mês com os valores calculados agora: lançamentos feitos ou
+  /// alterados depois não mudam mais o resultado do mês.
+  Future<MonthClosing> closeMonth(YearMonth month, {String? note}) {
+    final t = engine.computedMonthTotals(ProjectionFilter.none, month);
+    return adjustMonthResult(
+      month,
+      income: t.income,
+      expenses: t.expenses,
+      note: note,
+    );
+  }
+
+  /// Fecha o mês com receitas e despesas informadas pelo usuário (ajuste
+  /// manual). A diferença para o cálculo fica registrada no fechamento.
+  Future<MonthClosing> adjustMonthResult(
+    YearMonth month, {
+    required Money income,
+    required Money expenses,
+    String? note,
+  }) async {
+    if (income.isNegative || expenses.isNegative) {
+      throw ArgumentError('Informe valores positivos');
+    }
+    final t = engine.computedMonthTotals(ProjectionFilter.none, month);
+    final old = closingOf(month);
+    final c = MonthClosing(
+      month: month,
+      income: income,
+      expenses: expenses,
+      computedIncome: t.income,
+      computedExpenses: t.expenses,
+      note: note?.trim().isEmpty ?? true ? null : note!.trim(),
+      createdAt: old?.createdAt,
+    );
+    await _commit([WriteOp.put(Coll.monthClosings, c.id, c.toJson())]);
+    return c;
+  }
+
+  /// Reabre o mês: desfaz o fechamento/ajuste e volta ao cálculo automático.
+  Future<void> reopenMonth(YearMonth month) => reopenMonths([month]);
+
+  /// Reverte vários fechamentos/ajustes de uma vez (todos, se omitido).
+  Future<int> reopenMonths([Iterable<YearMonth>? months]) async {
+    final keys = (months ?? data.closingByMonth.keys)
+        .where(data.closingByMonth.containsKey)
+        .map((m) => m.key)
+        .toSet();
+    if (keys.isEmpty) return 0;
+    await _commit([
+      for (final k in keys) WriteOp.delete(Coll.monthClosings, k),
+    ]);
+    return keys.length;
   }
 
   // ---------------------------------------------------------------------------

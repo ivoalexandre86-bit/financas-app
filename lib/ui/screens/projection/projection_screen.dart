@@ -14,6 +14,7 @@ import '../../widgets/plan_upsell.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
 import 'drilldown_screen.dart';
+import 'month_closing_ui.dart';
 import 'projection_filters_screen.dart';
 
 /// Projeção Financeira Mensal: matriz com meses nas colunas e indicadores
@@ -209,6 +210,16 @@ class _ProjectionScreenState extends State<ProjectionScreen>
         title: const Text('Projeção financeira mensal'),
         actions: [
           IconButton(
+            key: const ValueKey('proj-closings'),
+            tooltip: 'Fechamentos e ajustes',
+            icon: Badge(
+              isLabelVisible: e.data.monthClosings.isNotEmpty,
+              label: Text('${e.data.monthClosings.length}'),
+              child: const Icon(Icons.lock_clock),
+            ),
+            onPressed: () => push(context, const MonthClosingsScreen()),
+          ),
+          IconButton(
             tooltip: 'Filtros',
             icon: Badge(
               isLabelVisible: !filter.isEmpty,
@@ -362,9 +373,22 @@ class _ProjectionScreenState extends State<ProjectionScreen>
             ),
           ),
           _matrix(context, result, cols),
+          if (!filter.isEmpty &&
+              cols.any((c) => e.data.closingByMonth.containsKey(c.month)))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Text(
+                'Com filtros, os meses fechados mostram o cálculo pelos '
+                'lançamentos; o fechamento/ajuste vale para a visão sem filtros.',
+                style: context.text.bodySmall?.copyWith(
+                  color: context.fin.subtle,
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Text(
+              'Toque no mês para fechar, ajustar ou reabrir o resultado. '
               'Toque em um valor para ver o detalhamento. Compras no cartão contam no mês em que a fatura é paga '
               '(no vencimento, enquanto não for paga); pagamentos de fatura e transferências não contam como despesa.',
               style: context.text.bodySmall?.copyWith(
@@ -495,33 +519,70 @@ class _ProjectionScreenState extends State<ProjectionScreen>
               ),
             );
 
-            Widget monthHeader(ProjectionColumn c) => Container(
-              width: cellW,
-              height: _headerH,
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              color: c.isCurrent ? p.neon.withValues(alpha: 0.10) : null,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    c.month.shortLabel.toUpperCase(),
-                    style: headerStyle?.copyWith(
-                      color: c.isCurrent ? p.neon : null,
+            Widget monthHeader(ProjectionColumn c) {
+              final closing = context
+                  .read<FinanceController>()
+                  .engine
+                  .closingFor(filter, c.month);
+              final status = closing != null
+                  ? (closing.isAdjusted ? 'ajustado' : 'fechado')
+                  : c.isCurrent
+                  ? 'atual'
+                  : c.isPast
+                  ? 'realizado'
+                  : null;
+              return Material(
+                color: c.isCurrent
+                    ? p.neon.withValues(alpha: 0.10)
+                    : Colors.transparent,
+                child: InkWell(
+                  key: ValueKey('proj-month-${c.month.key}'),
+                  onTap: () => showMonthClosingActions(context, c.month),
+                  child: Container(
+                    width: cellW,
+                    height: _headerH,
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (closing != null)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 4),
+                                child: Icon(
+                                  closing.isAdjusted ? Icons.tune : Icons.lock,
+                                  size: 12,
+                                  color: p.neon2,
+                                ),
+                              ),
+                            Text(
+                              c.month.shortLabel.toUpperCase(),
+                              style: headerStyle?.copyWith(
+                                color: c.isCurrent ? p.neon : null,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (status != null)
+                          Text(
+                            status,
+                            style: context.text.labelSmall?.copyWith(
+                              color: closing != null
+                                  ? p.neon2
+                                  : p.headerText.withValues(alpha: 0.6),
+                              fontSize: 9,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                  if (c.isCurrent || c.isPast)
-                    Text(
-                      c.isCurrent ? 'atual' : 'realizado',
-                      style: context.text.labelSmall?.copyWith(
-                        color: p.headerText.withValues(alpha: 0.6),
-                        fontSize: 9,
-                      ),
-                    ),
-                ],
-              ),
-            );
+                ),
+              );
+            }
 
             final months = Scrollbar(
               controller: hScroll,

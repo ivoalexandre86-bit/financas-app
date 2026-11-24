@@ -13,6 +13,7 @@ import '../../widgets/common.dart';
 import '../../widgets/entry_origin.dart';
 import '../../widgets/tx_grid.dart';
 import '../transactions/transaction_details_screen.dart';
+import 'month_closing_ui.dart';
 import '../transactions/transactions_screen.dart'
     show statusOptionColor, statusOptionLabel;
 
@@ -106,6 +107,16 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
         ? all
         : all.where((x) => x.source == source).toList();
     final total = events.map(_value).sum();
+    final closing = source == null
+        ? e.closingFor(widget.filter, widget.month)
+        : null;
+    final closedValue = closing == null
+        ? null
+        : switch (widget.row) {
+            DrillRow.income => closing.income,
+            DrillRow.expenses => closing.expenses,
+            DrillRow.net => closing.net,
+          };
 
     final crumbs = [
       if (widget.allCategories) 'Todas as categorias',
@@ -148,6 +159,29 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
                   color: context.fin.subtle,
                 ),
               ),
+            if (closing != null && !_isGrid) ...[
+              const SizedBox(height: 8),
+              Card(
+                key: const ValueKey('drill-closing'),
+                margin: EdgeInsets.zero,
+                child: ListTile(
+                  leading: Icon(
+                    closing.isAdjusted ? Icons.tune : Icons.lock,
+                    color: context.colors.primary,
+                  ),
+                  title: Text(
+                    closing.isAdjusted
+                        ? 'Mês fechado com ajuste manual'
+                        : 'Mês fechado',
+                  ),
+                  subtitle: Text(
+                    'Vale ${closedValue!.format()} (lançamentos abaixo: '
+                    '${total.format()}). Toque para ajustar ou reabrir.',
+                  ),
+                  onTap: () => showMonthClosingActions(context, widget.month),
+                ),
+              ),
+            ],
           ],
         ),
       ),

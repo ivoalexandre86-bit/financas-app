@@ -1,6 +1,7 @@
 import '../../core/dates.dart';
 import '../../core/money.dart';
 import '../models/entities.dart';
+import '../models/month_closing.dart';
 import 'billing_cycle.dart';
 import 'projection_filter.dart';
 import 'recurrence.dart';
@@ -18,6 +19,9 @@ class FinanceData {
   final List<InstallmentGroup> installmentGroups;
   final List<InvoicePayment> invoicePayments;
   final AppSettings settings;
+
+  /// Meses fechados ou com resultado ajustado manualmente.
+  final List<MonthClosing> monthClosings;
 
   late final Map<String, Account> accountById = {
     for (final a in accounts) a.id: a,
@@ -37,6 +41,9 @@ class FinanceData {
   late final Map<String, InstallmentGroup> groupById = {
     for (final g in installmentGroups) g.id: g,
   };
+  late final Map<YearMonth, MonthClosing> closingByMonth = {
+    for (final c in monthClosings) c.month: c,
+  };
 
   FinanceData({
     this.accounts = const [],
@@ -48,6 +55,7 @@ class FinanceData {
     this.installmentGroups = const [],
     this.invoicePayments = const [],
     this.settings = const AppSettings(),
+    this.monthClosings = const [],
   });
 
   FinanceData copyWith({
@@ -63,6 +71,7 @@ class FinanceData {
     installmentGroups: installmentGroups,
     invoicePayments: invoicePayments,
     settings: settings ?? this.settings,
+    monthClosings: monthClosings,
   );
 }
 
@@ -650,7 +659,32 @@ class FinancialEngine {
           return c != 0 ? c : a.tx.date.compareTo(b.tx.date);
         });
 
+  /// Fechamento/ajuste manual do mês, quando vale para o [filter]. Só a
+  /// visão sem filtros usa os valores fechados: um recorte (por conta,
+  /// categoria etc.) continua mostrando o cálculo dos lançamentos.
+  MonthClosing? closingFor(ProjectionFilter filter, YearMonth month) =>
+      filter.isEmpty ? data.closingByMonth[month] : null;
+
+  /// Totais calculados a partir dos lançamentos, ignorando fechamentos.
+  MonthTotals computedMonthTotals(ProjectionFilter filter, YearMonth month) {
+    final t = MonthTotals();
+    for (final e in monthEvents(filter, month)) {
+      if (e.isIncome) {
+        t.income += e.signed;
+      } else {
+        t.expenses += -e.signed;
+      }
+    }
+    return t;
+  }
+
   MonthTotals monthTotals(ProjectionFilter filter, YearMonth month) {
+    final closing = closingFor(filter, month);
+    if (closing != null) {
+      return MonthTotals()
+        ..income = closing.income
+        ..expenses = closing.expenses;
+    }
     final t = MonthTotals();
     for (final e in monthEvents(filter, month)) {
       if (e.isIncome) {
@@ -683,8 +717,13 @@ class FinancialEngine {
     };
     final accountScoped = filter.isBalanceScoped;
     var prior = Money.zero;
+    final closings = filter.isEmpty
+        ? data.closingByMonth
+        : const <YearMonth, MonthClosing>{};
 
     for (final e in recognizedEvents(filter, range.to)) {
+      // Mês fechado: os lançamentos dão lugar aos valores do fechamento.
+      if (closings.containsKey(e.month)) continue;
       if (e.month < range.from) {
         prior += e.signed;
         continue;
@@ -694,6 +733,17 @@ class FinancialEngine {
         b.income += e.signed;
       } else {
         b.expenses += -e.signed;
+      }
+    }
+
+    for (final c in closings.values) {
+      if (c.month > range.to) continue;
+      if (c.month < range.from) {
+        prior += c.net;
+      } else {
+        buckets[c.month]!
+          ..income = c.income
+          ..expenses = c.expenses;
       }
     }
 
