@@ -122,8 +122,6 @@ class _RecurringScreenState extends State<RecurringScreen>
   _StateFilter state = _StateFilter.current;
   ViewMode view = ViewMode.grid;
 
-  /// null = aberto no desktop e recolhido no celular.
-  bool? filtersOpen;
   final searchCtrl = TextEditingController();
 
   @override
@@ -196,7 +194,6 @@ class _RecurringScreenState extends State<RecurringScreen>
         .where((s) => !s.isIncome)
         .fold(0, (a, s) => a + s.monthly);
     int count(RecurringState st) => list.where((s) => s.state == st).length;
-    final narrow = MediaQuery.sizeOf(context).width < 760;
     final whereOpts = <String, String>{
       for (final s in all) s.whereKey: s.where,
     };
@@ -216,6 +213,61 @@ class _RecurringScreenState extends State<RecurringScreen>
             keyPrefix: 'recurring',
             mode: view,
             onChanged: (v) => setFilters(() => view = v),
+          ),
+          FilterButton(
+            keyPrefix: 'rec',
+            active: _activeFilters,
+            panel: FilterPanel(
+              keyPrefix: 'rec',
+              active: _activeFilters,
+              onClear: _clearFilters,
+              fields: (context) => [
+                FilterSearchField(
+                  keyName: 'rec-search',
+                  controller: searchCtrl,
+                  onChanged: (v) => setFiltersUnsaved(() => query = v),
+                ),
+                FilterSelect<TransactionType>(
+                  keyName: 'rec-type',
+                  label: 'Tipo',
+                  selected: types,
+                  options: const {
+                    TransactionType.income: 'Receitas',
+                    TransactionType.expense: 'Despesas',
+                  },
+                  onChanged: (v) => setFilters(() => types = v),
+                ),
+                FilterSelect<String>(
+                  keyName: 'rec-category',
+                  label: 'Categoria',
+                  allLabel: 'Todas',
+                  selected: categoryIds,
+                  options: cats,
+                  onChanged: (v) => setFilters(() => categoryIds = v),
+                ),
+                FilterSelect<String>(
+                  keyName: 'rec-where',
+                  label: 'Conta/cartão',
+                  selected: wheres,
+                  options: whereOpts,
+                  onChanged: (v) => setFilters(() => wheres = v),
+                ),
+                FilterSelect<_StateFilter>(
+                  key: const ValueKey('rec-state'),
+                  keyName: 'rec-state',
+                  label: 'Situação',
+                  multiple: false,
+                  allLabel: null,
+                  selected: {state},
+                  active: state != _StateFilter.current,
+                  onClear: () => setFilters(() => state = _StateFilter.current),
+                  options: {for (final f in _StateFilter.values) f: f.label},
+                  onChanged: (v) => setFilters(
+                    () => state = v.firstOrNull ?? _StateFilter.current,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -274,79 +326,6 @@ class _RecurringScreenState extends State<RecurringScreen>
                   ],
                 ),
                 const SizedBox(height: 12),
-                FiltersPanel(
-                  keyPrefix: 'rec',
-                  open: filtersOpen ?? !narrow,
-                  active: _activeFilters,
-                  onToggle: () =>
-                      setState(() => filtersOpen = !(filtersOpen ?? !narrow)),
-                  onClear: _clearFilters,
-                  child: Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    crossAxisAlignment:
-                        filterStyleOf(context) == FilterStyle.checklist
-                        ? WrapCrossAlignment.start
-                        : WrapCrossAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 220,
-                        child: TextField(
-                          key: const ValueKey('rec-search'),
-                          controller: searchCtrl,
-                          decoration: const InputDecoration(
-                            prefixIcon: Icon(Icons.search),
-                            hintText: 'Buscar descrição',
-                            isDense: true,
-                          ),
-                          onChanged: (v) => setState(() => query = v),
-                        ),
-                      ),
-                      FilterSelect<TransactionType>(
-                        keyName: 'rec-type',
-                        label: 'Tipo',
-                        selected: types,
-                        options: const {
-                          TransactionType.income: 'Receitas',
-                          TransactionType.expense: 'Despesas',
-                        },
-                        onChanged: (v) => setFilters(() => types = v),
-                      ),
-                      FilterSelect<String>(
-                        keyName: 'rec-category',
-                        label: 'Categoria',
-                        allLabel: 'Todas',
-                        selected: categoryIds,
-                        options: cats,
-                        onChanged: (v) => setFilters(() => categoryIds = v),
-                      ),
-                      FilterSelect<String>(
-                        keyName: 'rec-where',
-                        label: 'Conta/cartão',
-                        selected: wheres,
-                        options: whereOpts,
-                        onChanged: (v) => setFilters(() => wheres = v),
-                      ),
-                      FilterSelect<_StateFilter>(
-                        key: const ValueKey('rec-state'),
-                        keyName: 'rec-state',
-                        label: 'Situação',
-                        multiple: false,
-                        allLabel: null,
-                        selected: {state},
-                        active: state != _StateFilter.current,
-                        onClear: () =>
-                            setFilters(() => state = _StateFilter.current),
-                        options: {
-                          for (final f in _StateFilter.values) f: f.label,
-                        },
-                        onChanged: (v) => setFilters(
-                          () => state = v.firstOrNull ?? _StateFilter.current,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
                 const SizedBox(height: 12),
                 if (list.isEmpty)
                   const Padding(

@@ -50,31 +50,39 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1600, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(app(fc));
-    await tester.pump();
+    await tester.pumpAndSettle();
   }
 
-  Finder row(String id) => find.byKey(ValueKey('rec-row-$id'));
+  // As linhas ficam atrás do painel de filtros aberto.
+  Finder row(String id) =>
+      find.byKey(ValueKey('rec-row-$id'), skipOffstage: false);
   Finder key(String k) => find.byKey(ValueKey(k));
+  Future<void> openFilters(WidgetTester tester) async {
+    await tester.tap(key('rec-filters'));
+    await tester.pumpAndSettle();
+  }
 
   test('modelo de filtro é salvo nas preferências', () {
     const s = AppSettings(filterStyle: FilterStyle.checklist);
-    expect(
-      AppSettings.fromJson(s.toJson()).filterStyle,
-      FilterStyle.checklist,
-    );
+    expect(AppSettings.fromJson(s.toJson()).filterStyle, FilterStyle.checklist);
     expect(AppSettings.fromJson({}).filterStyle, FilterStyle.classic);
   });
 
   testWidgets('botão ao lado de Filtros troca o modelo', (tester) async {
     final fc = await setup(tester);
     await open(tester, fc);
+    // Botão Filtros no canto superior direito abre o painel.
+    final btn = tester.getTopRight(key('rec-filters'));
+    expect(btn.dx, greaterThan(1400));
+    expect(btn.dy, lessThan(60));
+    await openFilters(tester);
     expect(key('rec-type-checklist'), findsNothing);
     await tester.tap(key('filter-style-toggle'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(fc.data.settings.filterStyle, FilterStyle.checklist);
     expect(key('rec-type-checklist'), findsOneWidget);
     await tester.tap(key('filter-style-toggle'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(fc.data.settings.filterStyle, FilterStyle.classic);
     expect(key('rec-type-checklist'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -87,36 +95,44 @@ void main() {
     await fc.setFilterStyle(FilterStyle.checklist);
     await open(tester, fc);
     expect(row('sal'), findsOneWidget);
+    await openFilters(tester);
+    expect(row('sal'), findsOneWidget);
     expect(row('net'), findsOneWidget);
     expect(row('old'), findsNothing);
 
     // Marca só Receitas.
     await tester.tap(key('rec-type-income'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(row('sal'), findsOneWidget);
     expect(row('net'), findsNothing);
     // Marca também Despesas: as duas aparecem.
     await tester.tap(key('rec-type-expense'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(row('sal'), findsOneWidget);
     expect(row('net'), findsOneWidget);
     expect(fc.gridFilter('recurring')!['type'], ['income', 'expense']);
 
     // Situação é de escolha única; Limpar volta ao padrão (em vigor).
     expect(key('rec-state-clear'), findsNothing);
+    await tester.ensureVisible(key('rec-state-all'));
+    await tester.pumpAndSettle();
     await tester.tap(key('rec-state-all'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(row('old'), findsOneWidget);
+    await tester.ensureVisible(key('rec-state-clear'));
+    await tester.pumpAndSettle();
     await tester.tap(key('rec-state-clear'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(row('old'), findsNothing);
     // O Tipo continua filtrado até limpar o próprio filtro.
+    await tester.ensureVisible(key('rec-type-clear'));
+    await tester.pumpAndSettle();
     expect(key('rec-type-clear'), findsOneWidget);
     await tester.tap(key('rec-type-income'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(row('sal'), findsNothing);
     await tester.tap(key('rec-type-clear'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(row('sal'), findsOneWidget);
     expect(row('net'), findsOneWidget);
     expect(key('rec-type-clear'), findsNothing);
@@ -142,6 +158,7 @@ void main() {
       'type': ['income', 'expense'],
     });
     await open(tester, fc);
+    await openFilters(tester);
     expect(find.text('2 selecionados'), findsOneWidget);
     expect(row('sal'), findsOneWidget);
     expect(row('net'), findsOneWidget);

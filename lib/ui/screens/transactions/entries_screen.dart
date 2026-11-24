@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../domain/models/entities.dart';
 import '../../../state/finance_controller.dart';
 import '../../../state/shared_controller.dart';
+import '../../widgets/header_actions.dart';
 import '../../widgets/remembered_filters.dart';
 import '../shared/shared_screen.dart';
 import '../simulations/other_entries.dart';
@@ -46,6 +47,11 @@ class _EntriesScreenState extends State<EntriesScreen> with RememberedFilters {
   /// Painéis já abertos (mantêm o estado ao alternar).
   final _opened = <int>{};
 
+  /// Botões que cada aba embutida põe na barra de título.
+  final _slots = <int, ValueNotifier<List<Widget>>>{};
+  ValueNotifier<List<Widget>> _slot(int i) =>
+      _slots[i] ??= ValueNotifier(const []);
+
   @override
   String get filterKey => 'entries';
 
@@ -66,6 +72,9 @@ class _EntriesScreenState extends State<EntriesScreen> with RememberedFilters {
   @override
   void dispose() {
     EntriesScreen.requested.removeListener(_takeRequest);
+    for (final s in _slots.values) {
+      s.dispose();
+    }
     super.dispose();
   }
 
@@ -113,12 +122,21 @@ class _EntriesScreenState extends State<EntriesScreen> with RememberedFilters {
     _opened.add(panel);
     final invites = sc != null && sc.available ? sc.state.invites.length : 0;
 
-    Widget lazy(int i, Widget Function() build) =>
-        _opened.contains(i) ? build() : const SizedBox.shrink();
+    Widget lazy(int i, Widget Function() build) => _opened.contains(i)
+        ? HeaderActionsScope(slot: _slot(i), child: build())
+        : const SizedBox.shrink();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Movimentações'),
+        actions: [
+          ValueListenableBuilder<List<Widget>>(
+            valueListenable: _slot(panel),
+            builder: (_, actions, _) =>
+                Row(mainAxisSize: MainAxisSize.min, children: actions),
+          ),
+          const SizedBox(width: 4),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
           child: SizedBox(

@@ -41,6 +41,9 @@ mixin RememberedFilters<T extends StatefulWidget> on State<T> {
     rememberFilters();
   }
 
+  /// `setState` de um filtro que não é salvo (a busca, por exemplo).
+  void setFiltersUnsaved(VoidCallback fn) => setState(fn);
+
   void rememberFilters() => context.read<FinanceController>().saveGridFilter(
     filterKey,
     filtersToJson(),

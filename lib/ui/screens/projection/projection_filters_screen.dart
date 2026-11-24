@@ -41,6 +41,17 @@ class _ProjectionFiltersScreenState extends State<ProjectionFiltersScreen> {
 
   /// Um grupo de filtros: chips (modelo original) ou lista com caixas e
   /// Limpar próprio. Limpar volta para [reset] (padrão: nada marcado).
+
+  ProjectionFilter get _draft => ProjectionFilter(
+    accountIds: accounts,
+    cardIds: cards,
+    categoryIds: categories,
+    projectIds: projects,
+    types: types,
+    statuses: statuses,
+    sources: sources,
+  );
+
   Widget _section<T extends Object>(
     String key,
     String title,
@@ -112,134 +123,118 @@ class _ProjectionFiltersScreenState extends State<ProjectionFiltersScreen> {
     final d = fc.data;
     final months = [for (var i = 0; i < 97; i++) YearMonth.now().add(i - 36)];
     final validRange = from <= to && from.monthsUntil(to) < 60;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Filtros da projeção'),
-        actions: [
-          TextButton(
-            onPressed: () => setState(() {
-              accounts.clear();
-              cards.clear();
-              categories.clear();
-              projects.clear();
-              types.clear();
-              sources.clear();
-              statuses = {...ProjectionFilter.defaultStatuses};
-            }),
-            child: const Text('Limpar'),
-          ),
-          const FilterStyleToggle(),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text('Período', style: context.text.titleSmall),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<YearMonth>(
-                  initialValue: months.contains(from) ? from : null,
-                  menuMaxHeight: 320,
-                  decoration: const InputDecoration(labelText: 'De'),
-                  items: [
-                    for (final m in months)
-                      DropdownMenuItem(value: m, child: Text(m.shortLabel)),
-                  ],
-                  onChanged: (m) => setState(() => from = m!),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: DropdownButtonFormField<YearMonth>(
-                  initialValue: months.contains(to) ? to : null,
-                  menuMaxHeight: 320,
-                  decoration: const InputDecoration(labelText: 'Até'),
-                  items: [
-                    for (final m in months)
-                      DropdownMenuItem(value: m, child: Text(m.shortLabel)),
-                  ],
-                  onChanged: (m) => setState(() => to = m!),
-                ),
-              ),
-            ],
-          ),
-          if (!validRange)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                'Período inválido (1 a 60 meses).',
-                style: TextStyle(color: context.colors.error),
-              ),
-            ),
-          const SizedBox(height: 20),
-          _section('types', 'Tipo de transação', types, {
-            TransactionType.income: 'Receitas',
-            TransactionType.expense: 'Despesas',
-          }),
-          _section('statuses', 'Status', statuses, {
-            for (final s in TransactionStatus.values) s: s.label,
-          }, reset: ProjectionFilter.defaultStatuses),
-          _section('sources', 'Origem', sources, {
-            EventSource.recurring: 'Recorrentes',
-            EventSource.installment: 'Parcelamentos',
-            EventSource.card: 'Compras no cartão',
-            EventSource.other: 'Outras',
-          }),
-          _section('accounts', 'Contas', accounts, {
-            for (final a in d.accounts) a.id: a.name,
-          }),
-          _section('cards', 'Cartões de crédito', cards, {
-            for (final c in d.cards) c.id: c.name,
-          }),
-          _section(
-            'categories',
-            'Categorias (inclui subcategorias)',
-            categories,
-            {
-              for (final c in d.categories.where((c) => c.parentId == null))
-                c.id: c.name,
-            },
-          ),
-          _section('projects', 'Projetos', projects, {
-            for (final p in d.projects) p.id: p.name,
-          }),
-          Text(
-            'Filtros de categoria, projeto, tipo, origem ou status mostram o acumulado do recorte '
-            'a partir de zero; filtros só de conta/cartão mantêm o saldo real como ponto de partida.',
-            style: context.text.bodySmall?.copyWith(color: context.fin.subtle),
-          ),
-        ],
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: FilledButton(
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-            ),
-            onPressed: !validRange || statuses.isEmpty
-                ? null
-                : () => Navigator.pop(
-                    context,
-                    ProjectionFilterResult(
-                      ProjectionFilter(
-                        accountIds: accounts,
-                        cardIds: cards,
-                        categoryIds: categories,
-                        projectIds: projects,
-                        types: types,
-                        statuses: statuses,
-                        sources: sources,
-                      ),
-                      MonthRange(from, to),
-                    ),
+    return FilterPanel(
+      keyPrefix: 'proj',
+      title: 'Filtros da projeção',
+      active: _draft.activeCount,
+      onClear: () => setState(() {
+        accounts.clear();
+        cards.clear();
+        categories.clear();
+        projects.clear();
+        types.clear();
+        sources.clear();
+        statuses = {...ProjectionFilter.defaultStatuses};
+      }),
+      primary: FilledButton(
+        key: const ValueKey('proj-filters-apply'),
+        onPressed: !validRange || statuses.isEmpty
+            ? null
+            : () => Navigator.pop(
+                context,
+                ProjectionFilterResult(
+                  ProjectionFilter(
+                    accountIds: accounts,
+                    cardIds: cards,
+                    categoryIds: categories,
+                    projectIds: projects,
+                    types: types,
+                    statuses: statuses,
+                    sources: sources,
                   ),
-            child: const Text('Aplicar filtros'),
-          ),
-        ),
+                  MonthRange(from, to),
+                ),
+              ),
+        child: const Text('Aplicar'),
       ),
+      fields: (context) => [
+        Text('Período', style: context.text.titleSmall),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<YearMonth>(
+                initialValue: months.contains(from) ? from : null,
+                menuMaxHeight: 320,
+                decoration: const InputDecoration(labelText: 'De'),
+                items: [
+                  for (final m in months)
+                    DropdownMenuItem(value: m, child: Text(m.shortLabel)),
+                ],
+                onChanged: (m) => setState(() => from = m!),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: DropdownButtonFormField<YearMonth>(
+                initialValue: months.contains(to) ? to : null,
+                menuMaxHeight: 320,
+                decoration: const InputDecoration(labelText: 'Até'),
+                items: [
+                  for (final m in months)
+                    DropdownMenuItem(value: m, child: Text(m.shortLabel)),
+                ],
+                onChanged: (m) => setState(() => to = m!),
+              ),
+            ),
+          ],
+        ),
+        if (!validRange)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Período inválido (1 a 60 meses).',
+              style: TextStyle(color: context.colors.error),
+            ),
+          ),
+        const SizedBox(height: 20),
+        _section('types', 'Tipo de transação', types, {
+          TransactionType.income: 'Receitas',
+          TransactionType.expense: 'Despesas',
+        }),
+        _section('statuses', 'Status', statuses, {
+          for (final s in TransactionStatus.values) s: s.label,
+        }, reset: ProjectionFilter.defaultStatuses),
+        _section('sources', 'Origem', sources, {
+          EventSource.recurring: 'Recorrentes',
+          EventSource.installment: 'Parcelamentos',
+          EventSource.card: 'Compras no cartão',
+          EventSource.other: 'Outras',
+        }),
+        _section('accounts', 'Contas', accounts, {
+          for (final a in d.accounts) a.id: a.name,
+        }),
+        _section('cards', 'Cartões de crédito', cards, {
+          for (final c in d.cards) c.id: c.name,
+        }),
+        _section(
+          'categories',
+          'Categorias (inclui subcategorias)',
+          categories,
+          {
+            for (final c in d.categories.where((c) => c.parentId == null))
+              c.id: c.name,
+          },
+        ),
+        _section('projects', 'Projetos', projects, {
+          for (final p in d.projects) p.id: p.name,
+        }),
+        Text(
+          'Filtros de categoria, projeto, tipo, origem ou status mostram o acumulado do recorte '
+          'a partir de zero; filtros só de conta/cartão mantêm o saldo real como ponto de partida.',
+          style: context.text.bodySmall?.copyWith(color: context.fin.subtle),
+        ),
+      ],
     );
   }
 }

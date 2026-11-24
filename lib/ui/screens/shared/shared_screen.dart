@@ -12,6 +12,7 @@ import '../../../state/shared_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/filters_panel.dart';
 import '../transactions/transaction_form_screen.dart';
 import 'group_screen.dart';
 import 'payment_dialogs.dart';
@@ -132,41 +133,65 @@ class _ExpensesTab extends StatefulWidget {
 
 class _ExpensesTabState extends State<_ExpensesTab> {
   YearMonth? month = YearMonth.now();
-  SharedFilter filter = const SharedFilter();
+
+  /// Filtros (vazio = todos; vários valores = qualquer um deles).
+  Set<String> groups = {}, people = {}, owners = {}, categories = {};
+  Set<PayStatus> statuses = {};
+  final _changes = ValueNotifier(0);
+
+  int get _active => [
+    groups,
+    people,
+    owners,
+    categories,
+    statuses,
+  ].where((s) => s.isNotEmpty).length;
+
+  void _set(VoidCallback fn) {
+    setState(fn);
+    _changes.value++;
+  }
+
+  @override
+  void dispose() {
+    _changes.dispose();
+    super.dispose();
+  }
+
+  /// Situação considerada: a das pessoas filtradas, ou da despesa.
+  bool _statusMatches(SharedExpense e) {
+    if (statuses.isEmpty) return true;
+    if (people.isEmpty) return statuses.contains(e.status);
+    return people.any(
+      (p) => statuses.contains(e.shareOf(p)?.status ?? PayStatus.paid),
+    );
+  }
+
+  bool _matches(SharedExpense e) =>
+      (groups.isEmpty || groups.contains(e.groupId)) &&
+      (owners.isEmpty || owners.contains(e.ownerId)) &&
+      (people.isEmpty || people.any((p) => e.allocationOf(p) != null)) &&
+      (categories.isEmpty || categories.contains(e.categoryName)) &&
+      _statusMatches(e);
 
   @override
   Widget build(BuildContext context) {
     final sc = context.watch<SharedController>();
     final st = sc.state;
-    final f = filter.copyWith(from: month, to: month);
-    final list = SharedReport.filter(st, f);
+    final list = SharedReport.filter(
+      st,
+      SharedFilter(from: month, to: month),
+    ).where(_matches).toList();
     final totals = SharedReport.totals(list);
     final me = sc.me;
     final mine = totals.byUser[me];
-    final people = <String, String>{
+    final names = <String, String>{
       for (final g in st.groups)
         for (final m in g.members) m.userId: m.name,
     };
-    final categories = {for (final e in st.allExpenses) e.categoryName}.toList()
-      ..sort();
-    Widget menu<T>(
-      String label,
-      T? value,
-      Map<T, String> options,
-      ValueChanged<T?> on,
-    ) => PopupMenuButton<Object>(
-      tooltip: label,
-      onSelected: (v) => on(v == _all ? null : v as T),
-      itemBuilder: (_) => [
-        PopupMenuItem(value: _all, child: Text('Todos ($label)')),
-        for (final o in options.entries)
-          PopupMenuItem(value: o.key as Object, child: Text(o.value)),
-      ],
-      child: Chip(
-        avatar: Icon(value == null ? Icons.filter_list : Icons.check, size: 16),
-        label: Text(value == null ? label : '$label: ${options[value]}'),
-      ),
-    );
+    final categoryNames = {
+      for (final e in st.allExpenses) e.categoryName,
+    }.toList()..sort();
     return Scaffold(
       floatingActionButton: sc.managedGroups.isEmpty
           ? null
@@ -206,61 +231,88 @@ class _ExpensesTabState extends State<_ExpensesTab> {
               )
             else ...[
               Row(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  if (month != null)
-                    MonthSwitcher(
-                      month: month!,
-                      onChanged: (m) => setState(() => month = m),
-                    )
-                  else
-                    Text('Todos os meses', style: context.text.titleMedium),
-                  TextButton(
-                    onPressed: () => setState(
-                      () => month = month == null ? YearMonth.now() : null,
-                    ),
-                    child: Text(month == null ? 'Por mês' : 'Todos'),
-                  ),
-                ],
-              ),
-              Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: [
-                  if (st.groups.length > 1)
-                    menu<String>(
-                      'Grupo',
-                      filter.groupId,
-                      {for (final g in st.groups) g.id: g.name},
-                      (v) =>
-                          setState(() => filter = filter.copyWith(groupId: v)),
-                    ),
-                  menu<String>(
-                    'Pessoa',
-                    filter.participantId,
-                    people,
-                    (v) => setState(
-                      () => filter = filter.copyWith(participantId: v),
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (month != null)
+                          MonthSwitcher(
+                            month: month!,
+                            onChanged: (m) => setState(() => month = m),
+                          )
+                        else
+                          Text(
+                            'Todos os meses',
+                            style: context.text.titleMedium,
+                          ),
+                        TextButton(
+                          onPressed: () => setState(
+                            () =>
+                                month = month == null ? YearMonth.now() : null,
+                          ),
+                          child: Text(month == null ? 'Por mês' : 'Todos'),
+                        ),
+                      ],
                     ),
                   ),
-                  menu<String>(
-                    'Pago por',
-                    filter.ownerId,
-                    people,
-                    (v) => setState(() => filter = filter.copyWith(ownerId: v)),
-                  ),
-                  menu<String>(
-                    'Categoria',
-                    filter.category,
-                    {for (final c in categories) c: c},
-                    (v) =>
-                        setState(() => filter = filter.copyWith(category: v)),
-                  ),
-                  menu<PayStatus>(
-                    'Situação',
-                    filter.status,
-                    {for (final s in PayStatus.values) s: s.label},
-                    (v) => setState(() => filter = filter.copyWith(status: v)),
+                  FilterButton(
+                    keyPrefix: 'shared',
+                    active: _active,
+                    panel: FilterPanel(
+                      keyPrefix: 'shared',
+                      active: _active,
+                      onClear: () => _set(() {
+                        groups = {};
+                        people = {};
+                        owners = {};
+                        categories = {};
+                        statuses = {};
+                      }),
+                      fields: (_) => [
+                        if (st.groups.length > 1)
+                          FilterSelect<String>(
+                            keyName: 'shared-group',
+                            label: 'Grupo',
+                            selected: groups,
+                            options: {for (final g in st.groups) g.id: g.name},
+                            onChanged: (v) => _set(() => groups = v),
+                          ),
+                        FilterSelect<String>(
+                          keyName: 'shared-person',
+                          label: 'Pessoa',
+                          allLabel: 'Todas',
+                          selected: people,
+                          options: names,
+                          onChanged: (v) => _set(() => people = v),
+                        ),
+                        FilterSelect<String>(
+                          keyName: 'shared-owner',
+                          label: 'Pago por',
+                          selected: owners,
+                          options: names,
+                          onChanged: (v) => _set(() => owners = v),
+                        ),
+                        FilterSelect<String>(
+                          keyName: 'shared-category',
+                          label: 'Categoria',
+                          allLabel: 'Todas',
+                          selected: categories,
+                          options: {for (final c in categoryNames) c: c},
+                          onChanged: (v) => _set(() => categories = v),
+                        ),
+                        FilterSelect<PayStatus>(
+                          keyName: 'shared-status',
+                          label: 'Situação',
+                          allLabel: 'Todas',
+                          selected: statuses,
+                          options: {
+                            for (final s in PayStatus.values) s: s.label,
+                          },
+                          onChanged: (v) => _set(() => statuses = v),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -421,8 +473,6 @@ class _ExpensesTabState extends State<_ExpensesTab> {
     }
   }
 }
-
-const _all = Object();
 
 class _Kpi extends StatelessWidget {
   final String label;

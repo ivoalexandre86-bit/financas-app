@@ -12,6 +12,7 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/filters_panel.dart';
+import '../../widgets/header_actions.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
@@ -57,8 +58,6 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
   bool sheet = false;
   bool sheetByPerson = false;
 
-  /// null = aberto no desktop e recolhido no celular.
-  bool? filtersOpen;
   final searchCtrl = TextEditingController();
 
   @override
@@ -172,20 +171,88 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
         : null;
     final account = fc.otherAccount;
 
+    final filterButton = FilterButton(
+      keyPrefix: 'oe',
+      active: _activeFilters,
+      panel: FilterPanel(
+        keyPrefix: 'oe',
+        active: _activeFilters,
+        onClear: _clearFilters,
+        fields: (context) => [
+          FilterSearchField(
+            keyName: 'oe-search',
+            controller: searchCtrl,
+            onChanged: (v) => setFiltersUnsaved(() => query = v),
+          ),
+          FilterSelect<String>(
+            keyName: 'oe-period',
+            label: 'Mês/ano',
+            multiple: false,
+            allLabel: null,
+            selected: {period},
+            active: period != 'all',
+            onClear: () => setFilters(() => period = 'all'),
+            options: periodOptions,
+            onChanged: (v) => setFilters(() => period = v.firstOrNull ?? 'all'),
+          ),
+          FilterSelect<String>(
+            keyName: 'oe-person',
+            label: 'Pessoa',
+            allLabel: 'Todas',
+            selected: personIds,
+            options: {for (final p in fc.people) p.id: p.name},
+            onChanged: (v) => setFilters(() => personIds = v),
+          ),
+          FilterSelect<PayStatus>(
+            keyName: 'oe-status',
+            label: isIncome ? 'Recebimento' : 'Pagamento',
+            selected: statuses,
+            options: {for (final s in PayStatus.values) s: s.label},
+            onChanged: (v) => setFilters(() => statuses = v),
+          ),
+          FilterSelect<bool>(
+            keyName: 'oe-linked',
+            label: 'Orçamento',
+            multiple: false,
+            selected: {?linked},
+            options: const {true: 'Vinculados', false: 'Não vinculados'},
+            onChanged: (v) => setFilters(() => linked = v.firstOrNull),
+          ),
+          FilterChip(
+            label: const Text('Excluídos'),
+            selected: showDeleted,
+            onSelected: (v) => setFilters(() => showDeleted = v),
+          ),
+        ],
+      ),
+    );
+    // Dentro de Movimentações o botão vai para a barra de título.
+    final inHeader = HeaderActionsScope.publish(context, [filterButton]);
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
       children: [
-        Text(
-          isIncome
-              ? 'Receitas avulsas (aluguel recebido, ajuda de alguém...). As '
-                    'vinculadas entram no orçamento como uma linha "Outras '
-                    'receitas" por mês.'
-              : 'Despesas que você paga e divide com outras pessoas. As '
-                    'vinculadas entram no orçamento como uma linha "Outras '
-                    'despesas" por mês (como a fatura do cartão), e cada '
-                    'reembolso recebido vira uma receita na data do pagamento. '
-                    'O que não for dividido fica com você.',
-          style: context.text.bodySmall?.copyWith(color: context.fin.subtle),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                isIncome
+                    ? 'Receitas avulsas (aluguel recebido, ajuda de alguém...). As '
+                          'vinculadas entram no orçamento como uma linha "Outras '
+                          'receitas" por mês.'
+                    : 'Despesas que você paga e divide com outras pessoas. As '
+                          'vinculadas entram no orçamento como uma linha "Outras '
+                          'despesas" por mês (como a fatura do cartão), e cada '
+                          'reembolso recebido vira uma receita na data do pagamento. '
+                          'O que não for dividido fica com você.',
+                style: context.text.bodySmall?.copyWith(
+                  color: context.fin.subtle,
+                ),
+              ),
+            ),
+            if (!inHeader) ...[const SizedBox(width: 8), filterButton],
+          ],
         ),
         const SizedBox(height: 12),
         Wrap(
@@ -295,79 +362,6 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
                 ],
         ),
         const SizedBox(height: 12),
-        FiltersPanel(
-          keyPrefix: 'oe',
-          open: filtersOpen ?? MediaQuery.sizeOf(context).width >= 760,
-          active: _activeFilters,
-          onToggle: () => setState(
-            () => filtersOpen =
-                !(filtersOpen ?? MediaQuery.sizeOf(context).width >= 760),
-          ),
-          onClear: _clearFilters,
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            crossAxisAlignment:
-                        filterStyleOf(context) == FilterStyle.checklist
-                        ? WrapCrossAlignment.start
-                        : WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 220,
-                child: TextField(
-                  key: const ValueKey('oe-search'),
-                  controller: searchCtrl,
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'Buscar descrição',
-                    isDense: true,
-                  ),
-                  onChanged: (v) => setState(() => query = v),
-                ),
-              ),
-              FilterSelect<String>(
-                keyName: 'oe-period',
-                label: 'Mês/ano',
-                multiple: false,
-                allLabel: null,
-                selected: {period},
-                active: period != 'all',
-                onClear: () => setFilters(() => period = 'all'),
-                options: periodOptions,
-                onChanged: (v) =>
-                    setFilters(() => period = v.firstOrNull ?? 'all'),
-              ),
-              FilterSelect<String>(
-                keyName: 'oe-person',
-                label: 'Pessoa',
-                allLabel: 'Todas',
-                selected: personIds,
-                options: {for (final p in fc.people) p.id: p.name},
-                onChanged: (v) => setFilters(() => personIds = v),
-              ),
-              FilterSelect<PayStatus>(
-                keyName: 'oe-status',
-                label: isIncome ? 'Recebimento' : 'Pagamento',
-                selected: statuses,
-                options: {for (final s in PayStatus.values) s: s.label},
-                onChanged: (v) => setFilters(() => statuses = v),
-              ),
-              FilterSelect<bool>(
-                keyName: 'oe-linked',
-                label: 'Orçamento',
-                multiple: false,
-                selected: {?linked},
-                options: const {true: 'Vinculados', false: 'Não vinculados'},
-                onChanged: (v) => setFilters(() => linked = v.firstOrNull),
-              ),
-              FilterChip(
-                label: const Text('Excluídos'),
-                selected: showDeleted,
-                onSelected: (v) => setFilters(() => showDeleted = v),
-              ),
-            ],
-          ),
-        ),
         const SizedBox(height: 12),
         Wrap(
           spacing: 10,
