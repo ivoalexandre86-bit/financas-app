@@ -262,7 +262,11 @@ void main() {
     expect(one.visible, hasLength(1));
 
     // Tela estreita: colunas de texto encolhem antes de rolar.
-    final l = GridLayout.of(1000, GridColumnsConfig.standard);
+    // (sem dependentes a coluna "Quem usou" fica oculta, como nas telas)
+    final l = GridLayout.of(
+      1000,
+      GridColumnsConfig.standard.showingIf(GridColumn.holder, false),
+    );
     expect(l.totalWidth, closeTo(1000, 0.01));
   });
 

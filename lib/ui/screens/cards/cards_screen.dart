@@ -10,6 +10,7 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
+import '../../widgets/dependents_editor.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
@@ -471,6 +472,7 @@ class _CardFormScreenState extends State<CardFormScreen> {
   late bool active = widget.card?.active ?? true;
   late String? payAccount = widget.card?.paymentAccountId;
   late int color = widget.card?.color ?? 0xFF1B2A4A;
+  late List<Dependent> dependents = widget.card?.dependents ?? const [];
 
   static const brands = [
     'Mastercard',
@@ -669,6 +671,12 @@ class _CardFormScreenState extends State<CardFormScreen> {
                   ),
               ],
             ),
+            DependentsEditor(
+              value: dependents,
+              askLastFour: true,
+              usage: fc.dependentUsage,
+              onChanged: (v) => setState(() => dependents = v),
+            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Cartão ativo'),
@@ -709,6 +717,7 @@ class _CardFormScreenState extends State<CardFormScreen> {
                           active: active,
                           paymentAccountId: payAccount,
                           color: color,
+                          dependents: dependents,
                         );
                 final ok = await runAction(
                   context,

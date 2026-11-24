@@ -5,6 +5,7 @@ import '../../core/dates.dart';
 import '../../core/ids.dart';
 import '../../core/money.dart';
 import '../../domain/models/entities.dart';
+import '../../domain/engine/financial_engine.dart';
 import '../../state/finance_controller.dart';
 import '../screens/categories/categories_screen.dart';
 import 'category_icons.dart';
@@ -394,6 +395,53 @@ class FundingDropdown extends StatelessWidget {
       items: items,
       validator: (x) => x == null ? 'Selecione uma conta ou cartão' : null,
       onChanged: (k) => onChanged(Funding.parse(k)),
+    );
+  }
+}
+
+/// "Quem usou": titular ou um dependente da conta/cartão escolhido. Não
+/// aparece quando a conta/cartão não tem dependentes.
+class HolderDropdown extends StatelessWidget {
+  final FinanceController fc;
+  final Funding? funding;
+  final String? value;
+  final ValueChanged<String?> onChanged;
+  const HolderDropdown({
+    super.key,
+    required this.fc,
+    required this.funding,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final deps = fc.data.dependentsFor(
+      accountId: funding?.accountId,
+      cardId: funding?.cardId,
+    );
+    if (deps.isEmpty) return const SizedBox.shrink();
+    final v = deps.any((d) => d.id == value) ? value : null;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: DropdownButtonFormField<String?>(
+        key: ValueKey('holder-${funding?.key}'),
+        initialValue: v,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Quem usou',
+          prefixIcon: Icon(Icons.person_outline),
+        ),
+        items: [
+          const DropdownMenuItem<String?>(
+            value: null,
+            child: Text(FinanceData.holderTitular),
+          ),
+          for (final d in deps)
+            DropdownMenuItem<String?>(value: d.id, child: Text(d.label)),
+        ],
+        onChanged: onChanged,
+      ),
     );
   }
 }

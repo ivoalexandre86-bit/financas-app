@@ -45,6 +45,35 @@ class FinanceData {
     for (final c in monthClosings) c.month: c,
   };
 
+  /// Dependentes cadastrados na conta ou no cartão.
+  List<Dependent> dependentsFor({String? accountId, String? cardId}) =>
+      cardId != null
+      ? (cardById[cardId]?.dependents ?? const [])
+      : accountId != null
+      ? (accountById[accountId]?.dependents ?? const [])
+      : const [];
+
+  /// Dependente que fez o lançamento (nulo = titular ou dependente removido).
+  Dependent? holderOf(FinTransaction t) {
+    final id = t.holderId;
+    if (id == null) return null;
+    for (final d in dependentsFor(accountId: t.accountId, cardId: t.cardId)) {
+      if (d.id == id) return d;
+    }
+    return null;
+  }
+
+  /// Nome de quem usou: o dependente, ou "Titular".
+  String holderName(FinTransaction t) => holderOf(t)?.name ?? holderTitular;
+
+  /// Rótulo de quem é o titular nas listas de dependentes.
+  static const holderTitular = 'Titular';
+
+  /// Se existe algum dependente cadastrado (mostra coluna e filtros).
+  late final bool hasDependents =
+      accounts.any((a) => a.dependents.isNotEmpty) ||
+      cards.any((c) => c.dependents.isNotEmpty);
+
   FinanceData({
     this.accounts = const [],
     this.cards = const [],
@@ -216,6 +245,23 @@ class Invoice {
 
   /// Título exibido na lista, ex.: "Fatura C6 – Out/26".
   String get title => 'Fatura ${card.name} – ${month.shortLabel}';
+
+  /// Total da fatura por quem usou: titular e cada dependente do cartão
+  /// (só quem tem compras). Compra de dependente removido conta no titular.
+  late final List<({Dependent? holder, Money total, int count})> byHolder = () {
+    final totals = <String, Money>{};
+    final counts = <String, int>{};
+    for (final t in transactions) {
+      final id = card.dependentById(t.holderId)?.id ?? '';
+      totals[id] = (totals[id] ?? Money.zero) + signedOf(t);
+      counts[id] = (counts[id] ?? 0) + 1;
+    }
+    return [
+      for (final d in <Dependent?>[null, ...card.dependents])
+        if (counts[d?.id ?? ''] case final n?)
+          (holder: d, total: totals[d?.id ?? '']!, count: n),
+    ];
+  }();
 
   /// Valor da compra no sinal da fatura (compra +, estorno/crédito −).
   static Money signedOf(FinTransaction t) =>
@@ -424,6 +470,7 @@ class FinancialEngine {
         accountId: rule.accountId,
         cardId: rule.cardId,
         projectId: rule.projectId,
+        holderId: rule.holderId,
         notes: rule.notes,
         status: TransactionStatus.planned,
         recurringId: rule.id,

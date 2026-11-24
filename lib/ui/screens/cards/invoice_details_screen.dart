@@ -258,6 +258,16 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen> {
                     'Compras de',
                     '${Dates.format(BillingCycle.cycleStart(card, inv.month))} a ${Dates.format(BillingCycle.lastPurchaseDay(card, inv.month))}',
                   ),
+                  if (card.dependents.isNotEmpty &&
+                      inv.transactions.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('Por pessoa', style: context.text.labelLarge),
+                    for (final h in inv.byHolder)
+                      InfoRow(
+                        '${h.holder?.label ?? FinanceData.holderTitular} (${h.count})',
+                        MoneyText(h.total),
+                      ),
+                  ],
                   if (inv.paid.isPositive) ...[
                     InfoRow('Pago', MoneyText(inv.paid)),
                     InfoRow(

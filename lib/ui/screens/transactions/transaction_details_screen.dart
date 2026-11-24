@@ -238,6 +238,8 @@ class TransactionDetailsScreen extends StatelessWidget {
                               )
                               .join(' + '),
                   ),
+                if (fc.data.holderOf(t) case final h?)
+                  InfoRow.text('Quem usou', h.label),
                 if (project != null) InfoRow.text('Projeto', project.name),
                 if (t.isInstallment)
                   InfoRow.text('Parcela', t.installmentLabel),

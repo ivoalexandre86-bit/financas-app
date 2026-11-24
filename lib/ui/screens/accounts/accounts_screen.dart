@@ -9,6 +9,7 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
+import '../../widgets/dependents_editor.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
@@ -442,6 +443,7 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
   late AccountType type = widget.account?.type ?? AccountType.checking;
   late bool active = widget.account?.active ?? true;
   late int color = widget.account?.color ?? palette.first;
+  late List<Dependent> dependents = widget.account?.dependents ?? const [];
 
   @override
   Widget build(BuildContext context) {
@@ -540,6 +542,12 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
                   ),
               ],
             ),
+            DependentsEditor(
+              value: dependents,
+              askLastFour: false,
+              usage: fc.dependentUsage,
+              onChanged: (v) => setState(() => dependents = v),
+            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Conta ativa'),
@@ -563,6 +571,7 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
                       initialBalance: Money.tryEval(initial.text)!,
                       active: active,
                       color: color,
+                      dependents: dependents,
                     );
                 final ok = await runAction(
                   context,

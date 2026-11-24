@@ -29,6 +29,7 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
   late final TextEditingController countCtrl;
   String? categoryId;
   String? projectId;
+  String? holderId;
   late DateTime date;
   Funding? funding;
   bool saving = false;
@@ -43,6 +44,7 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
     countCtrl = TextEditingController(text: '${g?.count ?? 2}');
     categoryId = g?.categoryId;
     projectId = g?.projectId;
+    holderId = g?.holderId;
     date = g?.purchaseDate ?? DateTime.now();
     if (g != null) {
       funding = Funding(accountId: g!.accountId, cardId: g!.cardId);
@@ -76,6 +78,15 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
           cardId: funding?.cardId,
           categoryId: categoryId,
           projectId: projectId,
+          holderId:
+              fc.data
+                  .dependentsFor(
+                    accountId: funding?.accountId,
+                    cardId: funding?.cardId,
+                  )
+                  .any((d) => d.id == holderId)
+              ? holderId
+              : null,
           notes: notes.text.trim(),
           dueOffsetDays: old.dueOffsetDays,
           createdAt: old.createdAt,
@@ -169,6 +180,12 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
               fc: fc,
               value: funding,
               onChanged: (f) => setState(() => funding = f),
+            ),
+            HolderDropdown(
+              fc: fc,
+              funding: funding,
+              value: holderId,
+              onChanged: (v) => setState(() => holderId = v),
             ),
             if (funding?.cardId != null)
               Padding(
