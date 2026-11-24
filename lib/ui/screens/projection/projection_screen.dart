@@ -8,6 +8,7 @@ import '../../../domain/models/entities.dart';
 import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
+import '../../widgets/filters_panel.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/plan_upsell.dart';
@@ -219,15 +220,11 @@ class _ProjectionScreenState extends State<ProjectionScreen>
             ),
             onPressed: () => push(context, const MonthClosingsScreen()),
           ),
-          IconButton(
-            tooltip: 'Filtros',
-            icon: Badge(
-              isLabelVisible: !filter.isEmpty,
-              label: Text('${filter.activeCount}'),
-              child: const Icon(Icons.filter_list),
-            ),
+          FilterButton(
+            keyPrefix: 'proj',
+            active: filter.activeCount,
             onPressed: () async {
-              final r = await push<ProjectionFilterResult>(
+              final r = await showFilterPanel<ProjectionFilterResult>(
                 context,
                 ProjectionFiltersScreen(initial: filter, range: range),
               );

@@ -15,6 +15,7 @@ import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/entry_origin.dart';
 import '../../widgets/filters_panel.dart';
+import '../../widgets/header_actions.dart';
 import '../../widgets/invoice_tile.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
@@ -634,29 +635,84 @@ class _TransactionsScreenState extends State<TransactionsScreen>
           }
         }),
       ),
-      IconButton(
-        tooltip: 'Filtros',
-        icon: Badge(
-          isLabelVisible: filter.count > 0,
-          label: Text('${filter.count}'),
-          child: const Icon(Icons.tune),
-        ),
-        onPressed: () async {
-          final f = await showModalBottomSheet<TxListFilter>(
-            context: context,
-            isScrollControlled: true,
-            showDragHandle: true,
-            builder: (_) => _FilterSheet(fc: fc, initial: filter),
-          );
-          if (f != null) setFilters(() => filter = f);
-        },
-      ),
       ViewModeToggle(
         keyPrefix: 'tx',
         mode: view,
         onChanged: (v) => setFilters(() => view = v),
       ),
+      FilterButton(
+        keyPrefix: 'tx',
+        active: filter.count,
+        panel: FilterPanel(
+          keyPrefix: 'tx',
+          title: 'Filtrar transações',
+          active: filter.count,
+          onClear: () => setFilters(() => filter = const TxListFilter()),
+          fields: (context) => txFilterFields(
+            context,
+            fc,
+            filter,
+            (f) => setFilters(() => filter = f),
+          ),
+        ),
+      ),
     ];
+    final menu = PopupMenuButton<String>(
+      tooltip: 'Opções',
+      onSelected: (v) {
+        if (v == 'import') {
+          push(context, const ExpenseImportScreen());
+          return;
+        }
+        if (v == 'columns') {
+          _configureColumns(fc);
+          return;
+        }
+        setFilters(() {
+          if (v == 'all') allPeriods = !allPeriods;
+          if (v == 'forecast') showForecast = !showForecast;
+        });
+      },
+      itemBuilder: (_) => [
+        CheckedPopupMenuItem(
+          value: 'all',
+          checked: allPeriods,
+          child: const Text('Todos os períodos'),
+        ),
+        CheckedPopupMenuItem(
+          value: 'forecast',
+          checked: showForecast,
+          child: const Text('Mostrar recorrências previstas'),
+        ),
+        const PopupMenuDivider(),
+        if (view == ViewMode.grid)
+          const PopupMenuItem(
+            value: 'columns',
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.view_column_outlined),
+              title: Text('Configurar colunas'),
+            ),
+          ),
+        const PopupMenuItem(
+          value: 'import',
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.upload_file),
+            title: Text('Importar despesas (Excel)'),
+          ),
+        ),
+      ],
+    );
+    // Dentro de Movimentações os botões vão para a barra de título, com
+    // Filtros no canto superior direito.
+    final inHeader =
+        widget.embedded &&
+        HeaderActionsScope.publish(context, [
+          ...actions.take(actions.length - 1),
+          menu,
+          actions.last,
+        ]);
     final searchField = TextField(
       controller: searchCtrl,
       autofocus: true,
@@ -705,54 +761,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                     ),
                   ),
                 const Spacer(),
-                if (widget.embedded) ...actions,
-                PopupMenuButton<String>(
-                  tooltip: 'Opções',
-                  onSelected: (v) {
-                    if (v == 'import') {
-                      push(context, const ExpenseImportScreen());
-                      return;
-                    }
-                    if (v == 'columns') {
-                      _configureColumns(fc);
-                      return;
-                    }
-                    setFilters(() {
-                      if (v == 'all') allPeriods = !allPeriods;
-                      if (v == 'forecast') showForecast = !showForecast;
-                    });
-                  },
-                  itemBuilder: (_) => [
-                    CheckedPopupMenuItem(
-                      value: 'all',
-                      checked: allPeriods,
-                      child: const Text('Todos os períodos'),
-                    ),
-                    CheckedPopupMenuItem(
-                      value: 'forecast',
-                      checked: showForecast,
-                      child: const Text('Mostrar recorrências previstas'),
-                    ),
-                    const PopupMenuDivider(),
-                    if (view == ViewMode.grid)
-                      const PopupMenuItem(
-                        value: 'columns',
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.view_column_outlined),
-                          title: Text('Configurar colunas'),
-                        ),
-                      ),
-                    const PopupMenuItem(
-                      value: 'import',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.upload_file),
-                        title: Text('Importar despesas (Excel)'),
-                      ),
-                    ),
-                  ],
-                ),
+                if (!inHeader) ...[if (widget.embedded) ...actions, menu],
               ],
             ),
           ),
@@ -2012,192 +2021,115 @@ class _QuickFilters extends StatelessWidget {
   }
 }
 
-class _FilterSheet extends StatefulWidget {
-  final FinanceController fc;
-  final TxListFilter initial;
-  const _FilterSheet({required this.fc, required this.initial});
-  @override
-  State<_FilterSheet> createState() => _FilterSheetState();
-}
+/// Campos do painel de filtros da lista de transações.
+List<Widget> txFilterFields(
+  BuildContext context,
+  FinanceController fc,
+  TxListFilter f,
+  ValueChanged<TxListFilter> set,
+) {
+  final d = fc.data;
+  Widget group<T extends Enum>(
+    String key,
+    String label,
+    List<T> values,
+    String Function(T) name,
+    Set<T> sel,
+    TxListFilter Function(Set<T>) apply,
+  ) => FilterChipGroup(
+    keyName: 'tx-filter-$key',
+    label: label,
+    onClear: () => set(apply(const {})),
+    options: [
+      for (final v in values)
+        (
+          key: v.name,
+          label: name(v),
+          color: null,
+          selected: sel.contains(v),
+          onTap: () =>
+              set(apply(sel.contains(v) ? ({...sel}..remove(v)) : {...sel, v})),
+        ),
+    ],
+  );
 
-class _FilterSheetState extends State<_FilterSheet> {
-  late TxListFilter f = widget.initial;
+  Widget select(
+    String key,
+    String label,
+    Map<String, String> options,
+    Set<String> sel,
+    TxListFilter Function(Set<String>) apply, {
+    String allLabel = 'Todos',
+  }) => FilterSelect<String>(
+    key: ValueKey('filter-$key'),
+    keyName: 'tx-filter-$key',
+    label: label,
+    allLabel: allLabel,
+    options: options,
+    selected: sel,
+    onChanged: (v) => set(apply(v)),
+  );
 
-  void _set(TxListFilter v) => setState(() => f = v);
-
-  @override
-  Widget build(BuildContext context) {
-    final fc = widget.fc;
-    final d = fc.data;
-    final checklist = filterStyleOf(context) == FilterStyle.checklist;
-    final gap = SizedBox(height: checklist ? 10 : 12, width: 10);
-    final fieldWidth = checklist ? 260.0 : double.infinity;
-    Widget enumGroup<T extends Enum>(
-      String key,
-      String label,
-      List<T> values,
-      String Function(T) name,
-      Set<T> sel,
-      TxListFilter Function(Set<T>) apply,
-    ) {
-      if (checklist) {
-        return FilterSelect<T>(
-          keyName: 'tx-filter-$key',
-          label: label,
-          width: fieldWidth,
-          options: {for (final v in values) v: name(v)},
-          selected: sel,
-          onChanged: (v) => _set(apply(v)),
-        );
-      }
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: context.text.labelLarge),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final v in values)
-                FilterChip(
-                  label: Text(name(v)),
-                  selected: sel.contains(v),
-                  onSelected: (s) =>
-                      _set(apply(s ? {...sel, v} : ({...sel}..remove(v)))),
-                ),
-            ],
-          ),
-        ],
-      );
-    }
-
-    Widget select(
-      String key,
-      String label,
-      Map<String, String> options,
-      Set<String> sel,
-      TxListFilter Function(Set<String>) apply, {
-      String allLabel = 'Todos',
-    }) => FilterSelect<String>(
-      key: ValueKey('filter-$key'),
-      keyName: 'tx-filter-$key',
-      label: label,
-      width: fieldWidth,
-      allLabel: allLabel,
-      options: options,
-      selected: sel,
-      onChanged: (v) => _set(apply(v)),
-    );
-
-    final fields = <Widget>[
-      enumGroup(
-        'types',
-        'Tipo',
-        TransactionType.values,
-        (t) => t.label,
-        f.types,
-        (v) => f.copyWith(types: v),
-      ),
-      enumGroup(
-        'statuses',
-        'Status',
-        TransactionStatus.values,
-        (t) => t.label,
-        f.statuses,
-        (v) => f.copyWith(statuses: v),
-      ),
+  return [
+    group(
+      'types',
+      'Tipo',
+      TransactionType.values,
+      (t) => t.label,
+      f.types,
+      (v) => f.copyWith(types: v),
+    ),
+    group(
+      'statuses',
+      'Status',
+      TransactionStatus.values,
+      (t) => t.label,
+      f.statuses,
+      (v) => f.copyWith(statuses: v),
+    ),
+    select(
+      'location',
+      'Conta ou cartão',
+      {
+        for (final a in d.accounts) 'a:${a.id}': a.name,
+        for (final c in d.cards) 'c:${c.id}': c.name,
+      },
+      f.locations,
+      (v) => f.copyWith(locations: v),
+    ),
+    select(
+      'category',
+      'Categoria',
+      {for (final c in d.categories) c.id: fc.engine.categoryLabel(c.id)},
+      f.categoryIds,
+      (v) => f.copyWith(categoryIds: v),
+      allLabel: 'Todas',
+    ),
+    select(
+      'project',
+      'Projeto',
+      {for (final p in d.projects) p.id: p.name},
+      f.projectIds,
+      (v) => f.copyWith(projectIds: v),
+    ),
+    if (fc.allTags.isNotEmpty)
       select(
-        'location',
-        'Conta ou cartão',
-        {
-          for (final a in d.accounts) 'a:${a.id}': a.name,
-          for (final c in d.cards) 'c:${c.id}': c.name,
-        },
-        f.locations,
-        (v) => f.copyWith(locations: v),
-      ),
-      select(
-        'category',
-        'Categoria',
-        {for (final c in d.categories) c.id: fc.engine.categoryLabel(c.id)},
-        f.categoryIds,
-        (v) => f.copyWith(categoryIds: v),
+        'tag',
+        'Tag',
+        {for (final t in fc.allTags) t: t},
+        f.tags,
+        (v) => f.copyWith(tags: v),
         allLabel: 'Todas',
       ),
+    if (d.hasDependents)
       select(
-        'project',
-        'Projeto',
-        {for (final p in d.projects) p.id: p.name},
-        f.projectIds,
-        (v) => f.copyWith(projectIds: v),
+        'holder',
+        'Quem usou',
+        {for (final n in holderNames(d)) n: n},
+        f.holders,
+        (v) => f.copyWith(holders: v),
       ),
-      if (fc.allTags.isNotEmpty)
-        select(
-          'tag',
-          'Tag',
-          {for (final t in fc.allTags) t: t},
-          f.tags,
-          (v) => f.copyWith(tags: v),
-          allLabel: 'Todas',
-        ),
-      if (d.hasDependents)
-        select(
-          'holder',
-          'Quem usou',
-          {for (final n in holderNames(d)) n: n},
-          f.holders,
-          (v) => f.copyWith(holders: v),
-        ),
-    ];
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        16,
-        0,
-        16,
-        16 + MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Filtrar transações',
-                    style: context.text.titleLarge,
-                  ),
-                ),
-                const FilterStyleToggle(),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (checklist)
-              Wrap(spacing: 10, runSpacing: 10, children: fields)
-            else
-              for (final (i, w) in fields.indexed) ...[
-                if (i > 0) i < 3 ? const SizedBox(height: 16) : gap,
-                SizedBox(width: double.infinity, child: w),
-              ],
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, const TxListFilter()),
-                  child: Text(checklist ? 'Limpar tudo' : 'Limpar'),
-                ),
-                const Spacer(),
-                FilledButton(
-                  key: const ValueKey('tx-filter-apply'),
-                  onPressed: () => Navigator.pop(context, f),
-                  child: const Text('Aplicar'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  ];
 }
 
 /// Data compacta (dia/mês + dia da semana) das linhas no celular.

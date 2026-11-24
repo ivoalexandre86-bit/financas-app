@@ -41,146 +41,362 @@ class FilterStyleToggle extends StatelessWidget {
   }
 }
 
-/// Painel de filtros recolhível com contador de filtros ativos e
-/// botão Limpar (mesmo padrão da tela de Faturas)..
-class FiltersPanel extends StatelessWidget {
-  final bool open;
+/// Botão padrão de filtros, sempre no canto superior direito das telas:
+/// ícone com o número de filtros ativos. Abre o [panel] com
+/// [showFilterPanel]; enquanto ele está aberto, cada nova versão do painel
+/// (a tela se redesenha quando um filtro muda) aparece na hora.
+class FilterButton extends StatefulWidget {
   final int active;
-  final VoidCallback onToggle;
-  final VoidCallback onClear;
-  final Widget child;
 
-  /// Prefixo das chaves dos botões (testes).
+  /// Painel aberto pelo botão. Use [onPressed] para abrir outro conteúdo.
+  final FilterPanel? panel;
+  final VoidCallback? onPressed;
+
+  /// Prefixo da chave (testes): `$keyPrefix-filters`.
   final String keyPrefix;
-  const FiltersPanel({
+  const FilterButton({
     super.key,
     required this.keyPrefix,
-    required this.open,
     required this.active,
-    required this.onToggle,
+    this.panel,
+    this.onPressed,
+  }) : assert(panel != null || onPressed != null);
+
+  @override
+  State<FilterButton> createState() => _FilterButtonState();
+}
+
+class _FilterButtonState extends State<FilterButton> {
+  late final _panel = ValueNotifier<Widget>(
+    widget.panel ?? const SizedBox.shrink(),
+  );
+
+  @override
+  void didUpdateWidget(FilterButton old) {
+    super.didUpdateWidget(old);
+    final p = widget.panel;
+    if (p == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _panel.value = p;
+    });
+  }
+
+  @override
+  void dispose() {
+    _panel.dispose();
+    super.dispose();
+  }
+
+  void _open() {
+    if (widget.panel == null) {
+      widget.onPressed!();
+      return;
+    }
+    _panel.value = widget.panel!;
+    showFilterPanel<void>(
+      context,
+      ValueListenableBuilder<Widget>(
+        valueListenable: _panel,
+        builder: (_, p, _) => p,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(right: 4),
+    child: IconButton(
+      key: ValueKey('${widget.keyPrefix}-filters'),
+      tooltip: 'Filtros',
+      onPressed: _open,
+      isSelected: widget.active > 0,
+      icon: Badge(
+        isLabelVisible: widget.active > 0,
+        label: Text('${widget.active}'),
+        child: const Icon(Icons.filter_list),
+      ),
+    ),
+  );
+}
+
+/// Marca os campos que estão dentro do painel de filtros: lá eles ocupam a
+/// largura toda.
+class FilterPanelScope extends InheritedWidget {
+  const FilterPanelScope({super.key, required super.child});
+
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<FilterPanelScope>() != null;
+
+  @override
+  bool updateShouldNotify(FilterPanelScope oldWidget) => false;
+}
+
+/// Abre o painel de filtros padrão: no computador, um painel à direita;
+/// no celular, uma folha que sobe de baixo. [child] é o conteúdo (em geral
+/// um [FilterPanel]).
+Future<T?> showFilterPanel<T>(BuildContext context, Widget child) {
+  final wide = MediaQuery.sizeOf(context).width >= 760;
+  final content = FilterPanelScope(child: child);
+  if (!wide) {
+    return showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (_) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+        ),
+        child: content,
+      ),
+    );
+  }
+  return showGeneralDialog<T>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Fechar filtros',
+    barrierColor: Colors.black26,
+    transitionDuration: const Duration(milliseconds: 180),
+    pageBuilder: (ctx, _, _) => Align(
+      alignment: Alignment.topRight,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Material(
+          key: const ValueKey('filter-panel'),
+          elevation: 8,
+          clipBehavior: Clip.antiAlias,
+          borderRadius: BorderRadius.circular(16),
+          color: Theme.of(ctx).colorScheme.surfaceContainerLow,
+          child: SizedBox(
+            width: 420,
+            height: MediaQuery.sizeOf(ctx).height - 24,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: content,
+            ),
+          ),
+        ),
+      ),
+    ),
+    transitionBuilder: (ctx, anim, _, child) => SlideTransition(
+      position: Tween(
+        begin: const Offset(0.15, 0),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+      child: FadeTransition(opacity: anim, child: child),
+    ),
+  );
+}
+
+/// Conteúdo padrão do painel de filtros: título com o número de filtros
+/// ativos, botão que troca o modelo (listas suspensas ou lista com caixas),
+/// os campos e, no rodapé, Limpar tudo e Fechar. Os filtros valem na hora.
+class FilterPanel extends StatelessWidget {
+  final String title;
+  final int active;
+  final VoidCallback onClear;
+  final List<Widget> Function(BuildContext context) fields;
+
+  /// Botão principal do rodapé. Padrão: "Pronto" (os filtros já valem).
+  final Widget? primary;
+
+  /// Prefixo das chaves (testes).
+  final String keyPrefix;
+  const FilterPanel({
+    this.primary,
+    super.key,
+    required this.keyPrefix,
+    required this.active,
     required this.onClear,
-    required this.child,
+    required this.fields,
+    this.title = 'Filtros',
+  });
+
+  @override
+  Widget build(BuildContext context) => Builder(
+    builder: (context) {
+      final n = active;
+      final p = GridPalette.of(context);
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
+            child: Row(
+              children: [
+                Icon(Icons.filter_list, size: 20, color: p.neon),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.titleMedium,
+                  ),
+                ),
+                if (n > 0) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: p.neon.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '$n ${n == 1 ? 'ativo' : 'ativos'}',
+                      style: context.text.labelSmall?.copyWith(
+                        color: p.neon,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                const FilterStyleToggle(),
+                IconButton(
+                  key: ValueKey('$keyPrefix-filters-close'),
+                  tooltip: 'Fechar',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+              children: [
+                for (final (i, w) in fields(context).indexed) ...[
+                  if (i > 0) const SizedBox(height: 12),
+                  w,
+                ],
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              12,
+              8,
+              16,
+              8 + MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Row(
+              children: [
+                TextButton(
+                  key: ValueKey('$keyPrefix-filters-clear'),
+                  onPressed: n > 0 ? onClear : null,
+                  child: const Text('Limpar tudo'),
+                ),
+                const Spacer(),
+                primary ??
+                    FilledButton(
+                      key: ValueKey('$keyPrefix-filters-done'),
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      child: const Text('Pronto'),
+                    ),
+              ],
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+/// Grupo de chips de seleção múltipla (modelo original) ou, no modelo
+/// "lista com caixas", um [FilterCheckList].
+class FilterChipGroup extends StatelessWidget {
+  final String label;
+  final List<FilterOption> options;
+  final VoidCallback onClear;
+  final String keyName;
+  const FilterChipGroup({
+    super.key,
+    required this.keyName,
+    required this.label,
+    required this.options,
+    required this.onClear,
   });
 
   @override
   Widget build(BuildContext context) {
-    final p = GridPalette.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: context.colors.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          InkWell(
-            key: ValueKey('$keyPrefix-filters-toggle'),
-            borderRadius: BorderRadius.circular(16),
-            onTap: onToggle,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
-              child: Row(
+    if (filterStyleOf(context) == FilterStyle.checklist) {
+      return FilterCheckList(
+        keyName: keyName,
+        label: label,
+        options: options,
+        onClear: onClear,
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text(
+            label,
+            style: context.text.labelLarge?.copyWith(color: context.fin.subtle),
+          ),
+        ),
+        options.isEmpty
+            ? Text(
+                'Nenhum cadastro',
+                style: TextStyle(color: context.fin.subtle),
+              )
+            : Wrap(
+                spacing: 6,
+                runSpacing: 6,
                 children: [
-                  Icon(Icons.filter_list, size: 18, color: p.neon),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            'Filtros',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: context.text.titleSmall,
-                          ),
-                        ),
-                        if (active > 0) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: p.neon.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              '$active ${active == 1 ? 'ativo' : 'ativos'}',
-                              style: context.text.labelSmall?.copyWith(
-                                color: p.neon,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
+                  for (final o in options)
+                    FilterChip(
+                      key: ValueKey('$keyName-${o.key}'),
+                      visualDensity: VisualDensity.compact,
+                      avatar: o.color == null
+                          ? null
+                          : CircleAvatar(radius: 5, backgroundColor: o.color),
+                      showCheckmark: o.color == null,
+                      label: Text(o.label),
+                      selected: o.selected,
+                      onSelected: (_) => o.onTap(),
                     ),
-                  ),
-                  if (active > 0)
-                    TextButton(
-                      key: ValueKey('$keyPrefix-filters-clear'),
-                      onPressed: onClear,
-                      child: Text(
-                        filterStyleOf(context) == FilterStyle.checklist
-                            ? 'Limpar tudo'
-                            : 'Limpar',
-                      ),
-                    ),
-                  const FilterStyleToggle(),
-                  IconButton(
-                    tooltip: open ? 'Recolher filtros' : 'Mostrar filtros',
-                    onPressed: onToggle,
-                    icon: Icon(open ? Icons.expand_less : Icons.expand_more),
-                  ),
                 ],
               ),
-            ),
-          ),
-          if (open)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
-              child: child,
-            ),
-        ],
-      ),
+      ],
     );
   }
 }
 
-/// Lista suspensa compacta usada dentro do [FiltersPanel].
-class FilterDropdown<T> extends StatelessWidget {
-  final String label;
-  final T value;
-  final Map<T, String> items;
-  final ValueChanged<T?> onChanged;
-  final double width;
-  const FilterDropdown({
+/// Campo de busca padrão do painel de filtros.
+class FilterSearchField extends StatelessWidget {
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final String hint;
+  final String keyName;
+  const FilterSearchField({
     super.key,
-    required this.label,
-    required this.value,
-    required this.items,
+    required this.keyName,
+    required this.controller,
     required this.onChanged,
-    this.width = 190,
+    this.hint = 'Buscar descrição',
   });
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: width,
-    child: DropdownButtonFormField<T>(
-      initialValue: value,
-      isExpanded: true,
-      decoration: InputDecoration(labelText: label, isDense: true),
-      items: [
-        for (final e in items.entries)
-          DropdownMenuItem(
-            value: e.key,
-            child: Text(e.value, overflow: TextOverflow.ellipsis),
-          ),
-      ],
-      onChanged: onChanged,
+  Widget build(BuildContext context) => TextField(
+    key: ValueKey(keyName),
+    controller: controller,
+    decoration: InputDecoration(
+      prefixIcon: const Icon(Icons.search),
+      hintText: hint,
+      isDense: true,
     ),
+    onChanged: onChanged,
   );
 }
 
@@ -241,7 +457,7 @@ class _FilterCheckListState extends State<FilterCheckList> {
         : w.options.where((o) => o.label.toLowerCase().contains(q)).toList();
     return Container(
       key: ValueKey('${w.keyName}-checklist'),
-      width: w.width,
+      width: FilterPanelScope.of(context) ? double.infinity : w.width,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: context.colors.outlineVariant),
@@ -471,7 +687,7 @@ class FilterSelect<T extends Object> extends StatelessWidget {
       if (value is _Many) value: '${selected.length} selecionados',
     };
     return SizedBox(
-      width: width,
+      width: FilterPanelScope.of(context) ? double.infinity : width,
       child: DropdownButtonFormField<Object?>(
         key: ValueKey('$keyName-dropdown-${value is _Many ? 'many' : value}'),
         initialValue: items.containsKey(value) ? value : null,

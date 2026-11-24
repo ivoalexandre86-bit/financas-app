@@ -136,8 +136,6 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
   _Situation? situation;
   ViewMode view = ViewMode.grid;
 
-  /// null = aberto no desktop e recolhido no celular.
-  bool? filtersOpen;
   final searchCtrl = TextEditingController();
 
   @override
@@ -198,7 +196,6 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
           s.group.description.toLowerCase().contains(q) ||
           s.group.notes.toLowerCase().contains(q);
     }).toList();
-    final narrow = MediaQuery.sizeOf(context).width < 760;
     final open = list.where((s) => !s.finished).toList();
     int sum(
       Iterable<InstallmentSummary> l,
@@ -223,6 +220,46 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
             keyPrefix: 'installments',
             mode: view,
             onChanged: (v) => setFilters(() => view = v),
+          ),
+          FilterButton(
+            keyPrefix: 'inst',
+            active: _activeFilters,
+            panel: FilterPanel(
+              keyPrefix: 'inst',
+              active: _activeFilters,
+              onClear: _clearFilters,
+              fields: (context) => [
+                FilterSearchField(
+                  keyName: 'inst-search',
+                  controller: searchCtrl,
+                  onChanged: (v) => setFiltersUnsaved(() => query = v),
+                ),
+                FilterSelect<String>(
+                  keyName: 'inst-where',
+                  label: 'Cartão/conta',
+                  selected: wheres,
+                  options: whereOpts,
+                  onChanged: (v) => setFilters(() => wheres = v),
+                ),
+                FilterSelect<String>(
+                  keyName: 'inst-category',
+                  label: 'Categoria',
+                  allLabel: 'Todas',
+                  selected: categoryIds,
+                  options: cats,
+                  onChanged: (v) => setFilters(() => categoryIds = v),
+                ),
+                FilterSelect<_Situation>(
+                  keyName: 'inst-situation',
+                  label: 'Situação',
+                  allLabel: 'Todas',
+                  multiple: false,
+                  selected: {?situation},
+                  options: {for (final s in _Situation.values) s: s.label},
+                  onChanged: (v) => setFilters(() => situation = v.firstOrNull),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -276,64 +313,6 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
                   ],
                 ),
                 const SizedBox(height: 12),
-                FiltersPanel(
-                  keyPrefix: 'inst',
-                  open: filtersOpen ?? !narrow,
-                  active: _activeFilters,
-                  onToggle: () =>
-                      setState(() => filtersOpen = !(filtersOpen ?? !narrow)),
-                  onClear: _clearFilters,
-                  child: Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    crossAxisAlignment:
-                        filterStyleOf(context) == FilterStyle.checklist
-                        ? WrapCrossAlignment.start
-                        : WrapCrossAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 220,
-                        child: TextField(
-                          key: const ValueKey('inst-search'),
-                          controller: searchCtrl,
-                          decoration: const InputDecoration(
-                            prefixIcon: Icon(Icons.search),
-                            hintText: 'Buscar descrição',
-                            isDense: true,
-                          ),
-                          onChanged: (v) => setState(() => query = v),
-                        ),
-                      ),
-                      FilterSelect<String>(
-                        keyName: 'inst-where',
-                        label: 'Cartão/conta',
-                        selected: wheres,
-                        options: whereOpts,
-                        onChanged: (v) => setFilters(() => wheres = v),
-                      ),
-                      FilterSelect<String>(
-                        keyName: 'inst-category',
-                        label: 'Categoria',
-                        allLabel: 'Todas',
-                        selected: categoryIds,
-                        options: cats,
-                        onChanged: (v) => setFilters(() => categoryIds = v),
-                      ),
-                      FilterSelect<_Situation>(
-                        keyName: 'inst-situation',
-                        label: 'Situação',
-                        allLabel: 'Todas',
-                        multiple: false,
-                        selected: {?situation},
-                        options: {
-                          for (final s in _Situation.values) s: s.label,
-                        },
-                        onChanged: (v) =>
-                            setFilters(() => situation = v.firstOrNull),
-                      ),
-                    ],
-                  ),
-                ),
                 const SizedBox(height: 12),
                 if (list.isEmpty)
                   const Padding(

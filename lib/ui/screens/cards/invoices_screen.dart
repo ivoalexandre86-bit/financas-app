@@ -91,7 +91,6 @@ class _InvoicesScreenState extends State<InvoicesScreen>
   Set<String> cardFilter = {};
   Set<YearMonth>? monthFilter; // null = padrão (mês atual)
   Set<InvoiceStatus> statusFilter = {};
-  bool? filtersOpen; // null = aberto no computador, recolhido no celular
   _Col sort = _Col.due;
   bool ascending = true;
   ViewMode view = ViewMode.grid;
@@ -215,6 +214,71 @@ class _InvoicesScreenState extends State<InvoicesScreen>
             mode: view,
             onChanged: (v) => setFilters(() => view = v),
           ),
+          FilterButton(
+            keyPrefix: 'invoices',
+            active: _activeFilters,
+            panel: FilterPanel(
+              keyPrefix: 'invoices',
+              active: _activeFilters,
+              onClear: () => setFilters(() {
+                cardFilter = {};
+                monthFilter = {};
+                statusFilter = {};
+              }),
+              fields: (context) => [
+                FilterChipGroup(
+                  keyName: 'invoices-filter-cards',
+                  onClear: () => setFilters(() => cardFilter = {}),
+                  label: 'Cartões',
+                  options: [
+                    for (final c in cards)
+                      (
+                        key: 'card-${c.id}',
+                        label: c.name,
+                        color: Color(c.color),
+                        selected: cardFilter.contains(c.id),
+                        onTap: () => setFilters(
+                          () => cardFilter = _toggle(cardFilter, c.id),
+                        ),
+                      ),
+                  ],
+                ),
+                FilterChipGroup(
+                  keyName: 'invoices-filter-months',
+                  onClear: () => setFilters(() => monthFilter = {}),
+                  label: 'Mês de vencimento',
+                  options: [
+                    for (final m in allMonths)
+                      (
+                        key: 'month-${m.key}',
+                        label: m.shortLabel,
+                        color: null,
+                        selected: months.contains(m),
+                        onTap: () =>
+                            setFilters(() => monthFilter = _toggle(months, m)),
+                      ),
+                  ],
+                ),
+                FilterChipGroup(
+                  keyName: 'invoices-filter-status',
+                  onClear: () => setFilters(() => statusFilter = {}),
+                  label: 'Status',
+                  options: [
+                    for (final st in InvoiceStatus.values)
+                      (
+                        key: 'status-${st.name}',
+                        label: st.label,
+                        color: invoiceStatusColor(context, st),
+                        selected: statusFilter.contains(st),
+                        onTap: () => setFilters(
+                          () => statusFilter = _toggle(statusFilter, st),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ],
       ),
       body: LayoutBuilder(
@@ -242,70 +306,6 @@ class _InvoicesScreenState extends State<InvoicesScreen>
             children: [
               _Kpis(summaries: rows, engine: e, cards: shownCards),
               const SizedBox(height: 12),
-              _Filters(
-                open: filtersOpen ?? !compact,
-                active: _activeFilters,
-                onToggle: () =>
-                    setState(() => filtersOpen = !(filtersOpen ?? !compact)),
-                onClear: () => setFilters(() {
-                  cardFilter = {};
-                  monthFilter = {};
-                  statusFilter = {};
-                }),
-                groups: [
-                  (
-                    key: 'cards',
-                    clear: () => setFilters(() => cardFilter = {}),
-                    label: 'Cartões',
-                    options: [
-                      for (final c in cards)
-                        (
-                          key: 'card-${c.id}',
-                          label: c.name,
-                          color: Color(c.color),
-                          selected: cardFilter.contains(c.id),
-                          onTap: () => setFilters(
-                            () => cardFilter = _toggle(cardFilter, c.id),
-                          ),
-                        ),
-                    ],
-                  ),
-                  (
-                    key: 'months',
-                    clear: () => setFilters(() => monthFilter = {}),
-                    label: 'Mês de vencimento',
-                    options: [
-                      for (final m in allMonths)
-                        (
-                          key: 'month-${m.key}',
-                          label: m.shortLabel,
-                          color: null,
-                          selected: months.contains(m),
-                          onTap: () => setFilters(
-                            () => monthFilter = _toggle(months, m),
-                          ),
-                        ),
-                    ],
-                  ),
-                  (
-                    key: 'status',
-                    clear: () => setFilters(() => statusFilter = {}),
-                    label: 'Status',
-                    options: [
-                      for (final st in InvoiceStatus.values)
-                        (
-                          key: 'status-${st.name}',
-                          label: st.label,
-                          color: invoiceStatusColor(context, st),
-                          selected: statusFilter.contains(st),
-                          onTap: () => setFilters(
-                            () => statusFilter = _toggle(statusFilter, st),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
               const SizedBox(height: 12),
               if (view == ViewMode.cards)
                 if (rows.isEmpty)
@@ -1178,187 +1178,6 @@ class _Purchases extends StatelessWidget {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-typedef _FilterOption = ({
-  String key,
-  String label,
-  Color? color,
-  bool selected,
-  VoidCallback onTap,
-});
-
-/// Painel de filtros recolhível: um grupo de opções por linha.
-class _Filters extends StatelessWidget {
-  final bool open;
-  final int active;
-  final VoidCallback onToggle;
-  final VoidCallback onClear;
-  final List<
-    ({
-      String key,
-      String label,
-      List<_FilterOption> options,
-      VoidCallback clear,
-    })
-  >
-  groups;
-  const _Filters({
-    required this.open,
-    required this.active,
-    required this.onToggle,
-    required this.onClear,
-    required this.groups,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final checklist = filterStyleOf(context) == FilterStyle.checklist;
-    final p = GridPalette.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: context.colors.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          InkWell(
-            key: const ValueKey('invoices-filters-toggle'),
-            borderRadius: BorderRadius.circular(16),
-            onTap: onToggle,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
-              child: Row(
-                children: [
-                  Icon(Icons.filter_list, size: 18, color: p.neon),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            'Filtros',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: context.text.titleSmall,
-                          ),
-                        ),
-                        if (active > 0) ...[
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: p.neon.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                '$active ${active == 1 ? 'ativo' : 'ativos'}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: context.text.labelSmall?.copyWith(
-                                  color: p.neon,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  if (active > 0)
-                    TextButton(
-                      key: const ValueKey('invoices-filters-clear'),
-                      onPressed: onClear,
-                      child: Text(checklist ? 'Limpar tudo' : 'Limpar'),
-                    ),
-                  const FilterStyleToggle(),
-                  IconButton(
-                    tooltip: open ? 'Recolher filtros' : 'Mostrar filtros',
-                    onPressed: onToggle,
-                    icon: Icon(open ? Icons.expand_less : Icons.expand_more),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (open && checklist)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
-              child: Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  for (final g in groups)
-                    FilterCheckList(
-                      keyName: 'invoices-filter-${g.key}',
-                      label: g.label,
-                      onClear: g.clear,
-                      options: [
-                        for (final o in g.options)
-                          (
-                            key: o.key,
-                            label: o.label,
-                            color: o.color,
-                            selected: o.selected,
-                            onTap: o.onTap,
-                          ),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-          if (open && !checklist)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (final g in groups) ...[
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6, bottom: 4),
-                      child: Text(
-                        g.label,
-                        style: context.text.labelMedium?.copyWith(
-                          color: context.fin.subtle,
-                        ),
-                      ),
-                    ),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final o in g.options)
-                          FilterChip(
-                            key: ValueKey('invoices-filter-${o.key}'),
-                            visualDensity: VisualDensity.compact,
-                            avatar: o.color == null
-                                ? null
-                                : CircleAvatar(
-                                    radius: 5,
-                                    backgroundColor: o.color,
-                                  ),
-                            showCheckmark: o.color == null,
-                            label: Text(o.label),
-                            selected: o.selected,
-                            onSelected: (_) => o.onTap(),
-                          ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-        ],
       ),
     );
   }

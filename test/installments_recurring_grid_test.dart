@@ -104,14 +104,17 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('inst-sort-description')));
     await tester.pump();
     expect(y('fone'), lessThan(y('tv')));
-    // Filtro de busca e Limpar.
+    // Filtro de busca e Limpar tudo, no painel do botão Filtros.
+    await tester.tap(find.byKey(const ValueKey('inst-filters')));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('inst-search')), 'tele');
-    await tester.pump();
-    expect(find.byKey(const ValueKey('inst-row-fone')), findsNothing);
+    await tester.pumpAndSettle();
+    Finder behind(String k) => find.byKey(ValueKey(k), skipOffstage: false);
+    expect(behind('inst-row-fone'), findsNothing);
     expect(find.text('1 ativo'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('inst-filters-clear')));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('inst-row-fone')), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(behind('inst-row-fone'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -128,11 +131,16 @@ void main() {
     expect(find.byKey(const ValueKey('rec-row-old')), findsNothing);
     expect(find.text('Saldo mensal · 2 recorrências'), findsOneWidget);
     expect(find.text(fmtMoney(490000)), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('rec-filters')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('rec-state')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Todas').last);
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('rec-row-old')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('rec-row-old'), skipOffstage: false),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

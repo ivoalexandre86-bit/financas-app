@@ -564,7 +564,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(y('a'), lessThan(y('b')));
 
-    // Busca filtra, "Limpar" volta tudo e o painel recolhe.
+    // Busca filtra, "Limpar tudo" volta tudo e "Pronto" fecha o painel.
+    expect(find.byKey(const ValueKey('oe-search')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('oe-filters')));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('oe-search')), 'bolo');
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('oe-row-a')), findsNothing);
@@ -572,11 +575,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('oe-filters-clear')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('oe-row-a')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('oe-filters-toggle')));
+    await tester.tap(find.byKey(const ValueKey('oe-filters-done')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('oe-search')), findsNothing);
 
-    // No celular os filtros começam recolhidos.
+    // No celular o painel sobe de baixo.
     tester.view.physicalSize = const Size(400, 900);
     await tester.pumpWidget(
       ChangeNotifierProvider.value(
@@ -590,9 +593,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('oe-search')), findsNothing);
-    await tester.ensureVisible(find.byKey(const ValueKey('oe-filters-toggle')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('oe-filters-toggle')));
+    await tester.tap(find.byKey(const ValueKey('oe-filters')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('oe-search')), findsOneWidget);
   });

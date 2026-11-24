@@ -122,46 +122,65 @@ void main() {
       (w) =>
           w.key is ValueKey<String> &&
           (w.key! as ValueKey<String>).value.startsWith('invoices-row-'),
+      skipOffstage: false,
     );
     expect(rows, findsNWidgets(2));
     expect(find.text('Nubank'), findsWidgets);
     expect(find.byKey(const ValueKey('invoices-sort-card')), findsOneWidget);
     expect(find.byKey(const ValueKey('invoices-footer')), findsOneWidget);
 
-    // Filtro por cartão.
-    await tester.tap(find.byKey(const ValueKey('invoices-filter-card-nu')));
-    await tester.pump();
+    // Filtro por cartão, no painel aberto pelo botão Filtros.
+    await tester.tap(find.byKey(const ValueKey('invoices-filters')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('invoices-filter-cards-card-nu')),
+    );
+    await tester.pumpAndSettle();
     expect(rows, findsNWidgets(1));
-    expect(find.byKey(ValueKey('invoices-row-$key')), findsNothing);
+    expect(
+      find.byKey(ValueKey('invoices-row-$key'), skipOffstage: false),
+      findsNothing,
+    );
 
     // Limpar mostra todos os cartões e todos os meses.
     await tester.tap(find.byKey(const ValueKey('invoices-filters-clear')));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(rows, findsNWidgets(20));
 
     // Mês filtra pelo vencimento: no C6 (fecha 25, vence 5) a fatura que
     // vence neste mês é a de referência do mês anterior.
     final now = YearMonth.of(fc.today);
-    await tester.tap(find.byKey(ValueKey('invoices-filter-month-${now.key}')));
-    await tester.pump();
+    await tester.tap(
+      find.byKey(ValueKey('invoices-filter-months-month-${now.key}')),
+    );
+    await tester.pumpAndSettle();
     final cur = BillingCycle.currentInvoice(fc.data.cardById['c6']!, fc.today);
     final dueNow = [for (var i = -2; i <= 2; i++) cur.add(i)].firstWhere(
       (m) =>
           YearMonth.of(BillingCycle.dueDate(fc.data.cardById['c6']!, m)) == now,
     );
     expect(
-      find.byKey(ValueKey('invoices-row-c6|${dueNow.key}')),
+      find.byKey(
+        ValueKey('invoices-row-c6|${dueNow.key}'),
+        skipOffstage: false,
+      ),
       findsOneWidget,
     );
     expect(
-      find.byKey(ValueKey('invoices-row-c6|${dueNow.next.key}')),
+      find.byKey(
+        ValueKey('invoices-row-c6|${dueNow.next.key}'),
+        skipOffstage: false,
+      ),
       findsNothing,
     );
 
-    // Filtros recolhem.
-    await tester.tap(find.byKey(const ValueKey('invoices-filters-toggle')));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('invoices-filter-card-nu')), findsNothing);
+    // Pronto fecha o painel.
+    await tester.tap(find.byKey(const ValueKey('invoices-filters-done')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('invoices-filter-cards-card-nu')),
+      findsNothing,
+    );
   });
 
   testWidgets('celular usa linhas compactas', (tester) async {
@@ -187,17 +206,29 @@ void main() {
     await tester.pump();
     final now = YearMonth.of(fc.today);
     Finder chip(YearMonth m) =>
-        find.byKey(ValueKey('invoices-filter-month-${m.key}'));
+        find.byKey(ValueKey('invoices-filter-months-month-${m.key}'));
     bool selected(YearMonth m) => tester.widget<FilterChip>(chip(m)).selected;
+    Future<void> openFilters() async {
+      await tester.tap(find.byKey(const ValueKey('invoices-filters')));
+      await tester.pumpAndSettle();
+    }
+
+    await openFilters();
     expect(selected(now), isTrue);
     expect(selected(now.next), isFalse);
-    expect(find.byKey(ValueKey('invoices-row-$key')), findsNothing);
+    expect(
+      find.byKey(ValueKey('invoices-row-$key'), skipOffstage: false),
+      findsNothing,
+    );
 
     await tester.tap(chip(now));
-    await tester.pump();
+    await tester.pumpAndSettle();
     await tester.tap(chip(now.next));
-    await tester.pump();
-    expect(find.byKey(ValueKey('invoices-row-$key')), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(ValueKey('invoices-row-$key'), skipOffstage: false),
+      findsOneWidget,
+    );
     expect(fc.repo is MemoryRepo, isTrue);
     expect((fc.repo as MemoryRepo).settings.gridFilters?['invoices'], {
       'cards': <String>[],
@@ -212,9 +243,13 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pumpWidget(app(fc));
     await tester.pump();
+    await openFilters();
     expect(selected(now), isFalse);
     expect(selected(now.next), isTrue);
-    expect(find.byKey(ValueKey('invoices-row-$key')), findsOneWidget);
+    expect(
+      find.byKey(ValueKey('invoices-row-$key'), skipOffstage: false),
+      findsOneWidget,
+    );
   });
 
   testWidgets('modo cartões: uma fatura por cartão e lembra a escolha', (
