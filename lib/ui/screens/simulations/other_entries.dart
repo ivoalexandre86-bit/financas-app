@@ -45,8 +45,8 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
     with RememberedFilters {
   /// 'all', 'y:2026' ou 'm:2026-10'. Padrão: mês atual.
   late String period = 'm:${(widget.initialMonth ?? YearMonth.now()).key}';
-  String? personId;
-  PayStatus? status;
+  Set<String> personIds = {};
+  Set<PayStatus> statuses = {};
   String query = '';
 
   /// null = todos; true = só vinculados; false = só não vinculados.
@@ -67,8 +67,8 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
   @override
   Map<String, Object?> filtersToJson() => {
     'period': period,
-    'person': personId,
-    'status': status?.name,
+    'person': FilterJson.ids(personIds),
+    'status': FilterJson.enums(statuses),
     'linked': linked,
     'deleted': showDeleted,
     'sheet': sheet,
@@ -85,8 +85,8 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
       if (p.startsWith('m:')) YearMonth.parse(p.substring(2)); // valida
       period = p;
     }
-    personId = FilterJson.id(j['person'], fc.people.map((p) => p.id));
-    status = FilterJson.enumOrNull(PayStatus.values, j['status']);
+    personIds = FilterJson.idsOrOne(j['person'], fc.people.map((p) => p.id));
+    statuses = FilterJson.enumsOrOne(PayStatus.values, j['status']);
     linked = j['linked'] as bool?;
     showDeleted = j['deleted'] as bool? ?? false;
     sheet = j['sheet'] as bool? ?? false;
@@ -102,8 +102,8 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
   int get _activeFilters => [
     query.trim().isNotEmpty,
     period != 'all',
-    personId != null,
-    status != null,
+    personIds.isNotEmpty,
+    statuses.isNotEmpty,
     linked != null,
     showDeleted,
   ].where((b) => b).length;
@@ -112,8 +112,8 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
     searchCtrl.clear();
     query = '';
     period = 'all';
-    personId = null;
-    status = null;
+    personIds = {};
+    statuses = {};
     linked = null;
     showDeleted = false;
   });
@@ -138,11 +138,13 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
         ofType.where((e) {
           if (e.isDeleted != showDeleted) return false;
           if (!_inPeriod(e)) return false;
-          if (personId != null &&
-              !e.allocations.any((a) => a.personId == personId)) {
+          if (personIds.isNotEmpty &&
+              !e.allocations.any((a) => personIds.contains(a.personId))) {
             return false;
           }
-          if (status != null && e.status(me) != status) return false;
+          if (statuses.isNotEmpty && !statuses.contains(e.status(me))) {
+            return false;
+          }
           if (linked != null && e.linked != linked) return false;
           return q.isEmpty ||
               e.description.toLowerCase().contains(q) ||
@@ -305,7 +307,10 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
           child: Wrap(
             spacing: 10,
             runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
+            crossAxisAlignment:
+                        filterStyleOf(context) == FilterStyle.checklist
+                        ? WrapCrossAlignment.start
+                        : WrapCrossAlignment.center,
             children: [
               SizedBox(
                 width: 220,
@@ -320,36 +325,40 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
                   onChanged: (v) => setState(() => query = v),
                 ),
               ),
-              _Filter<String>(
+              FilterSelect<String>(
+                keyName: 'oe-period',
                 label: 'Mês/ano',
-                value: period,
-                items: periodOptions,
-                onChanged: (v) => setFilters(() => period = v ?? 'all'),
+                multiple: false,
+                allLabel: null,
+                selected: {period},
+                active: period != 'all',
+                onClear: () => setFilters(() => period = 'all'),
+                options: periodOptions,
+                onChanged: (v) =>
+                    setFilters(() => period = v.firstOrNull ?? 'all'),
               ),
-              _Filter<String?>(
+              FilterSelect<String>(
+                keyName: 'oe-person',
                 label: 'Pessoa',
-                value: personId,
-                items: {null: 'Todas', for (final p in fc.people) p.id: p.name},
-                onChanged: (v) => setFilters(() => personId = v),
+                allLabel: 'Todas',
+                selected: personIds,
+                options: {for (final p in fc.people) p.id: p.name},
+                onChanged: (v) => setFilters(() => personIds = v),
               ),
-              _Filter<PayStatus?>(
+              FilterSelect<PayStatus>(
+                keyName: 'oe-status',
                 label: isIncome ? 'Recebimento' : 'Pagamento',
-                value: status,
-                items: {
-                  null: 'Todos',
-                  for (final s in PayStatus.values) s: s.label,
-                },
-                onChanged: (v) => setFilters(() => status = v),
+                selected: statuses,
+                options: {for (final s in PayStatus.values) s: s.label},
+                onChanged: (v) => setFilters(() => statuses = v),
               ),
-              _Filter<bool?>(
+              FilterSelect<bool>(
+                keyName: 'oe-linked',
                 label: 'Orçamento',
-                value: linked,
-                items: const {
-                  null: 'Todos',
-                  true: 'Vinculados',
-                  false: 'Não vinculados',
-                },
-                onChanged: (v) => setFilters(() => linked = v),
+                multiple: false,
+                selected: {?linked},
+                options: const {true: 'Vinculados', false: 'Não vinculados'},
+                onChanged: (v) => setFilters(() => linked = v.firstOrNull),
               ),
               FilterChip(
                 label: const Text('Excluídos'),
@@ -447,37 +456,6 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
           ),
         ),
       );
-}
-
-class _Filter<T> extends StatelessWidget {
-  final String label;
-  final T value;
-  final Map<T, String> items;
-  final ValueChanged<T?> onChanged;
-  const _Filter({
-    required this.label,
-    required this.value,
-    required this.items,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 190,
-    child: DropdownButtonFormField<T>(
-      initialValue: value,
-      isExpanded: true,
-      decoration: InputDecoration(labelText: label, isDense: true),
-      items: [
-        for (final e in items.entries)
-          DropdownMenuItem(
-            value: e.key,
-            child: Text(e.value, overflow: TextOverflow.ellipsis),
-          ),
-      ],
-      onChanged: onChanged,
-    ),
-  );
 }
 
 /// Como o mês aparece no orçamento: a linha consolidada.

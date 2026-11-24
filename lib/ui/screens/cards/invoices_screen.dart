@@ -10,6 +10,7 @@ import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/filters_panel.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
 import '../../widgets/view_mode.dart';
@@ -253,6 +254,8 @@ class _InvoicesScreenState extends State<InvoicesScreen>
                 }),
                 groups: [
                   (
+                    key: 'cards',
+                    clear: () => setFilters(() => cardFilter = {}),
                     label: 'Cartões',
                     options: [
                       for (final c in cards)
@@ -268,6 +271,8 @@ class _InvoicesScreenState extends State<InvoicesScreen>
                     ],
                   ),
                   (
+                    key: 'months',
+                    clear: () => setFilters(() => monthFilter = {}),
                     label: 'Mês de vencimento',
                     options: [
                       for (final m in allMonths)
@@ -283,6 +288,8 @@ class _InvoicesScreenState extends State<InvoicesScreen>
                     ],
                   ),
                   (
+                    key: 'status',
+                    clear: () => setFilters(() => statusFilter = {}),
                     label: 'Status',
                     options: [
                       for (final st in InvoiceStatus.values)
@@ -1190,7 +1197,15 @@ class _Filters extends StatelessWidget {
   final int active;
   final VoidCallback onToggle;
   final VoidCallback onClear;
-  final List<({String label, List<_FilterOption> options})> groups;
+  final List<
+    ({
+      String key,
+      String label,
+      List<_FilterOption> options,
+      VoidCallback clear,
+    })
+  >
+  groups;
   const _Filters({
     required this.open,
     required this.active,
@@ -1201,6 +1216,7 @@ class _Filters extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final checklist = filterStyleOf(context) == FilterStyle.checklist;
     final p = GridPalette.of(context);
     return Card(
       margin: EdgeInsets.zero,
@@ -1263,8 +1279,9 @@ class _Filters extends StatelessWidget {
                     TextButton(
                       key: const ValueKey('invoices-filters-clear'),
                       onPressed: onClear,
-                      child: const Text('Limpar'),
+                      child: Text(checklist ? 'Limpar tudo' : 'Limpar'),
                     ),
+                  const FilterStyleToggle(),
                   IconButton(
                     tooltip: open ? 'Recolher filtros' : 'Mostrar filtros',
                     onPressed: onToggle,
@@ -1274,7 +1291,33 @@ class _Filters extends StatelessWidget {
               ),
             ),
           ),
-          if (open)
+          if (open && checklist)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final g in groups)
+                    FilterCheckList(
+                      keyName: 'invoices-filter-${g.key}',
+                      label: g.label,
+                      onClear: g.clear,
+                      options: [
+                        for (final o in g.options)
+                          (
+                            key: o.key,
+                            label: o.label,
+                            color: o.color,
+                            selected: o.selected,
+                            onTap: o.onTap,
+                          ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          if (open && !checklist)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
               child: Column(

@@ -60,6 +60,15 @@ abstract final class FilterJson {
     };
   }
 
+  /// Conjunto de ids salvos como lista ou, no formato antigo dos filtros de
+  /// valor único, como um id só. Ignora ids que não estão em [valid].
+  static Set<String> idsOrOne(Object? v, [Iterable<String>? valid]) =>
+      idSet(v is String ? [v] : v, valid);
+
+  /// Conjunto de enums salvos como lista ou como um nome só (formato antigo).
+  static Set<E> enumsOrOne<E extends Enum>(List<E> values, Object? v) =>
+      enumSet(values, v is String ? [v] : v);
+
   static List<String> enums(Iterable<Enum> v) => [for (final e in v) e.name];
 
   static Set<E> enumSet<E extends Enum>(List<E> values, Object? v) => {

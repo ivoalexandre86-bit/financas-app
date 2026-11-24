@@ -1206,6 +1206,10 @@ class AppSettings {
   /// sem bloqueio.
   final String? pinLock;
 
+  /// Modelo dos filtros das grades: listas suspensas/chips (padrão) ou
+  /// lista com caixas de seleção, com "Limpar" em cada filtro.
+  final FilterStyle filterStyle;
+
   const AppSettings({
     this.themeMode = 'system',
     this.cardExpenseBasis = CardExpenseBasis.invoiceDue,
@@ -1219,6 +1223,7 @@ class AppSettings {
     this.whatsappBudgetAlerts = false,
     this.hideValues = false,
     this.pinLock,
+    this.filterStyle = FilterStyle.classic,
   });
 
   /// [resetMenuLayout] volta o menu lateral ao padrão.
@@ -1237,6 +1242,7 @@ class AppSettings {
     bool? hideValues,
     String? pinLock,
     bool clearPin = false,
+    FilterStyle? filterStyle,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     cardExpenseBasis: cardExpenseBasis ?? this.cardExpenseBasis,
@@ -1250,6 +1256,7 @@ class AppSettings {
     whatsappBudgetAlerts: whatsappBudgetAlerts ?? this.whatsappBudgetAlerts,
     hideValues: hideValues ?? this.hideValues,
     pinLock: clearPin ? null : pinLock ?? this.pinLock,
+    filterStyle: filterStyle ?? this.filterStyle,
   );
 
   Map<String, Object?> toJson() => {
@@ -1265,6 +1272,7 @@ class AppSettings {
     'whatsappBudgetAlerts': whatsappBudgetAlerts,
     'hideValues': hideValues,
     'pinLock': pinLock,
+    'filterStyle': filterStyle.name,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> j) => AppSettings(
@@ -1288,5 +1296,22 @@ class AppSettings {
     whatsappBudgetAlerts: (j['whatsappBudgetAlerts'] as bool?) ?? false,
     hideValues: (j['hideValues'] as bool?) ?? false,
     pinLock: j['pinLock'] as String?,
+    filterStyle: enumByName(
+      FilterStyle.values,
+      j['filterStyle'] as String?,
+      FilterStyle.classic,
+    ),
   );
+}
+
+/// Modelo dos filtros das grades.
+enum FilterStyle {
+  /// Listas suspensas e chips (modelo original).
+  classic('Listas suspensas'),
+
+  /// Lista com caixas de seleção: marca vários valores e limpa cada filtro.
+  checklist('Lista com caixas');
+
+  final String label;
+  const FilterStyle(this.label);
 }

@@ -6,6 +6,7 @@ import '../../../domain/engine/financial_engine.dart';
 import '../../../domain/models/entities.dart';
 import '../../../state/finance_controller.dart';
 import '../../theme.dart';
+import '../../widgets/filters_panel.dart';
 
 class ProjectionFilterResult {
   final ProjectionFilter filter;
@@ -38,28 +39,72 @@ class _ProjectionFiltersScreenState extends State<ProjectionFiltersScreen> {
   late YearMonth from = widget.range.from;
   late YearMonth to = widget.range.to;
 
-  Widget _section(String title, List<Widget> chips) => Padding(
-    padding: const EdgeInsets.only(bottom: 20),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: context.text.titleSmall),
-        const SizedBox(height: 8),
-        chips.isEmpty
-            ? Text(
-                'Nenhum cadastro',
-                style: TextStyle(color: context.fin.subtle),
-              )
-            : Wrap(spacing: 8, runSpacing: 8, children: chips),
-      ],
-    ),
-  );
-
-  FilterChip _chip<T>(String label, Set<T> set, T v) => FilterChip(
-    label: Text(label),
-    selected: set.contains(v),
-    onSelected: (s) => setState(() => s ? set.add(v) : set.remove(v)),
-  );
+  /// Um grupo de filtros: chips (modelo original) ou lista com caixas e
+  /// Limpar próprio. Limpar volta para [reset] (padrão: nada marcado).
+  Widget _section<T extends Object>(
+    String key,
+    String title,
+    Set<T> set,
+    Map<T, String> options, {
+    Set<T> reset = const {},
+  }) {
+    if (filterStyleOf(context) == FilterStyle.checklist) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: FilterCheckList(
+          keyName: 'proj-filter-$key',
+          label: title,
+          width: double.infinity,
+          active: !(set.length == reset.length && set.containsAll(reset)),
+          onClear: () => setState(
+            () => set
+              ..clear()
+              ..addAll(reset),
+          ),
+          options: [
+            for (final MapEntry(key: v, :value) in options.entries)
+              (
+                key: v is Enum ? v.name : '$v',
+                label: value,
+                color: null,
+                selected: set.contains(v),
+                onTap: () => setState(
+                  () => set.contains(v) ? set.remove(v) : set.add(v),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: context.text.titleSmall),
+          const SizedBox(height: 8),
+          options.isEmpty
+              ? Text(
+                  'Nenhum cadastro',
+                  style: TextStyle(color: context.fin.subtle),
+                )
+              : Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final MapEntry(key: v, :value) in options.entries)
+                      FilterChip(
+                        label: Text(value),
+                        selected: set.contains(v),
+                        onSelected: (s) =>
+                            setState(() => s ? set.add(v) : set.remove(v)),
+                      ),
+                  ],
+                ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -83,6 +128,7 @@ class _ProjectionFiltersScreenState extends State<ProjectionFiltersScreen> {
             }),
             child: const Text('Limpar'),
           ),
+          const FilterStyleToggle(),
         ],
       ),
       body: ListView(
@@ -128,33 +174,37 @@ class _ProjectionFiltersScreenState extends State<ProjectionFiltersScreen> {
               ),
             ),
           const SizedBox(height: 20),
-          _section('Tipo de transação', [
-            _chip('Receitas', types, TransactionType.income),
-            _chip('Despesas', types, TransactionType.expense),
-          ]),
-          _section('Status', [
-            for (final s in TransactionStatus.values)
-              _chip(s.label, statuses, s),
-          ]),
-          _section('Origem', [
-            _chip('Recorrentes', sources, EventSource.recurring),
-            _chip('Parcelamentos', sources, EventSource.installment),
-            _chip('Compras no cartão', sources, EventSource.card),
-            _chip('Outras', sources, EventSource.other),
-          ]),
-          _section('Contas', [
-            for (final a in d.accounts) _chip(a.name, accounts, a.id),
-          ]),
-          _section('Cartões de crédito', [
-            for (final c in d.cards) _chip(c.name, cards, c.id),
-          ]),
-          _section('Categorias (inclui subcategorias)', [
-            for (final c in d.categories.where((c) => c.parentId == null))
-              _chip(c.name, categories, c.id),
-          ]),
-          _section('Projetos', [
-            for (final p in d.projects) _chip(p.name, projects, p.id),
-          ]),
+          _section('types', 'Tipo de transação', types, {
+            TransactionType.income: 'Receitas',
+            TransactionType.expense: 'Despesas',
+          }),
+          _section('statuses', 'Status', statuses, {
+            for (final s in TransactionStatus.values) s: s.label,
+          }, reset: ProjectionFilter.defaultStatuses),
+          _section('sources', 'Origem', sources, {
+            EventSource.recurring: 'Recorrentes',
+            EventSource.installment: 'Parcelamentos',
+            EventSource.card: 'Compras no cartão',
+            EventSource.other: 'Outras',
+          }),
+          _section('accounts', 'Contas', accounts, {
+            for (final a in d.accounts) a.id: a.name,
+          }),
+          _section('cards', 'Cartões de crédito', cards, {
+            for (final c in d.cards) c.id: c.name,
+          }),
+          _section(
+            'categories',
+            'Categorias (inclui subcategorias)',
+            categories,
+            {
+              for (final c in d.categories.where((c) => c.parentId == null))
+                c.id: c.name,
+            },
+          ),
+          _section('projects', 'Projetos', projects, {
+            for (final p in d.projects) p.id: p.name,
+          }),
           Text(
             'Filtros de categoria, projeto, tipo, origem ou status mostram o acumulado do recorte '
             'a partir de zero; filtros só de conta/cartão mantêm o saldo real como ponto de partida.',
