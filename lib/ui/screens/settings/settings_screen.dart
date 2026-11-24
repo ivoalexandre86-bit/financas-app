@@ -237,6 +237,14 @@ class SettingsScreen extends StatelessWidget {
             },
           ),
           _h(context, 'Sobre'),
+          ListTile(
+            key: const ValueKey('user-manual'),
+            leading: const Icon(Icons.menu_book_outlined),
+            title: const Text('Manual do usuário'),
+            subtitle: const Text('Passo a passo de cada função do app.'),
+            trailing: const Icon(Icons.open_in_new),
+            onTap: () => LegalLinks.open(LegalLinks.manual),
+          ),
           const ListTile(
             leading: Icon(Icons.info_outline),
             title: Text('Finanças · versão 0.1.0 (MVP)'),

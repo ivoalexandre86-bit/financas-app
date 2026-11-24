@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manual do Usuário · Finanças</title>
+  <style>
+    :root { --fg: #1d1d1f; --bg: #fff; --muted: #6e6e73; --line: #e5e5ea; --box: #f5f7fb; --accent: #2457d6; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #f2f2f7; --bg: #111; --muted: #a1a1a6; --line: #2c2c2e; --box: #1c1d22; --accent: #6ab0ff; } }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; line-height: 1.6; color: var(--fg); background: var(--bg); }
+    a { color: var(--accent); }
+    h1 { font-size: 1.7rem; margin-bottom: 4px; }
+    h2 { font-size: 1.25rem; margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--line); }
+    h3 { font-size: 1.05rem; margin-top: 24px; }
+    .muted { color: var(--muted); font-size: .9rem; }
+    .path { font-weight: 600; }
+    .tip { background: var(--box); border-left: 4px solid var(--accent); padding: 10px 14px; border-radius: 6px; margin: 14px 0; }
+    nav.toc { background: var(--box); border-radius: 10px; padding: 12px 18px; }
+    nav.toc ol { margin: 6px 0; padding-left: 20px; }
+    ol li, ul li { margin: 4px 0; }
+    figure { margin: 16px 0; }
+    figure img { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; }
+    figcaption { color: var(--muted); font-size: .85rem; }
+    table { border-collapse: collapse; width: 100%; font-size: .95rem; overflow-wrap: anywhere; }
+    th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+    .top { font-size: .85rem; }
+  </style>
+</head>
+<body>
+  <h1>Manual do Usuário</h1>
+  <p class="muted">App Finanças · atualizado em 24 de novembro de 2026</p>
+
+  <p>Este manual mostra, passo a passo, como fazer cada coisa no app. Use o índice para ir direto ao que precisa. O app abre em <a href="https://ivoalexandre86-bit.github.io/financas-app/">ivoalexandre86-bit.github.io/financas-app</a>, no computador ou no celular.</p>
+
+  <div class="tip"><strong>Como ler os caminhos:</strong> <span class="path">Configurações › Pessoas na conta</span> quer dizer: abra o menu lateral (ícone ☰ no topo, à esquerda), toque na seção <em>Configurações</em> e depois em <em>Pessoas na conta</em>.</div>
+
+  <nav class="toc">
+    <strong>Índice</strong>
+    <ol>
+      <li><a href="#compartilhar">Compartilhar: qual opção usar</a></li>
+      <li><a href="#pessoas-na-conta">Convidar pessoas para a sua conta</a></li>
+      <li><a href="#despesas-compartilhadas">Despesas compartilhadas (dividir contas)</a></li>
+      <li><a href="#dependentes">Dependentes (cartão adicional)</a></li>
+      <li><a href="#entrar">Criar conta, entrar e sair</a></li>
+      <li><a href="#menu">Conhecendo o menu e a tela Início</a></li>
+      <li><a href="#contas">Contas bancárias</a></li>
+      <li><a href="#cartoes">Cartões de crédito</a></li>
+      <li><a href="#lancamentos">Lançar despesas, receitas e transferências</a></li>
+      <li><a href="#movimentacoes">Movimentações: ver, filtrar e editar</a></li>
+      <li><a href="#faturas">Faturas do cartão</a></li>
+      <li><a href="#parcelamentos">Compras parceladas</a></li>
+      <li><a href="#recorrencias">Recorrências (salário, aluguel, assinaturas)</a></li>
+      <li><a href="#boletos">Boletos e contas a vencer</a></li>
+      <li><a href="#projecao">Projeção dos próximos meses</a></li>
+      <li><a href="#fechar-mes">Fechar mês, ajustar e reverter</a></li>
+      <li><a href="#orcamentos">Orçamentos e metas</a></li>
+      <li><a href="#whatsapp">Lançar pelo WhatsApp</a></li>
+      <li><a href="#open-finance">Open Finance (trazer lançamentos do banco)</a></li>
+      <li><a href="#importar">Importar planilha</a></li>
+      <li><a href="#categorias">Categorias e regras de categoria</a></li>
+      <li><a href="#preferencias">Preferências, PIN e organizar o menu</a></li>
+      <li><a href="#duvidas">Dúvidas comuns</a></li>
+    </ol>
+  </nav>
+
+  <!-- ================================================================ -->
+  <h2 id="compartilhar">1. Compartilhar: qual opção usar</h2>
+  <p>O app tem três formas de “compartilhar”. Escolha pela situação:</p>
+  <table>
+    <tr><th>Situação</th><th>Use</th></tr>
+    <tr><td>Vocês dividem <strong>o mesmo orçamento</strong> (ex.: casal com contas em comum) e todos devem ver e lançar tudo.</td><td><a href="#pessoas-na-conta">Pessoas na conta</a></td></tr>
+    <tr><td>Cada um tem <strong>o seu orçamento</strong>, mas algumas despesas são divididas (aluguel, luz, mercado de uma república).</td><td><a href="#despesas-compartilhadas">Despesas compartilhadas</a></td></tr>
+    <tr><td>Alguém usa o seu cartão ou conta (cartão adicional do filho, por exemplo) e não precisa entrar no app.</td><td><a href="#dependentes">Dependentes</a></td></tr>
+  </table>
+  <p class="muted">As duas primeiras opções só funcionam com a conta na nuvem (entrando com e-mail e senha). Na conta de demonstração elas não aparecem.</p>
+
+  <!-- ================================================================ -->
+  <h2 id="pessoas-na-conta">2. Convidar pessoas para a sua conta</h2>
+  <p>Todos que estão na conta veem e lançam nas mesmas contas, cartões e transações, cada um com o próprio e-mail e senha, em qualquer aparelho. Cabem até 5 pessoas além do dono.</p>
+
+  <h3>Quem convida (dono da conta)</h3>
+  <ol>
+    <li>Abra <span class="path">Configurações › Pessoas na conta</span>.</li>
+    <li>Em <strong>Convidar pessoa</strong>, digite o <strong>e-mail da pessoa</strong>.</li>
+    <li>Toque em <strong>Convidar</strong>. A pessoa aparece na lista como “Convite pendente”.</li>
+    <li>O app não manda e-mail sozinho. Avise a pessoa: toque no ícone de <strong>copiar mensagem de convite</strong> ao lado do nome dela e cole no WhatsApp ou e-mail. A mensagem já traz o link do app.</li>
+  </ol>
+  <figure><img src="manual/2-dono-pessoas-na-conta.png" alt="Tela Pessoas na conta do dono, com o campo E-mail da pessoa e o botão Convidar"><figcaption>Tela do dono: lista de pessoas e o campo para convidar.</figcaption></figure>
+
+  <h3>Quem foi convidado</h3>
+  <ol>
+    <li>Abra o app e entre com <strong>o mesmo e-mail</strong> que recebeu o convite. Se ainda não tem conta, toque em <strong>Criar conta</strong> usando esse e-mail.</li>
+    <li>Ao entrar, aparece a janela <strong>Convite de …</strong>. Toque em <strong>Aceitar</strong>.</li>
+    <li>Pronto: o menu passa a mostrar “Seu nome · conta de …” e você vê o orçamento compartilhado.</li>
+  </ol>
+  <p>Se tocou em <strong>Agora não</strong>, o convite continua em <span class="path">Configurações › Pessoas na conta</span>, com os botões Aceitar e Recusar.</p>
+  <figure><img src="manual/1-convite-ao-entrar.png" alt="Janela Convite de Ivo com os botões Agora não, Recusar e Aceitar"><figcaption>O convite aparece logo ao entrar no app.</figcaption></figure>
+  <div class="tip">Os dados que a pessoa convidada já tinha não se perdem: ficam guardados e voltam se ela sair da conta compartilhada.</div>
+
+  <h3>Sair, remover ou cancelar convite</h3>
+  <ul>
+    <li><strong>Membro quer sair:</strong> <span class="path">Configurações › Pessoas na conta › Sair desta conta</span>. O que ele lançou continua na conta do dono.</li>
+    <li><strong>Dono quer remover alguém:</strong> na lista, toque no ícone de remover ao lado da pessoa e confirme.</li>
+    <li><strong>Cancelar convite pendente:</strong> mesmo ícone, na linha “Convite pendente”.</li>
+  </ul>
+  <figure><img src="manual/3-membro-conta-de-ivo.png" alt="Tela Pessoas na conta vista pelo membro, com o botão Sair desta conta"><figcaption>Visão de quem entrou na conta de outra pessoa.</figcaption></figure>
+
+  <!-- ================================================================ -->
+  <h2 id="despesas-compartilhadas">3. Despesas compartilhadas (dividir contas)</h2>
+  <p>Aqui cada pessoa continua com o próprio orçamento. Vocês criam um <strong>grupo</strong> (Casa, Casal, Apartamento 302…) e as despesas lançadas nele são divididas por percentual. Ninguém vê o seu orçamento particular, só as despesas do grupo.</p>
+  <p>Tudo fica em <span class="path">Lançamentos › Movimentações</span>, botão <strong>Compartilhadas</strong>, com as abas <strong>Despesas</strong>, <strong>Resumo</strong> e <strong>Grupos</strong>.</p>
+
+  <h3>Passo 1: criar o grupo</h3>
+  <ol>
+    <li>Abra <span class="path">Lançamentos › Movimentações</span> e toque em <strong>Compartilhadas</strong>.</li>
+    <li>Na aba <strong>Grupos</strong>, toque em <strong>Novo grupo</strong> (ou <strong>Criar grupo</strong>).</li>
+    <li>Dê um nome (ex.: “Casa”) e toque em <strong>Criar</strong>. O grupo já vem com categorias padrão (moradia, luz e água, internet, mercado…).</li>
+  </ol>
+  <p class="muted">No plano Grátis cabe 1 grupo. Para mais grupos, é preciso o plano Básico.</p>
+
+  <h3>Passo 2: convidar os participantes</h3>
+  <ol>
+    <li>Abra o grupo e toque em <strong>Convidar participante</strong>.</li>
+    <li>Digite o <strong>e-mail da conta no app</strong> da pessoa (ela precisa ter conta no app).</li>
+    <li>Escolha o <strong>papel</strong>:
+      <ul>
+        <li><strong>Gestor:</strong> lança despesas e ajusta percentuais.</li>
+        <li><strong>Participante:</strong> vê as despesas do grupo e registra o pagamento da própria parte.</li>
+      </ul>
+    </li>
+    <li>Toque em <strong>Convidar</strong>. Avise a pessoa por mensagem.</li>
+  </ol>
+  <p><strong>Para quem foi convidado:</strong> abra <span class="path">Lançamentos › Movimentações › Compartilhadas</span>. Aparece o aviso “Você tem convite pendente na aba Grupos”. Vá na aba <strong>Grupos</strong> e toque em <strong>Aceitar</strong>.</p>
+
+  <h3>Passo 3: definir quanto cada um paga</h3>
+  <ol>
+    <li>No grupo, vá em <strong>Percentuais por categoria</strong>.</li>
+    <li>Toque na categoria (ex.: Moradia) e informe o percentual de cada pessoa. Os percentuais precisam somar 100%.</li>
+    <li>Salve. As próximas despesas dessa categoria usam essa divisão.</li>
+  </ol>
+  <div class="tip">Quem ainda não aceitou o convite já entra na divisão. Se recusar, a parte dela volta para o dono do grupo.</div>
+
+  <h3>Passo 4: lançar uma despesa compartilhada</h3>
+  <p><strong>Despesa nova:</strong></p>
+  <ol>
+    <li>Em <strong>Compartilhadas</strong>, toque em <strong>Nova despesa</strong>.</li>
+    <li>Preencha como uma despesa comum (descrição, valor, data, conta ou cartão) e toque em <strong>Continuar para a divisão</strong>.</li>
+    <li>Escolha o <strong>grupo</strong> e a <strong>categoria do grupo</strong>. Se quiser uma divisão diferente só desta vez, ligue <strong>Divisão diferente só nesta despesa</strong>.</li>
+    <li>Toque em <strong>Compartilhar</strong>.</li>
+  </ol>
+  <p><strong>Despesa que já foi lançada:</strong> toque no botão pequeno <strong>Compartilhar despesa já lançada</strong> (acima de “Nova despesa”), escolha a despesa e siga os passos 3 e 4. Outra forma: abra a despesa em Movimentações e toque no ícone <strong>Compartilhar</strong> no topo.</p>
+  <p><strong>Despesa que se repete (aluguel, internet):</strong> abra a recorrência em <span class="path">Lançamentos › Recorrências</span> e toque em <strong>Compartilhar</strong>. As próximas ocorrências entram no grupo sozinhas.</p>
+  <p class="muted">Compra no cartão: continua uma única vez na sua fatura. Os outros veem só “Cartão de crédito” e a parte deles.</p>
+
+  <h3>Passo 5: registrar pagamentos e acertar contas</h3>
+  <ul>
+    <li><strong>Pagar uma parte:</strong> abra a despesa na aba Despesas e registre o pagamento (data, valor e observação, ex.: “Pix”). Só a própria pessoa, quem pagou a conta ou um gestor podem registrar.</li>
+    <li><strong>Acertar tudo de uma vez:</strong> no grupo, toque em <strong>Acertar contas</strong>, escolha <strong>quem paga</strong>, <strong>quem recebe</strong> e o <strong>valor transferido</strong>, e toque em <strong>Registrar</strong>. O acerto quita as partes mais antigas primeiro.</li>
+    <li><strong>Errou?</strong> Em <strong>Acertos</strong>, use <strong>Desfazer acerto</strong>; as partes voltam a ficar em aberto.</li>
+  </ul>
+  <p>A aba <strong>Resumo</strong> mostra, por mês, por categoria e por participante, quanto cada um deve e tem a receber. No seu orçamento, a sua parte aparece como despesa pendente e o que os outros te devem aparece como receita a receber.</p>
+
+  <!-- ================================================================ -->
+  <h2 id="dependentes">4. Dependentes (cartão adicional)</h2>
+  <p>Dependentes são pessoas que usam o seu cartão ou conta mas não entram no app (ex.: cartão adicional). Você marca quem usou cada compra e a fatura mostra o total de cada um.</p>
+  <ol>
+    <li>Abra <span class="path">Contas e cartões › Cartões</span> (ou <em>Contas</em>) e edite o cartão.</li>
+    <li>Em <strong>Dependentes</strong>, toque em <strong>Adicionar dependente</strong>, informe o nome e, se quiser, o final do cartão adicional.</li>
+    <li>Salve o cartão.</li>
+    <li>Ao lançar uma compra nesse cartão, aparece o campo <strong>Quem usou</strong>. Escolha a pessoa (em branco = titular).</li>
+    <li>Na fatura, a seção <strong>Por pessoa</strong> mostra quanto cada um gastou. Em Movimentações, há a coluna e o filtro <strong>Quem usou</strong>.</li>
+  </ol>
+
+  <!-- ================================================================ -->
+  <h2 id="entrar">5. Criar conta, entrar e sair</h2>
+  <ol>
+    <li>Abra o app e toque em <strong>Criar conta</strong>.</li>
+    <li>Informe nome, e-mail e senha (mínimo de 8 caracteres, com letras e números), confirme a senha e aceite os termos.</li>
+    <li>Toque em <strong>Criar conta</strong>. Seus dados ficam na nuvem: entre com o mesmo e-mail em qualquer aparelho para ver tudo.</li>
+  </ol>
+  <ul>
+    <li><strong>Só quer conhecer?</strong> Na tela de entrada, toque em <strong>Explorar com dados de exemplo</strong>. São dados fictícios, separados das contas reais.</li>
+    <li><strong>Sair:</strong> no fim do menu lateral, toque em <strong>Sair</strong>.</li>
+    <li><strong>Trocar a senha:</strong> <span class="path">Configurações › Preferências › Alterar minha senha</span>.</li>
+  </ul>
+
+  <!-- ================================================================ -->
+  <h2 id="menu">6. Conhecendo o menu e a tela Início</h2>
+  <p>O menu lateral tem a tela <strong>Início</strong> e quatro seções:</p>
+  <ul>
+    <li><strong>Lançamentos:</strong> Movimentações, Recorrências, Parcelamentos, Faturas, Calendário.</li>
+    <li><strong>Contas e cartões:</strong> Contas, Cartões, Patrimônio.</li>
+    <li><strong>Planejamento:</strong> Projeção, Assistente IA, Orçamentos, Metas, Assinaturas, Calculadoras, Projetos, Simulações, Painéis, Importar planilha, Exportar relatórios.</li>
+    <li><strong>Configurações:</strong> Preferências, Pessoas na conta, Categorias, Regras de categoria, Open Finance.</li>
+  </ul>
+  <p>A tela <strong>Início</strong> mostra o saldo atual, as pendências do mês (despesas a pagar, receitas a receber, faturas a pagar e vencidas), receitas, despesas, resultado do mês e os próximos vencimentos. Use as setas no topo para trocar o mês. No fim do menu, <strong>Ocultar valores</strong> esconde os números (útil em público).</p>
+
+  <!-- ================================================================ -->
+  <h2 id="contas">7. Contas bancárias</h2>
+  <ol>
+    <li>Abra <span class="path">Contas e cartões › Contas</span> e toque em <strong>Nova conta</strong>.</li>
+    <li>Informe o <strong>nome da conta</strong>, a <strong>instituição</strong>, o <strong>tipo</strong> e o <strong>saldo inicial</strong> (o saldo de hoje no banco).</li>
+    <li>Toque em <strong>Salvar</strong>.</li>
+  </ol>
+  <ul>
+    <li><strong>Transferir entre contas:</strong> na conta, use <strong>Transferir</strong>, ou lance uma transação do tipo <strong>Transf.</strong></li>
+    <li><strong>Não usa mais a conta?</strong> Edite e desligue <strong>Conta ativa</strong>. Contas com lançamentos não podem ser excluídas; contas inativas não somam no saldo.</li>
+  </ul>
+
+  <!-- ================================================================ -->
+  <h2 id="cartoes">8. Cartões de crédito</h2>
+  <ol>
+    <li>Abra <span class="path">Contas e cartões › Cartões</span> e toque em <strong>Novo cartão</strong>.</li>
+    <li>Preencha nome, banco emissor, bandeira, final, <strong>limite de crédito</strong>, <strong>dia de fechamento</strong> e <strong>dia de vencimento</strong>.</li>
+    <li>Escolha a <strong>conta de pagamento padrão</strong> (de onde sai o dinheiro da fatura) e toque em <strong>Salvar</strong>.</li>
+  </ol>
+  <p>Ao abrir o cartão você vê o limite disponível, o <strong>melhor dia de compra</strong>, a fatura atual, as anteriores e as futuras (projetadas). Mudar fechamento ou vencimento reorganiza as compras nas faturas automaticamente.</p>
+
+  <!-- ================================================================ -->
+  <h2 id="lancamentos">9. Lançar despesas, receitas e transferências</h2>
+  <ol>
+    <li>Toque em <strong>Nova transação</strong> (botão azul no Início ou em Movimentações).</li>
+    <li>Escolha o tipo: <strong>Despesa</strong>, <strong>Receita</strong> ou <strong>Transf.</strong></li>
+    <li>Preencha <strong>descrição</strong>, <strong>valor</strong> (dá para fazer contas no campo, ex.: 45+12), <strong>data</strong>, <strong>categoria</strong> e a <strong>conta ou cartão</strong>.</li>
+    <li>Escolha o <strong>status</strong>: concluída (já pagou/recebeu) ou pendente. Compras no cartão ficam pagas quando a fatura é paga.</li>
+    <li>Opcional: data de vencimento, observações, código do boleto ou foto do comprovante (<strong>Ler comprovante</strong> preenche os dados sozinho).</li>
+    <li>Toque em <strong>Salvar</strong>.</li>
+  </ol>
+  <p class="muted">No mesmo formulário você pode ligar <strong>Compra parcelada</strong> ou <strong>Tornar recorrente</strong> (veja as seções 12 e 13).</p>
+
+  <!-- ================================================================ -->
+  <h2 id="movimentacoes">10. Movimentações: ver, filtrar e editar</h2>
+  <p><span class="path">Lançamentos › Movimentações</span> reúne tudo. Os botões no topo trocam a visão: <strong>Todos</strong>, <strong>Transações</strong>, <strong>Outras despesas</strong>, <strong>Outras receitas</strong> e <strong>Compartilhadas</strong>.</p>
+  <ul>
+    <li><strong>Buscar:</strong> ícone de lupa (descrição, categoria ou valor).</li>
+    <li><strong>Filtrar:</strong> ícone de filtros (tipo, status, categoria, conta/cartão, projeto, quem usou). Filtros ativos aparecem como etiquetas; toque no X para tirar.</li>
+    <li><strong>Filtros rápidos:</strong> Receitas/Despesas, Pendentes/Concluídas e por categoria.</li>
+    <li><strong>Editar direto na lista:</strong> toque numa célula (valor, data, categoria, status) para mudar sem abrir o lançamento.</li>
+    <li><strong>Escolher colunas:</strong> menu <strong>Opções › Configurar colunas</strong>.</li>
+    <li><strong>Abrir um lançamento:</strong> toque na linha para ver os detalhes, editar, excluir ou compartilhar.</li>
+  </ul>
+  <div class="tip">Não aparece uma receita ou despesa? Confira se não há um filtro ativo (número no ícone de filtros) e use <strong>Limpar filtros</strong>.</div>
+
+  <!-- ================================================================ -->
+  <h2 id="faturas">11. Faturas do cartão</h2>
+  <p><span class="path">Lançamentos › Faturas</span> lista as faturas de todos os cartões, com vencimento, total, pago e restante.</p>
+  <h3>Pagar uma fatura</h3>
+  <ol>
+    <li>Abra a fatura (<strong>Abrir fatura</strong>).</li>
+    <li>Toque em <strong>Marcar como paga</strong>, confira a <strong>conta de origem</strong> e a <strong>data do pagamento</strong> e confirme.</li>
+    <li>Pagou só uma parte? Use <strong>Pagamento parcial</strong> e informe o valor pago. O restante segue para quando for quitado.</li>
+    <li>Errou? <strong>Desfazer pagamento</strong> devolve o valor ao saldo da conta.</li>
+  </ol>
+  <p>Dentro da fatura você também pode <strong>Adicionar compra</strong> ou <strong>Adicionar recorrência</strong> (assinatura no cartão). As compras do cartão contam no mês em que a fatura é paga (ou no vencimento, enquanto não for paga).</p>
+
+  <!-- ================================================================ -->
+  <h2 id="parcelamentos">12. Compras parceladas</h2>
+  <ol>
+    <li>Em <strong>Nova transação</strong>, escolha Despesa e ligue <strong>Compra parcelada</strong>.</li>
+    <li>Informe o <strong>valor total da compra</strong> e o <strong>número de parcelas</strong>.</li>
+    <li>Salve. No cartão, cada parcela vai para uma fatura; na conta, cada parcela tem seu vencimento.</li>
+  </ol>
+  <p><span class="path">Lançamentos › Parcelamentos</span> mostra cada compra, as parcelas pagas, a próxima e o restante a pagar. Para mudar o valor total ou o número de parcelas, abra o parcelamento e edite (editar uma parcela só muda aquela parcela).</p>
+
+  <!-- ================================================================ -->
+  <h2 id="recorrencias">13. Recorrências (salário, aluguel, assinaturas)</h2>
+  <ol>
+    <li>Abra <span class="path">Lançamentos › Recorrências</span> e toque em <strong>Nova recorrência</strong> (ou ligue <strong>Tornar recorrente</strong> numa transação).</li>
+    <li>Escolha Despesa ou Receita, a descrição, o valor, a conta ou cartão e a categoria.</li>
+    <li>Defina a <strong>frequência</strong> (a cada 1 mês, 1 semana…), o <strong>início</strong> e, se quiser, o <strong>fim</strong> e o <strong>dia do mês</strong>.</li>
+    <li>Salve. As próximas ocorrências aparecem na projeção e nas movimentações.</li>
+  </ol>
+  <ul>
+    <li><strong>Mudou o valor?</strong> Edite e escolha se vale para <strong>somente ocorrências futuras</strong> ou também para as já planejadas.</li>
+    <li><strong>Pausar</strong> e <strong>Retomar</strong>: nada é gerado enquanto pausada.</li>
+    <li><strong>Excluir</strong>: as futuras deixam de ser geradas; o que já foi pago fica no histórico.</li>
+  </ul>
+
+  <!-- ================================================================ -->
+  <h2 id="boletos">14. Boletos e contas a vencer</h2>
+  <ol>
+    <li>Lance a despesa como pendente e informe a <strong>data de vencimento</strong>.</li>
+    <li>Se tiver, cole o <strong>código do boleto</strong> (linha digitável) ou o <strong>Pix copia e cola</strong>.</li>
+    <li>Com o WhatsApp vinculado, o app lembra na véspera e no dia do vencimento.</li>
+    <li>Depois de pagar, mude o status para concluída (na lista, toque no status).</li>
+  </ol>
+  <p>O <span class="path">Lançamentos › Calendário</span> mostra entradas, saídas e faturas de cada dia.</p>
+
+  <!-- ================================================================ -->
+  <h2 id="projecao">15. Projeção dos próximos meses</h2>
+  <p><span class="path">Planejamento › Projeção</span> mostra, mês a mês, receitas, despesas, resultado e saldo acumulado, considerando recorrências, parcelas e faturas.</p>
+  <ul>
+    <li><strong>Ver o detalhe:</strong> toque em qualquer valor.</li>
+    <li><strong>Mudar o período:</strong> use as setas (1 mês/1 ano) ou <strong>Período personalizado</strong>.</li>
+    <li><strong>Simular outro saldo inicial:</strong> em <strong>Saldo inicial da projeção</strong>, informe um valor (ou <strong>Usar saldo real</strong>).</li>
+    <li><strong>Filtros:</strong> veja a projeção só de algumas contas, cartões ou categorias.</li>
+  </ul>
+  <p class="muted">No plano Grátis a projeção mostra 3 meses; assinando, 12.</p>
+
+  <!-- ================================================================ -->
+  <h2 id="fechar-mes">16. Fechar mês, ajustar e reverter</h2>
+  <p>Fechar um mês congela o resultado: lançamentos feitos ou alterados depois não mudam mais aquele mês em Início, Projeção, gráficos e relatórios. O saldo real das contas não muda.</p>
+  <h3>Fechar um mês</h3>
+  <ol>
+    <li>Abra <span class="path">Planejamento › Projeção</span>.</li>
+    <li>Toque no <strong>nome do mês</strong> (cabeçalho da coluna).</li>
+    <li>Toque em <strong>Fechar mês</strong>. O mês fica fechado com os valores calculados agora.</li>
+  </ol>
+  <h3>Ajustar o resultado manualmente</h3>
+  <ol>
+    <li>Toque no nome do mês e escolha <strong>Ajustar resultado manualmente</strong>.</li>
+    <li>Informe as <strong>receitas</strong> e <strong>despesas</strong> que valem para o mês e, se quiser, uma observação (ex.: “conferido com o extrato”).</li>
+    <li>Toque em <strong>Salvar e fechar mês</strong>.</li>
+  </ol>
+  <h3>Reverter (reabrir)</h3>
+  <ul>
+    <li><strong>Um mês:</strong> toque no nome do mês e escolha <strong>Reabrir mês (reverter)</strong>, ou <strong>Desfazer só o ajuste</strong> para mantê-lo fechado com os valores calculados.</li>
+    <li><strong>Vários de uma vez:</strong> na Projeção, toque no ícone de relógio com cadeado (<strong>Fechamentos e ajustes</strong>) e use <strong>Reverter ajustes manuais</strong> ou <strong>Reabrir todos</strong>.</li>
+  </ul>
+
+  <!-- ================================================================ -->
+  <h2 id="orcamentos">17. Orçamentos e metas</h2>
+  <p><strong>Orçamento (limite por categoria):</strong></p>
+  <ol>
+    <li>Abra <span class="path">Planejamento › Orçamentos</span> e toque em <strong>Novo orçamento</strong>.</li>
+    <li>Escolha a categoria, o <strong>limite por mês</strong> e em que percentual quer ser avisado.</li>
+    <li>Salve. O app mostra gasto, previsto, restante e se vai passar do limite.</li>
+  </ol>
+  <p><strong>Meta de economia:</strong> em <span class="path">Planejamento › Metas</span>, crie a meta com o valor alvo e registre <strong>aportes</strong> conforme guarda dinheiro.</p>
+
+  <!-- ================================================================ -->
+  <h2 id="whatsapp">18. Lançar pelo WhatsApp</h2>
+  <ol>
+    <li>Abra <span class="path">Configurações › Preferências › WhatsApp</span>.</li>
+    <li>Toque em <strong>Vincular meu WhatsApp</strong>. O app mostra uma mensagem com um código (vale por 10 minutos).</li>
+    <li>Toque em <strong>Abrir no WhatsApp</strong> e envie a mensagem, do número que quer usar. Depois toque em <strong>Já enviei</strong>.</li>
+    <li>Pronto. Mande mensagens ao bot, por exemplo:
+      <ul>
+        <li>“gastei 45,90 no mercado”</li>
+        <li>“uber 23 ontem no cartão Nubank”</li>
+        <li>“tênis 600 em 3x no cartão”</li>
+        <li>“recebi 3500 de salário”</li>
+      </ul>
+    </li>
+    <li>O bot mostra um resumo e só grava depois que você tocar em <strong>Confirmar</strong>. Também aceita foto do cupom ou comprovante.</li>
+  </ol>
+  <p>Na mesma tela você liga os avisos: <strong>Lembrete de contas a vencer</strong> (todo dia às 8h) e <strong>Aviso de orçamento no limite</strong>. Para parar, use <strong>Desvincular</strong>.</p>
+  <p class="muted">Plano Grátis: 5 lançamentos por mês, só por texto.</p>
+
+  <!-- ================================================================ -->
+  <h2 id="open-finance">19. Open Finance (trazer lançamentos do banco)</h2>
+  <p>Pelo Open Finance, do Banco Central, o app lê o extrato das suas contas e cartões. O app nunca pede sua senha bancária.</p>
+  <ol>
+    <li>Abra <span class="path">Configurações › Open Finance</span> e toque em <strong>Conectar seus bancos</strong>.</li>
+    <li>Na janela que abre, escolha <strong>MeuPluggy</strong> e marque as contas e cartões. (Se ainda não tem, crie a conta no Meu Pluggy e autorize seus bancos lá; é gratuito.)</li>
+    <li>De volta ao app, em cada conta ou cartão do banco, escolha qual conta do app é ela e toque em <strong>Sincronizar</strong>.</li>
+    <li>Os lançamentos chegam em <strong>Transações para revisar</strong>. Em cada um, toque em ⋮ e escolha <strong>Importar como novo</strong>, <strong>Conciliar com lançamento</strong> (se você já tinha lançado à mão) ou <strong>Ignorar</strong>.</li>
+  </ol>
+  <p>Para parar de compartilhar, use <strong>Revogar consentimento</strong> ou <strong>Remover conexão</strong>. O que já foi importado continua.</p>
+
+  <!-- ================================================================ -->
+  <h2 id="importar">20. Importar planilha</h2>
+  <ol>
+    <li>Abra <span class="path">Planejamento › Importar planilha</span>.</li>
+    <li>Toque em <strong>Baixar modelo (.xlsx)</strong>. Ele vem com listas das suas categorias, contas e cartões.</li>
+    <li>Preencha a aba “Despesas”, uma despesa por linha. Data, Descrição e Valor são obrigatórios; informe a Conta ou o Cartão (para parceladas, o número de parcelas).</li>
+    <li>Volte ao app, toque em <strong>Selecionar arquivo</strong> (.xlsx ou .csv) e confira cada linha. Linhas com problema aparecem em <strong>Atenção</strong>.</li>
+    <li>Marque as que quer e toque em <strong>Importar</strong>.</li>
+  </ol>
+  <p class="muted">Importar planilha é do plano Básico.</p>
+
+  <!-- ================================================================ -->
+  <h2 id="categorias">21. Categorias e regras de categoria</h2>
+  <ul>
+    <li><strong>Nova categoria:</strong> <span class="path">Configurações › Categorias › Nova categoria</span>. Escolha nome, tipo (Despesa ou Receita), ícone e, para subcategoria, a <strong>categoria pai</strong>.</li>
+    <li><strong>Excluir:</strong> os lançamentos de uma subcategoria passam para a categoria principal.</li>
+    <li><strong>Regras de categoria:</strong> em <span class="path">Configurações › Regras de categoria</span>, diga que uma palavra na descrição (ex.: “uber”) sempre vai para uma categoria. O app sugere a categoria ao lançar.</li>
+  </ul>
+
+  <!-- ================================================================ -->
+  <h2 id="preferencias">22. Preferências, PIN e organizar o menu</h2>
+  <p>Em <span class="path">Configurações › Preferências</span>:</p>
+  <ul>
+    <li><strong>Aparência:</strong> claro, escuro ou do sistema.</li>
+    <li><strong>Lista de transações:</strong> agrupar compras do cartão por fatura (padrão) ou mostrar cada compra.</li>
+    <li><strong>Bloqueio por PIN:</strong> pede um PIN de 4 a 8 números ao abrir o app e depois de 2 minutos fora dele.</li>
+    <li><strong>Ocultar valores:</strong> mostra R$ •••• no lugar dos números.</li>
+    <li><strong>Organizar menu:</strong> mude a ordem dos itens com as setas ↑ ↓, mova itens para outra seção, renomeie seções ou crie novas. <strong>Voltar ao padrão</strong> desfaz tudo.</li>
+    <li><strong>Excluir minha conta e dados:</strong> apaga tudo definitivamente.</li>
+  </ul>
+
+  <!-- ================================================================ -->
+  <h2 id="duvidas">23. Dúvidas comuns</h2>
+  <h3>Lancei no celular e não aparece no computador.</h3>
+  <p>Confirme que entrou com o mesmo e-mail nos dois. Em <span class="path">Configurações › Preferências</span>, toque em <strong>Atualizar agora</strong>.</p>
+  <h3>Por que a compra no cartão aparece em outro mês?</h3>
+  <p>O app usa regime de caixa: a compra conta no mês em que a fatura é paga (ou no vencimento, enquanto não for paga).</p>
+  <h3>O pagamento da fatura conta como despesa?</h3>
+  <p>Não. A despesa é a compra; o pagamento só quita a fatura. Transferências também não contam como despesa.</p>
+  <h3>Qual a diferença entre “Pessoas na conta” e “Despesas compartilhadas”?</h3>
+  <p>Em <em>Pessoas na conta</em> todos usam o mesmo orçamento e veem tudo. Em <em>Despesas compartilhadas</em> cada um tem o seu orçamento e só as despesas do grupo são divididas. Veja a <a href="#compartilhar">tabela da seção 1</a>.</p>
+  <h3>Esqueci a senha.</h3>
+  <p>Peça ajuda pelo e-mail de contato que está na <a href="privacidade.html">Política de Privacidade</a>.</p>
+
+  <p class="top"><a href="#">↑ Voltar ao topo</a></p>
+</body>
+</html>
