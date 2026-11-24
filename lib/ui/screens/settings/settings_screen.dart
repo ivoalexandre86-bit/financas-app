@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../app.dart';
 import '../../../core/legal_links.dart';
 import '../../../data/cloud/api_client.dart';
+import '../../../domain/models/entities.dart' show FilterStyle;
 import '../../../state/auth_controller.dart';
 import '../../../state/finance_controller.dart';
 import '../../theme.dart';
@@ -83,6 +84,28 @@ class SettingsScreen extends StatelessWidget {
               context,
             ).push(MaterialPageRoute(builder: (_) => const MenuEditorScreen())),
           ),
+          _h(context, 'Filtros das grades'),
+          for (final style in FilterStyle.values)
+            ListTile(
+              key: ValueKey('filter-style-${style.name}'),
+              leading: Icon(
+                s.filterStyle == style
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color: s.filterStyle == style ? context.colors.primary : null,
+              ),
+              title: Text(
+                style == FilterStyle.classic
+                    ? 'Listas suspensas (modelo atual)'
+                    : 'Lista com caixas de seleção',
+              ),
+              subtitle: Text(
+                style == FilterStyle.classic
+                    ? 'Cada filtro é uma lista suspensa com um valor por vez.'
+                    : 'Marque vários valores em cada filtro e limpe cada um separadamente.',
+              ),
+              onTap: () => fc.setFilterStyle(style),
+            ),
           _h(context, 'Lista de transações'),
           for (final group in [true, false])
             ListTile(

@@ -14,6 +14,7 @@ import '../import/expense_import_screen.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/entry_origin.dart';
+import '../../widgets/filters_panel.dart';
 import '../../widgets/invoice_tile.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
@@ -23,60 +24,62 @@ import '../cards/invoice_details_screen.dart';
 import 'transaction_details_screen.dart';
 import 'transaction_form_screen.dart';
 
-/// Filtros da lista de transações.
+/// Filtros da lista de transações. Cada conjunto vazio = sem filtro; com
+/// vários valores, vale qualquer um deles.
 class TxListFilter {
   final Set<TransactionType> types;
   final Set<TransactionStatus> statuses;
-  final String? accountOrCard; // 'a:id' | 'c:id'
-  final String? categoryId;
-  final String? projectId;
-  final String? tag;
+  final Set<String> locations; // 'a:id' | 'c:id'
+  final Set<String> categoryIds;
+  final Set<String> projectIds;
+  final Set<String> tags;
 
-  /// Quem usou: nome do dependente ou [FinanceData.holderTitular].
-  final String? holder;
+  /// Quem usou: nomes dos dependentes e/ou [FinanceData.holderTitular].
+  final Set<String> holders;
   const TxListFilter({
     this.types = const {},
     this.statuses = const {},
-    this.accountOrCard,
-    this.categoryId,
-    this.projectId,
-    this.tag,
-    this.holder,
+    this.locations = const {},
+    this.categoryIds = const {},
+    this.projectIds = const {},
+    this.tags = const {},
+    this.holders = const {},
   });
-  int get count =>
-      (types.isEmpty ? 0 : 1) +
-      (statuses.isEmpty ? 0 : 1) +
-      (accountOrCard == null ? 0 : 1) +
-      (categoryId == null ? 0 : 1) +
-      (projectId == null ? 0 : 1) +
-      (tag == null ? 0 : 1) +
-      (holder == null ? 0 : 1);
+  int get count => [
+    types,
+    statuses,
+    locations,
+    categoryIds,
+    projectIds,
+    tags,
+    holders,
+  ].where((s) => s.isNotEmpty).length;
 
-  TxListFilter _copy({
+  TxListFilter copyWith({
     Set<TransactionType>? types,
     Set<TransactionStatus>? statuses,
-    bool clearLocation = false,
-    bool clearCategory = false,
-    bool clearProject = false,
-    bool clearTag = false,
-    bool clearHolder = false,
+    Set<String>? locations,
+    Set<String>? categoryIds,
+    Set<String>? projectIds,
+    Set<String>? tags,
+    Set<String>? holders,
   }) => TxListFilter(
     types: types ?? this.types,
     statuses: statuses ?? this.statuses,
-    accountOrCard: clearLocation ? null : accountOrCard,
-    categoryId: clearCategory ? null : categoryId,
-    projectId: clearProject ? null : projectId,
-    tag: clearTag ? null : tag,
-    holder: clearHolder ? null : holder,
+    locations: locations ?? this.locations,
+    categoryIds: categoryIds ?? this.categoryIds,
+    projectIds: projectIds ?? this.projectIds,
+    tags: tags ?? this.tags,
+    holders: holders ?? this.holders,
   );
 
-  TxListFilter withoutTypes() => _copy(types: const {});
-  TxListFilter withoutStatuses() => _copy(statuses: const {});
-  TxListFilter withoutLocation() => _copy(clearLocation: true);
-  TxListFilter withoutCategory() => _copy(clearCategory: true);
-  TxListFilter withoutProject() => _copy(clearProject: true);
-  TxListFilter withoutTag() => _copy(clearTag: true);
-  TxListFilter withoutHolder() => _copy(clearHolder: true);
+  TxListFilter withoutTypes() => copyWith(types: const {});
+  TxListFilter withoutStatuses() => copyWith(statuses: const {});
+  TxListFilter withoutLocation() => copyWith(locations: const {});
+  TxListFilter withoutCategory() => copyWith(categoryIds: const {});
+  TxListFilter withoutProject() => copyWith(projectIds: const {});
+  TxListFilter withoutTag() => copyWith(tags: const {});
+  TxListFilter withoutHolder() => copyWith(holders: const {});
 }
 
 /// Opções do filtro "Quem usou": o titular e os nomes dos dependentes de
@@ -88,6 +91,18 @@ List<String> holderNames(FinanceData d) {
   }.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
   return [FinanceData.holderTitular, ...names];
 }
+
+/// Nome da conta ('a:id') ou do cartão ('c:id') de um filtro.
+String locationName(FinanceData d, String loc) {
+  final id = loc.substring(2);
+  return (loc.startsWith('a:')
+          ? d.accountById[id]?.name
+          : d.cardById[id]?.name) ??
+      '?';
+}
+
+String locationFilterLabel(FinanceData d, String loc) =>
+    '${loc.startsWith('a:') ? 'Conta' : 'Cartão'}: ${locationName(d, loc)}';
 
 /// Filtro rápido de status (barra acima da lista).
 enum QuickStatus {
@@ -179,11 +194,11 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     'forecast': showForecast,
     'types': FilterJson.enums(filter.types),
     'statuses': FilterJson.enums(filter.statuses),
-    'location': filter.accountOrCard,
-    'category': filter.categoryId,
-    'project': filter.projectId,
-    'tag': filter.tag,
-    'holder': filter.holder,
+    'location': FilterJson.ids(filter.locations),
+    'category': FilterJson.ids(filter.categoryIds),
+    'project': FilterJson.ids(filter.projectIds),
+    'tag': FilterJson.ids(filter.tags),
+    'holder': FilterJson.ids(filter.holders),
     'quickStatus': quickStatus.name,
     'quickType': quickType.name,
     'origins': FilterJson.enums(origins),
@@ -202,14 +217,20 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     filter = TxListFilter(
       types: FilterJson.enumSet(TransactionType.values, j['types']),
       statuses: FilterJson.enumSet(TransactionStatus.values, j['statuses']),
-      accountOrCard: FilterJson.id(j['location'], [
+      locations: FilterJson.idsOrOne(j['location'], [
         for (final a in d.accounts) 'a:${a.id}',
         for (final c in d.cards) 'c:${c.id}',
       ]),
-      categoryId: FilterJson.id(j['category'], d.categories.map((c) => c.id)),
-      projectId: FilterJson.id(j['project'], d.projects.map((p) => p.id)),
-      tag: FilterJson.id(j['tag'], fc.allTags),
-      holder: FilterJson.id(j['holder'], holderNames(d)),
+      categoryIds: FilterJson.idsOrOne(
+        j['category'],
+        d.categories.map((c) => c.id),
+      ),
+      projectIds: FilterJson.idsOrOne(
+        j['project'],
+        d.projects.map((p) => p.id),
+      ),
+      tags: FilterJson.idsOrOne(j['tag'], fc.allTags),
+      holders: FilterJson.idsOrOne(j['holder'], holderNames(d)),
     );
     quickStatus =
         FilterJson.enumOrNull(QuickStatus.values, j['quickStatus']) ??
@@ -237,11 +258,11 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     final to = allPeriods ? YearMonth.of(until) : month;
     final q = query.trim().toLowerCase();
     final cats = <String>{};
-    if (filter.categoryId != null) {
-      cats.add(filter.categoryId!);
+    if (filter.categoryIds.isNotEmpty) {
+      cats.addAll(filter.categoryIds);
       cats.addAll(
         fc.data.categories
-            .where((c) => c.parentId == filter.categoryId)
+            .where((c) => filter.categoryIds.contains(c.parentId))
             .map((c) => c.id),
       );
     }
@@ -251,9 +272,9 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     final individualCards =
         !fc.data.settings.groupCardInvoices ||
         cats.isNotEmpty ||
-        filter.projectId != null ||
-        filter.tag != null ||
-        filter.holder != null ||
+        filter.projectIds.isNotEmpty ||
+        filter.tags.isNotEmpty ||
+        filter.holders.isNotEmpty ||
         q.isNotEmpty;
 
     bool matches(FinTransaction t) {
@@ -270,20 +291,23 @@ class _TransactionsScreenState extends State<TransactionsScreen>
       if (filter.statuses.isNotEmpty && !filter.statuses.contains(t.status)) {
         return false;
       }
-      final loc = filter.accountOrCard;
-      if (loc != null) {
-        final id = loc.substring(2);
-        final ok = loc.startsWith('a:')
-            ? (t.accountId == id || t.destinationAccountId == id)
-            : t.cardId == id;
-        if (!ok) return false;
-      }
-      if (cats.isNotEmpty && !cats.contains(t.categoryId)) return false;
-      if (filter.projectId != null && t.projectId != filter.projectId) {
+      final locs = filter.locations;
+      if (locs.isNotEmpty &&
+          !locs.contains('a:${t.accountId}') &&
+          !locs.contains('a:${t.destinationAccountId}') &&
+          !locs.contains('c:${t.cardId}')) {
         return false;
       }
-      if (filter.tag != null && !t.tags.contains(filter.tag)) return false;
-      if (filter.holder != null && fc.data.holderName(t) != filter.holder) {
+      if (cats.isNotEmpty && !cats.contains(t.categoryId)) return false;
+      if (filter.projectIds.isNotEmpty &&
+          !filter.projectIds.contains(t.projectId)) {
+        return false;
+      }
+      if (filter.tags.isNotEmpty && !t.tags.any(filter.tags.contains)) {
+        return false;
+      }
+      if (filter.holders.isNotEmpty &&
+          !filter.holders.contains(fc.data.holderName(t))) {
         return false;
       }
       if (q.isNotEmpty) {
@@ -419,36 +443,36 @@ class _TransactionsScreenState extends State<TransactionsScreen>
           'Status: ${filter.statuses.map((s) => s.label).join(', ')}',
           () => setFilters(() => filter = filter.withoutStatuses()),
         ),
-      if (filter.accountOrCard case final loc?)
+      if (filter.locations.isNotEmpty)
         (
           'f-location',
-          loc.startsWith('a:')
-              ? 'Conta: ${d.accountById[loc.substring(2)]?.name ?? '?'}'
-              : 'Cartão: ${d.cardById[loc.substring(2)]?.name ?? '?'}',
+          filter.locations.length == 1
+              ? locationFilterLabel(d, filter.locations.first)
+              : 'Contas/cartões: ${filter.locations.map((l) => locationName(d, l)).join(', ')}',
           () => setFilters(() => filter = filter.withoutLocation()),
         ),
-      if (filter.categoryId != null)
+      if (filter.categoryIds.isNotEmpty)
         (
           'f-category',
-          'Categoria: ${e.categoryLabel(filter.categoryId)}',
+          'Categoria: ${filter.categoryIds.map(e.categoryLabel).join(', ')}',
           () => setFilters(() => filter = filter.withoutCategory()),
         ),
-      if (filter.projectId != null)
+      if (filter.projectIds.isNotEmpty)
         (
           'f-project',
-          'Projeto: ${d.projectById[filter.projectId]?.name ?? '?'}',
+          'Projeto: ${filter.projectIds.map((p) => d.projectById[p]?.name ?? '?').join(', ')}',
           () => setFilters(() => filter = filter.withoutProject()),
         ),
-      if (filter.tag != null)
+      if (filter.tags.isNotEmpty)
         (
           'f-tag',
-          '#${filter.tag}',
+          filter.tags.map((t) => '#$t').join(' '),
           () => setFilters(() => filter = filter.withoutTag()),
         ),
-      if (filter.holder != null)
+      if (filter.holders.isNotEmpty)
         (
           'f-holder',
-          'Quem usou: ${filter.holder}',
+          'Quem usou: ${filter.holders.join(', ')}',
           () => setFilters(() => filter = filter.withoutHolder()),
         ),
     ];
@@ -549,18 +573,15 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     if (filter.statuses.isNotEmpty && !filter.statuses.contains(status)) {
       return false;
     }
-    final loc = filter.accountOrCard;
-    if (loc != null) {
-      if (loc.startsWith('a:')) {
-        // Pagamentos feitos com a conta filtrada.
-        final id = loc.substring(2);
-        if (!slice.settled ||
-            !inv.payments.any(
-              (p) => p.accountId == id && YearMonth.of(p.date) == slice.month,
-            )) {
-          return false;
-        }
-      } else if (inv.card.id != loc.substring(2)) {
+    final locs = filter.locations;
+    if (locs.isNotEmpty && !locs.contains('c:${inv.card.id}')) {
+      // Pagamentos feitos com uma das contas filtradas.
+      if (!slice.settled ||
+          !inv.payments.any(
+            (p) =>
+                locs.contains('a:${p.accountId}') &&
+                YearMonth.of(p.date) == slice.month,
+          )) {
         return false;
       }
     }
@@ -2000,17 +2021,133 @@ class _FilterSheet extends StatefulWidget {
 }
 
 class _FilterSheetState extends State<_FilterSheet> {
-  late Set<TransactionType> types = {...widget.initial.types};
-  late Set<TransactionStatus> statuses = {...widget.initial.statuses};
-  late String? loc = widget.initial.accountOrCard;
-  late String? cat = widget.initial.categoryId;
-  late String? prj = widget.initial.projectId;
-  late String? tag = widget.initial.tag;
-  late String? holder = widget.initial.holder;
+  late TxListFilter f = widget.initial;
+
+  void _set(TxListFilter v) => setState(() => f = v);
 
   @override
   Widget build(BuildContext context) {
     final fc = widget.fc;
+    final d = fc.data;
+    final checklist = filterStyleOf(context) == FilterStyle.checklist;
+    final gap = SizedBox(height: checklist ? 10 : 12, width: 10);
+    final fieldWidth = checklist ? 260.0 : double.infinity;
+    Widget enumGroup<T extends Enum>(
+      String key,
+      String label,
+      List<T> values,
+      String Function(T) name,
+      Set<T> sel,
+      TxListFilter Function(Set<T>) apply,
+    ) {
+      if (checklist) {
+        return FilterSelect<T>(
+          keyName: 'tx-filter-$key',
+          label: label,
+          width: fieldWidth,
+          options: {for (final v in values) v: name(v)},
+          selected: sel,
+          onChanged: (v) => _set(apply(v)),
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: context.text.labelLarge),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final v in values)
+                FilterChip(
+                  label: Text(name(v)),
+                  selected: sel.contains(v),
+                  onSelected: (s) =>
+                      _set(apply(s ? {...sel, v} : ({...sel}..remove(v)))),
+                ),
+            ],
+          ),
+        ],
+      );
+    }
+
+    Widget select(
+      String key,
+      String label,
+      Map<String, String> options,
+      Set<String> sel,
+      TxListFilter Function(Set<String>) apply, {
+      String allLabel = 'Todos',
+    }) => FilterSelect<String>(
+      key: ValueKey('filter-$key'),
+      keyName: 'tx-filter-$key',
+      label: label,
+      width: fieldWidth,
+      allLabel: allLabel,
+      options: options,
+      selected: sel,
+      onChanged: (v) => _set(apply(v)),
+    );
+
+    final fields = <Widget>[
+      enumGroup(
+        'types',
+        'Tipo',
+        TransactionType.values,
+        (t) => t.label,
+        f.types,
+        (v) => f.copyWith(types: v),
+      ),
+      enumGroup(
+        'statuses',
+        'Status',
+        TransactionStatus.values,
+        (t) => t.label,
+        f.statuses,
+        (v) => f.copyWith(statuses: v),
+      ),
+      select(
+        'location',
+        'Conta ou cartão',
+        {
+          for (final a in d.accounts) 'a:${a.id}': a.name,
+          for (final c in d.cards) 'c:${c.id}': c.name,
+        },
+        f.locations,
+        (v) => f.copyWith(locations: v),
+      ),
+      select(
+        'category',
+        'Categoria',
+        {for (final c in d.categories) c.id: fc.engine.categoryLabel(c.id)},
+        f.categoryIds,
+        (v) => f.copyWith(categoryIds: v),
+        allLabel: 'Todas',
+      ),
+      select(
+        'project',
+        'Projeto',
+        {for (final p in d.projects) p.id: p.name},
+        f.projectIds,
+        (v) => f.copyWith(projectIds: v),
+      ),
+      if (fc.allTags.isNotEmpty)
+        select(
+          'tag',
+          'Tag',
+          {for (final t in fc.allTags) t: t},
+          f.tags,
+          (v) => f.copyWith(tags: v),
+          allLabel: 'Todas',
+        ),
+      if (d.hasDependents)
+        select(
+          'holder',
+          'Quem usou',
+          {for (final n in holderNames(d)) n: n},
+          f.holders,
+          (v) => f.copyWith(holders: v),
+        ),
+    ];
     return Padding(
       padding: EdgeInsets.fromLTRB(
         16,
@@ -2022,127 +2159,36 @@ class _FilterSheetState extends State<_FilterSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Filtrar transações', style: context.text.titleLarge),
-            const SizedBox(height: 16),
-            Text('Tipo', style: context.text.labelLarge),
-            Wrap(
-              spacing: 8,
+            Row(
               children: [
-                for (final t in TransactionType.values)
-                  FilterChip(
-                    label: Text(t.label),
-                    selected: types.contains(t),
-                    onSelected: (s) =>
-                        setState(() => s ? types.add(t) : types.remove(t)),
+                Expanded(
+                  child: Text(
+                    'Filtrar transações',
+                    style: context.text.titleLarge,
                   ),
+                ),
+                const FilterStyleToggle(),
               ],
             ),
             const SizedBox(height: 12),
-            Text('Status', style: context.text.labelLarge),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final s in TransactionStatus.values)
-                  FilterChip(
-                    label: Text(s.label),
-                    selected: statuses.contains(s),
-                    onSelected: (v) => setState(
-                      () => v ? statuses.add(s) : statuses.remove(s),
-                    ),
-                  ),
+            if (checklist)
+              Wrap(spacing: 10, runSpacing: 10, children: fields)
+            else
+              for (final (i, w) in fields.indexed) ...[
+                if (i > 0) i < 3 ? const SizedBox(height: 16) : gap,
+                SizedBox(width: double.infinity, child: w),
               ],
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String?>(
-              initialValue: loc,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Conta ou cartão'),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('Todos')),
-                for (final a in fc.data.accounts)
-                  DropdownMenuItem(value: 'a:${a.id}', child: Text(a.name)),
-                for (final c in fc.data.cards)
-                  DropdownMenuItem(value: 'c:${c.id}', child: Text(c.name)),
-              ],
-              onChanged: (v) => setState(() => loc = v),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String?>(
-              initialValue: cat,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Categoria'),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('Todas')),
-                for (final c in fc.data.categories)
-                  DropdownMenuItem(
-                    value: c.id,
-                    child: Text(fc.engine.categoryLabel(c.id)),
-                  ),
-              ],
-              onChanged: (v) => setState(() => cat = v),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String?>(
-              initialValue: prj,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Projeto'),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('Todos')),
-                for (final p in fc.data.projects)
-                  DropdownMenuItem(value: p.id, child: Text(p.name)),
-              ],
-              onChanged: (v) => setState(() => prj = v),
-            ),
-            if (fc.allTags.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String?>(
-                initialValue: tag,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Tag'),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('Todas')),
-                  for (final t in fc.allTags)
-                    DropdownMenuItem(value: t, child: Text(t)),
-                ],
-                onChanged: (v) => setState(() => tag = v),
-              ),
-            ],
-            if (fc.data.hasDependents) ...[
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String?>(
-                key: const ValueKey('filter-holder'),
-                initialValue: holder,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Quem usou'),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('Todos')),
-                  for (final n in holderNames(fc.data))
-                    DropdownMenuItem(value: n, child: Text(n)),
-                ],
-                onChanged: (v) => setState(() => holder = v),
-              ),
-            ],
             const SizedBox(height: 20),
             Row(
               children: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, const TxListFilter()),
-                  child: const Text('Limpar'),
+                  child: Text(checklist ? 'Limpar tudo' : 'Limpar'),
                 ),
                 const Spacer(),
                 FilledButton(
-                  onPressed: () => Navigator.pop(
-                    context,
-                    TxListFilter(
-                      types: types,
-                      statuses: statuses,
-                      accountOrCard: loc,
-                      categoryId: cat,
-                      projectId: prj,
-                      tag: tag,
-                      holder: holder,
-                    ),
-                  ),
+                  key: const ValueKey('tx-filter-apply'),
+                  onPressed: () => Navigator.pop(context, f),
                   child: const Text('Aplicar'),
                 ),
               ],

@@ -131,8 +131,8 @@ class InstallmentsScreen extends StatefulWidget {
 class _InstallmentsScreenState extends State<InstallmentsScreen>
     with RememberedFilters {
   String query = '';
-  String? where;
-  String? categoryId;
+  Set<String> wheres = {};
+  Set<String> categoryIds = {};
   _Situation? situation;
   ViewMode view = ViewMode.grid;
 
@@ -145,16 +145,16 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
 
   @override
   Map<String, Object?> filtersToJson() => {
-    'where': where,
-    'category': categoryId,
+    'where': FilterJson.ids(wheres),
+    'category': FilterJson.ids(categoryIds),
     'situation': situation?.name,
     'view': view.name,
   };
 
   @override
   void restoreFilters(Map<String, Object?> j, FinanceController fc) {
-    where = j['where'] as String?;
-    categoryId = j['category'] as String?;
+    wheres = FilterJson.idsOrOne(j['where']);
+    categoryIds = FilterJson.idsOrOne(j['category']);
     situation = FilterJson.enumOrNull(_Situation.values, j['situation']);
     view = FilterJson.enumOrNull(ViewMode.values, j['view']) ?? view;
   }
@@ -167,16 +167,16 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
 
   int get _activeFilters => [
     query.trim().isNotEmpty,
-    where != null,
-    categoryId != null,
+    wheres.isNotEmpty,
+    categoryIds.isNotEmpty,
     situation != null,
   ].where((b) => b).length;
 
   void _clearFilters() => setFilters(() {
     searchCtrl.clear();
     query = '';
-    where = null;
-    categoryId = null;
+    wheres = {};
+    categoryIds = {};
     situation = null;
   });
 
@@ -188,8 +188,10 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
     ];
     final q = query.trim().toLowerCase();
     final list = all.where((s) {
-      if (where != null && s.whereKey != where) return false;
-      if (categoryId != null && s.group.categoryId != categoryId) return false;
+      if (wheres.isNotEmpty && !wheres.contains(s.whereKey)) return false;
+      if (categoryIds.isNotEmpty && !categoryIds.contains(s.group.categoryId)) {
+        return false;
+      }
       if (situation == _Situation.open && s.finished) return false;
       if (situation == _Situation.done && !s.finished) return false;
       return q.isEmpty ||
@@ -202,14 +204,16 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
       Iterable<InstallmentSummary> l,
       int Function(InstallmentSummary) f,
     ) => l.fold(0, (a, s) => a + f(s));
-    final wheres = <String, String>{for (final s in all) s.whereKey: s.where};
-    // Filtro salvo que deixou de existir volta para "Todos".
-    if (!wheres.containsKey(where)) where = null;
+    final whereOpts = <String, String>{
+      for (final s in all) s.whereKey: s.where,
+    };
+    // Filtro salvo que deixou de existir sai da seleção.
+    wheres = wheres.where(whereOpts.containsKey).toSet();
     final cats = <String, String>{
       for (final s in all)
         if (s.group.categoryId != null) s.group.categoryId!: s.category,
     };
-    if (!cats.containsKey(categoryId)) categoryId = null;
+    categoryIds = categoryIds.where(cats.containsKey).toSet();
 
     return Scaffold(
       appBar: AppBar(
@@ -282,7 +286,10 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
                   child: Wrap(
                     spacing: 10,
                     runSpacing: 10,
-                    crossAxisAlignment: WrapCrossAlignment.center,
+                    crossAxisAlignment:
+                        filterStyleOf(context) == FilterStyle.checklist
+                        ? WrapCrossAlignment.start
+                        : WrapCrossAlignment.center,
                     children: [
                       SizedBox(
                         width: 220,
@@ -297,26 +304,32 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
                           onChanged: (v) => setState(() => query = v),
                         ),
                       ),
-                      FilterDropdown<String?>(
+                      FilterSelect<String>(
+                        keyName: 'inst-where',
                         label: 'Cartão/conta',
-                        value: where,
-                        items: {null: 'Todos', ...wheres},
-                        onChanged: (v) => setFilters(() => where = v),
+                        selected: wheres,
+                        options: whereOpts,
+                        onChanged: (v) => setFilters(() => wheres = v),
                       ),
-                      FilterDropdown<String?>(
+                      FilterSelect<String>(
+                        keyName: 'inst-category',
                         label: 'Categoria',
-                        value: categoryId,
-                        items: {null: 'Todas', ...cats},
-                        onChanged: (v) => setFilters(() => categoryId = v),
+                        allLabel: 'Todas',
+                        selected: categoryIds,
+                        options: cats,
+                        onChanged: (v) => setFilters(() => categoryIds = v),
                       ),
-                      FilterDropdown<_Situation?>(
+                      FilterSelect<_Situation>(
+                        keyName: 'inst-situation',
                         label: 'Situação',
-                        value: situation,
-                        items: {
-                          null: 'Todas',
+                        allLabel: 'Todas',
+                        multiple: false,
+                        selected: {?situation},
+                        options: {
                           for (final s in _Situation.values) s: s.label,
                         },
-                        onChanged: (v) => setFilters(() => situation = v),
+                        onChanged: (v) =>
+                            setFilters(() => situation = v.firstOrNull),
                       ),
                     ],
                   ),

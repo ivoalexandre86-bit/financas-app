@@ -116,9 +116,9 @@ class RecurringScreen extends StatefulWidget {
 class _RecurringScreenState extends State<RecurringScreen>
     with RememberedFilters {
   String query = '';
-  TransactionType? type;
-  String? categoryId;
-  String? where;
+  Set<TransactionType> types = {};
+  Set<String> categoryIds = {};
+  Set<String> wheres = {};
   _StateFilter state = _StateFilter.current;
   ViewMode view = ViewMode.grid;
 
@@ -131,18 +131,18 @@ class _RecurringScreenState extends State<RecurringScreen>
 
   @override
   Map<String, Object?> filtersToJson() => {
-    'type': type?.name,
-    'category': categoryId,
-    'where': where,
+    'type': FilterJson.enums(types),
+    'category': FilterJson.ids(categoryIds),
+    'where': FilterJson.ids(wheres),
     'state': state.name,
     'view': view.name,
   };
 
   @override
   void restoreFilters(Map<String, Object?> j, FinanceController fc) {
-    type = FilterJson.enumOrNull(TransactionType.values, j['type']);
-    categoryId = j['category'] as String?;
-    where = j['where'] as String?;
+    types = FilterJson.enumsOrOne(TransactionType.values, j['type']);
+    categoryIds = FilterJson.idsOrOne(j['category']);
+    wheres = FilterJson.idsOrOne(j['where']);
     state = FilterJson.enumOrNull(_StateFilter.values, j['state']) ?? state;
     view = FilterJson.enumOrNull(ViewMode.values, j['view']) ?? view;
   }
@@ -155,18 +155,18 @@ class _RecurringScreenState extends State<RecurringScreen>
 
   int get _activeFilters => [
     query.trim().isNotEmpty,
-    type != null,
-    categoryId != null,
-    where != null,
+    types.isNotEmpty,
+    categoryIds.isNotEmpty,
+    wheres.isNotEmpty,
     state != _StateFilter.current,
   ].where((b) => b).length;
 
   void _clearFilters() => setFilters(() {
     searchCtrl.clear();
     query = '';
-    type = null;
-    categoryId = null;
-    where = null;
+    types = {};
+    categoryIds = {};
+    wheres = {};
     state = _StateFilter.current;
   });
 
@@ -179,9 +179,11 @@ class _RecurringScreenState extends State<RecurringScreen>
     final q = query.trim().toLowerCase();
     final list = all.where((s) {
       if (!state.accepts(s.state)) return false;
-      if (type != null && s.rule.type != type) return false;
-      if (categoryId != null && s.rule.categoryId != categoryId) return false;
-      if (where != null && s.whereKey != where) return false;
+      if (types.isNotEmpty && !types.contains(s.rule.type)) return false;
+      if (categoryIds.isNotEmpty && !categoryIds.contains(s.rule.categoryId)) {
+        return false;
+      }
+      if (wheres.isNotEmpty && !wheres.contains(s.whereKey)) return false;
       return q.isEmpty ||
           s.rule.description.toLowerCase().contains(q) ||
           s.rule.notes.toLowerCase().contains(q);
@@ -195,14 +197,16 @@ class _RecurringScreenState extends State<RecurringScreen>
         .fold(0, (a, s) => a + s.monthly);
     int count(RecurringState st) => list.where((s) => s.state == st).length;
     final narrow = MediaQuery.sizeOf(context).width < 760;
-    final wheres = <String, String>{for (final s in all) s.whereKey: s.where};
-    // Filtro salvo que deixou de existir volta para "Todos".
-    if (!wheres.containsKey(where)) where = null;
+    final whereOpts = <String, String>{
+      for (final s in all) s.whereKey: s.where,
+    };
+    // Filtro salvo que deixou de existir sai da seleção.
+    wheres = wheres.where(whereOpts.containsKey).toSet();
     final cats = <String, String>{
       for (final s in all)
         if (s.rule.categoryId != null) s.rule.categoryId!: s.category,
     };
-    if (!cats.containsKey(categoryId)) categoryId = null;
+    categoryIds = categoryIds.where(cats.containsKey).toSet();
 
     return Scaffold(
       appBar: AppBar(
@@ -280,7 +284,10 @@ class _RecurringScreenState extends State<RecurringScreen>
                   child: Wrap(
                     spacing: 10,
                     runSpacing: 10,
-                    crossAxisAlignment: WrapCrossAlignment.center,
+                    crossAxisAlignment:
+                        filterStyleOf(context) == FilterStyle.checklist
+                        ? WrapCrossAlignment.start
+                        : WrapCrossAlignment.center,
                     children: [
                       SizedBox(
                         width: 220,
@@ -295,37 +302,47 @@ class _RecurringScreenState extends State<RecurringScreen>
                           onChanged: (v) => setState(() => query = v),
                         ),
                       ),
-                      FilterDropdown<TransactionType?>(
+                      FilterSelect<TransactionType>(
+                        keyName: 'rec-type',
                         label: 'Tipo',
-                        value: type,
-                        items: const {
-                          null: 'Todos',
+                        selected: types,
+                        options: const {
                           TransactionType.income: 'Receitas',
                           TransactionType.expense: 'Despesas',
                         },
-                        onChanged: (v) => setFilters(() => type = v),
+                        onChanged: (v) => setFilters(() => types = v),
                       ),
-                      FilterDropdown<String?>(
+                      FilterSelect<String>(
+                        keyName: 'rec-category',
                         label: 'Categoria',
-                        value: categoryId,
-                        items: {null: 'Todas', ...cats},
-                        onChanged: (v) => setFilters(() => categoryId = v),
+                        allLabel: 'Todas',
+                        selected: categoryIds,
+                        options: cats,
+                        onChanged: (v) => setFilters(() => categoryIds = v),
                       ),
-                      FilterDropdown<String?>(
+                      FilterSelect<String>(
+                        keyName: 'rec-where',
                         label: 'Conta/cartão',
-                        value: where,
-                        items: {null: 'Todos', ...wheres},
-                        onChanged: (v) => setFilters(() => where = v),
+                        selected: wheres,
+                        options: whereOpts,
+                        onChanged: (v) => setFilters(() => wheres = v),
                       ),
-                      FilterDropdown<_StateFilter>(
+                      FilterSelect<_StateFilter>(
                         key: const ValueKey('rec-state'),
+                        keyName: 'rec-state',
                         label: 'Situação',
-                        value: state,
-                        items: {
+                        multiple: false,
+                        allLabel: null,
+                        selected: {state},
+                        active: state != _StateFilter.current,
+                        onClear: () =>
+                            setFilters(() => state = _StateFilter.current),
+                        options: {
                           for (final f in _StateFilter.values) f: f.label,
                         },
-                        onChanged: (v) =>
-                            setFilters(() => state = v ?? _StateFilter.current),
+                        onChanged: (v) => setFilters(
+                          () => state = v.firstOrNull ?? _StateFilter.current,
+                        ),
                       ),
                     ],
                   ),

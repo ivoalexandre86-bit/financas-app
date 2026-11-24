@@ -1011,6 +1011,14 @@ class FinanceController extends ChangeNotifier {
     return repo.saveSettings(s);
   }
 
+  /// Troca o modelo dos filtros das grades, na hora.
+  Future<void> setFilterStyle(FilterStyle style) {
+    final s = data.settings.copyWith(filterStyle: style);
+    data = data.copyWith(settings: s);
+    notifyListeners();
+    return repo.saveSettings(s);
+  }
+
   bool get hasPin => data.settings.pinLock != null;
 
   static String _pinHash(String salt, String pin) =>
