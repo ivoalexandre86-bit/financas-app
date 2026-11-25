@@ -57,6 +57,14 @@ class DependentsEditor extends StatelessWidget {
       ]);
   }
 
+  static String? _subtitle(Dependent d) {
+    final parts = [
+      if (d.lastFour.isNotEmpty) 'Cartão final ${d.lastFour}',
+      if (d.phone.isNotEmpty) 'WhatsApp ${Dependent.formatPhone(d.phone)}',
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -66,8 +74,10 @@ class DependentsEditor extends StatelessWidget {
         Text('Dependentes', style: context.text.titleSmall),
         Text(
           askLastFour
-              ? 'Cartões adicionais. Ao lançar uma compra você escolhe quem usou, e a fatura mostra o total de cada um.'
-              : 'Pessoas que também usam esta conta. Ao lançar você escolhe quem usou.',
+              ? 'Cartões adicionais. Ao lançar uma compra você escolhe quem usou, e a fatura mostra o total de cada um. '
+                    'Com o WhatsApp cadastrado, o dependente lança os gastos dele mandando para o bot.'
+              : 'Pessoas que também usam esta conta. Ao lançar você escolhe quem usou. '
+                    'Com o WhatsApp cadastrado, o dependente lança os gastos dele mandando para o bot.',
           style: context.text.bodySmall?.copyWith(color: context.fin.subtle),
         ),
         for (final d in value)
@@ -76,9 +86,7 @@ class DependentsEditor extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.person_outline),
             title: Text(d.name),
-            subtitle: d.lastFour.isEmpty
-                ? null
-                : Text('Cartão final ${d.lastFour}'),
+            subtitle: _subtitle(d) == null ? null : Text(_subtitle(d)!),
             onTap: () => _edit(context, d),
             trailing: IconButton(
               tooltip: 'Remover dependente',
@@ -114,11 +122,17 @@ class _DependentDialogState extends State<_DependentDialog> {
   late final last4 = TextEditingController(
     text: widget.dependent?.lastFour ?? '',
   );
+  late final phone = TextEditingController(
+    text: Dependent.formatPhone(widget.dependent?.phone ?? ''),
+  );
+
+  String get _phoneDigits => phone.text.replaceAll(RegExp(r'\D'), '');
 
   @override
   void dispose() {
     name.dispose();
     last4.dispose();
+    phone.dispose();
     super.dispose();
   }
 
@@ -132,8 +146,13 @@ class _DependentDialogState extends State<_DependentDialog> {
               id: newId('dep_'),
               name: name.text.trim(),
               lastFour: last4.text.trim(),
+              phone: _phoneDigits,
             )
-          : d.copyWith(name: name.text.trim(), lastFour: last4.text.trim()),
+          : d.copyWith(
+              name: name.text.trim(),
+              lastFour: last4.text.trim(),
+              phone: _phoneDigits,
+            ),
     );
   }
 
@@ -170,6 +189,29 @@ class _DependentDialogState extends State<_DependentDialog> {
                 onFieldSubmitted: (_) => _ok(),
               ),
             ],
+            const SizedBox(height: 12),
+            TextFormField(
+              key: const ValueKey('dep-phone'),
+              controller: phone,
+              keyboardType: TextInputType.phone,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9()+\- ]')),
+              ],
+              decoration: const InputDecoration(
+                labelText: 'WhatsApp (opcional)',
+                hintText: '(11) 99999-1234',
+                helperText:
+                    'Gastos que ele mandar ao bot entram aqui em nome dele.',
+                helperMaxLines: 2,
+              ),
+              validator: (_) {
+                final n = _phoneDigits.length;
+                return n == 0 || (n >= 10 && n <= 13)
+                    ? null
+                    : 'Informe DDD e número';
+              },
+              onFieldSubmitted: (_) => _ok(),
+            ),
           ],
         ),
       ),

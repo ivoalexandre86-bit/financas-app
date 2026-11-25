@@ -11,6 +11,8 @@ const {
   addMonths,
   splitCents,
   buildContext,
+  phoneKey,
+  dependentContext,
   normalizeDraft,
   normalizeDrafts,
   buildDocs,
@@ -163,6 +165,44 @@ test('buildContext ignora contas e cartões inativos', () => {
   assert.deepEqual(c.accounts.map((a) => a.id), ['a1']);
   assert.equal(c.cards.length, 0);
   assert.equal(c.categories[0].kind, 'income');
+});
+
+test('telefone do dependente: com/sem DDI e 9º dígito', () => {
+  assert.equal(phoneKey('(47) 98888-1234'), '554788881234');
+  assert.equal(phoneKey('+55 47 8888-1234'), '554788881234');
+  assert.equal(phoneKey('554788881234'), '554788881234');
+  assert.equal(phoneKey('123'), '');
+});
+
+test('dependente lança no cartão dele, com Quem usou', () => {
+  const full = buildContext([
+    { coll: 'accounts', data: { id: 'acc_1', name: 'Itaú' } },
+    {
+      coll: 'cards',
+      data: { id: 'card_1', name: 'Nubank', dependents: [{ id: 'dep_a', name: 'Ana', phone: '47988881234' }] },
+    },
+    { coll: 'cards', data: { id: 'card_2', name: 'Inter', dependents: [{ id: 'dep_b', name: 'Bia', phone: '11988887777' }] } },
+    { coll: 'categories', data: { id: 'cat_food', name: 'Alimentação', kind: 'expense' } },
+  ]);
+  assert.equal(dependentContext(full, '5511900000000'), null);
+  const dep = dependentContext(full, '554788881234'); // sem o 9º dígito
+  assert.deepEqual(dep.cards.map((c) => c.id), ['card_1']);
+  assert.deepEqual(dep.accounts, []);
+  assert.equal(dep.holder.name, 'Ana');
+
+  const { draft } = normalizeDraft(raw(), dep);
+  assert.equal(draft.cardId, 'card_1');
+  assert.equal(draft.holderId, 'dep_a');
+  // Cartão de outra pessoa citado pela IA é ignorado.
+  assert.equal(normalizeDraft(raw({ card_id: 'card_2' }), dep).draft.cardId, 'card_1');
+  assert.match(normalizeDraft(raw({ type: 'income' }), dep).error, /só despesas/);
+  assert.match(formatSummary(draft, dep), /👤 Quem usou: Ana/);
+
+  const docs = buildDocs({ ...draft, installments: 2 }, dep.today);
+  assert.ok(docs.every((d) => d.data.holderId === 'dep_a'));
+  // Titular: sem holderId.
+  const own = buildDocs(normalizeDraft(raw(), full).draft, full.today);
+  assert.equal(own[0].data.holderId, undefined);
 });
 
 test('assinatura do webhook', () => {
@@ -575,6 +615,57 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
       await deliver('5511777770000', text('resumo'));
       assert.match(sent[0].text, /Resumo de /);
     }
+  });
+
+  await t.test('número de dependente lança no cartão dele, no orçamento do titular', async () => {
+    await call('POST', '/docs/batch', {
+      token,
+      body: {
+        docs: [
+          {
+            coll: 'cards',
+            id: 'card_dep',
+            data: {
+              id: 'card_dep', name: 'Adicional', closingDay: 1, dueDay: 8,
+              dependents: [{ id: 'dep_ana', name: 'Ana Souza', phone: '47988881234' }],
+            },
+          },
+        ],
+      },
+    });
+    // Sem o 9º dígito, como o WhatsApp às vezes manda.
+    await deliver('554788881234', text('oi'));
+    assert.match(sent[0].text, /Olá, Ana! Você é dependente no orçamento de Ivo/);
+    assert.match(sent[0].text, /cartão Adicional/);
+    await deliver('554788881234', text('resumo'));
+    assert.match(sent[0].text, /fica com o titular/);
+
+    nextRaw = raw({ description: 'Farmácia', amount: 80 });
+    await deliver('554788881234', text('farmácia 80'));
+    assert.deepEqual(extracted.at(-1).ctx.cards.map((c) => c.id), ['card_dep']);
+    assert.equal(extracted.at(-1).ctx.accounts.length, 0);
+    assert.match(sent[0].text, /💳 Cartão Adicional/);
+    assert.match(sent[0].text, /👤 Quem usou: Ana Souza/);
+    assert.deepEqual(sent[0].buttons.map((b) => b.title), ['Confirmar', 'Corrigir', 'Cancelar']);
+    const id = sent[0].buttons[0].id.split(':')[1];
+
+    // O titular não confirma nem corrige o rascunho do dependente por engano.
+    nextRaw = raw({ amount: 5 });
+    await deliver('5511999990000', text('cancelar'));
+    const st = await pool.query('select state from whatsapp_drafts where id = $1', [id]);
+    assert.equal(st.rows[0].state, 'pending');
+
+    await deliver('554788881234', button(`ok:${id}`));
+    assert.match(sent[0].text, /Lançado ✅ no cartão Adicional de Ivo, em seu nome/);
+    const docs = (await call('GET', '/docs', { token })).body.docs;
+    const tx = docs.find((d) => d.coll === 'transactions' && d.data.holderId === 'dep_ana');
+    assert.equal(tx.data.cardId, 'card_dep');
+    assert.equal(tx.data.holderId, 'dep_ana');
+    assert.equal(tx.data.amount, 8000);
+
+    // Botões de outras ações não valem para o dependente.
+    await deliver('554788881234', button(`bpay:${tx.id}`));
+    assert.match(sent[0].text, /fica com o titular/);
   });
 
   await t.test('desvincular', async () => {

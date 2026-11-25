@@ -83,6 +83,13 @@ function contextText(ctx) {
     '',
     'Categorias de receita:',
     list(ctx.categories.filter((c) => c.kind === 'income'), (c) => `- ${c.id}: ${c.name}`),
+    ...(ctx.holder
+      ? [
+          '',
+          `Quem escreve é ${ctx.holder.name}, dependente do titular. Registre só despesas; ` +
+            'se não citar cartão nem conta, deixe card_id e account_id null.',
+        ]
+      : []),
   ].join('\n');
 }
 

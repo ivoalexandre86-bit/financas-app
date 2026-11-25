@@ -48,6 +48,11 @@ void main() {
   test('dependentes e quem usou sobrevivem ao JSON', () {
     final back = CreditCard.fromJson(card.toJson());
     expect(back.dependents.map((d) => d.label), ['Ana •• 4321', 'Léo']);
+    // WhatsApp do dependente: só dígitos, omitido quando vazio.
+    const bia = Dependent(id: 'dep_bia', name: 'Bia', phone: '11988881234');
+    expect(Dependent.fromJson(bia.toJson()).phone, '11988881234');
+    expect(ana.toJson().containsKey('phone'), isFalse);
+    expect(Dependent.formatPhone('5511988881234'), '(11) 98888-1234');
     final acc = Account.fromJson(
       Account(id: 'a', name: 'Conta', dependents: const [leo]).toJson(),
     );
@@ -161,9 +166,18 @@ void main() {
       await tester.tap(find.text('Adicionar dependente'));
       await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextFormField, 'Nome'), 'Bia');
+      await tester.enterText(find.byKey(const ValueKey('dep-phone')), '123');
+      await tester.tap(find.widgetWithText(FilledButton, 'Salvar').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Informe DDD e número'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey('dep-phone')),
+        '(11) 98888-1234',
+      );
       await tester.tap(find.widgetWithText(FilledButton, 'Salvar').last);
       await tester.pumpAndSettle();
       expect(find.text('Bia'), findsOneWidget);
+      expect(find.text('WhatsApp (11) 98888-1234'), findsOneWidget);
     });
 
     testWidgets('nova compra no cartão pergunta quem usou', (tester) async {
