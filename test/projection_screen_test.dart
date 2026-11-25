@@ -79,58 +79,89 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('detalhe tem linha Total que abre a grade de todas categorias', (
-    tester,
-  ) async {
-    Intl.defaultLocale = 'pt_BR';
-    await initializeDateFormatting('pt_BR');
-    tester.view.physicalSize = const Size(1400, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final fc = FinanceController(MemoryRepo());
-    await tester.runAsync(() async {
-      await fc.load();
-      await fc.saveAccount(Account(id: 'a', name: 'Conta'));
-      final cats = fc.data.categories
-          .where((c) => c.parentId == null && c.kind == CategoryKind.expense)
-          .take(2)
-          .toList();
-      for (final (i, c) in cats.indexed) {
-        await fc.saveTransaction(
-          FinTransaction(
-            id: 'd$i',
-            type: TransactionType.expense,
-            amount: Money(10000 * (i + 1)),
-            description: 'Despesa $i',
-            date: DateTime.now(),
-            accountId: 'a',
-            categoryId: c.id,
+  testWidgets(
+    'detalhe resume por conta/cartão, alterna para categoria e abre a grade',
+    (tester) async {
+      Intl.defaultLocale = 'pt_BR';
+      await initializeDateFormatting('pt_BR');
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final fc = FinanceController(MemoryRepo());
+      await tester.runAsync(() async {
+        await fc.load();
+        await fc.saveAccount(Account(id: 'a', name: 'Conta'));
+        final cats = fc.data.categories
+            .where((c) => c.parentId == null && c.kind == CategoryKind.expense)
+            .take(2)
+            .toList();
+        for (final (i, c) in cats.indexed) {
+          await fc.saveTransaction(
+            FinTransaction(
+              id: 'd$i',
+              type: TransactionType.expense,
+              amount: Money(10000 * (i + 1)),
+              description: 'Despesa $i',
+              date: DateTime.now(),
+              accountId: 'a',
+              categoryId: c.id,
+            ),
+          );
+        }
+      });
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: fc,
+          child: MaterialApp(
+            theme: AppTheme.light(),
+            home: DrilldownScreen(
+              month: YearMonth.now(),
+              row: DrillRow.expenses,
+            ),
           ),
-        );
-      }
-    });
-
-    await tester.pumpWidget(
-      ChangeNotifierProvider.value(
-        value: fc,
-        child: MaterialApp(
-          theme: AppTheme.light(),
-          home: DrilldownScreen(month: YearMonth.now(), row: DrillRow.expenses),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
 
-    expect(find.byKey(const ValueKey('drill-total')), findsOneWidget);
-    expect(find.text('Todas as categorias · 2 itens'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('drill-total')));
-    await tester.pumpAndSettle();
+      // Primeiro nível: grade-resumo por conta/cartão (uma conta).
+      expect(find.byKey(const ValueKey('drill-group-row-a:a')), findsOneWidget);
+      expect(find.text('Total · 2 itens'), findsOneWidget);
 
-    // Próximo nível: grade no estilo de Transações com os dois lançamentos.
-    expect(find.byType(GridPanel), findsOneWidget);
-    expect(find.byType(GridHeader), findsOneWidget);
-    expect(find.text('Despesa 0'), findsOneWidget);
-    expect(find.text('Despesa 1'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+      // Botão alterna para categorias (duas linhas).
+      await tester.tap(find.text('Categoria').first);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('drill-group-row-a:a')), findsNothing);
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w.key is ValueKey &&
+              '${(w.key as ValueKey).value}'.startsWith('drill-group-row-'),
+        ),
+        findsNWidgets(2),
+      );
+      await tester.tap(find.text('Conta e cartão'));
+      await tester.pumpAndSettle();
+
+      // Linha da conta abre a grade com os lançamentos dela.
+      await tester.tap(find.byKey(const ValueKey('drill-group-row-a:a')));
+      await tester.pumpAndSettle();
+      expect(find.byType(GridHeader), findsOneWidget);
+      expect(find.text('Despesa 0'), findsOneWidget);
+      expect(find.text('Despesa 1'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('drill-total')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('drill-total')));
+      await tester.pumpAndSettle();
+
+      // Próximo nível: grade no estilo de Transações com os dois lançamentos.
+      expect(find.byType(GridPanel), findsOneWidget);
+      expect(find.byType(GridHeader), findsOneWidget);
+      expect(find.text('Despesa 0'), findsOneWidget);
+      expect(find.text('Despesa 1'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

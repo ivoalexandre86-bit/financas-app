@@ -11,6 +11,7 @@ import '../../theme.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/entry_origin.dart';
+import '../../widgets/sort_grid.dart';
 import '../../widgets/tx_grid.dart';
 import '../transactions/transaction_details_screen.dart';
 import 'month_closing_ui.dart';
@@ -26,10 +27,30 @@ enum DrillRow {
   const DrillRow(this.label);
 }
 
+/// Linha da grade-resumo do primeiro nível do detalhamento.
+class _Group {
+  final String key; // 'a:id' | 'c:id' | id da categoria principal
+  final String label;
+  final String kind;
+  final IconData icon;
+  final Color color;
+  final Money sum;
+  final int count;
+  const _Group({
+    required this.key,
+    required this.label,
+    required this.kind,
+    required this.icon,
+    required this.color,
+    required this.sum,
+    required this.count,
+  });
+}
+
 /// Detalhamento de um valor da matriz.
 ///
-/// Navegação: total do mês → categorias (com a linha "Total", que abre
-/// todas) → grade de lançamentos, igual à de Transações.
+/// Navegação: total do mês → grade-resumo por conta/cartão (ou por
+/// categoria, pelo botão) → grade de lançamentos, igual à de Transações.
 /// Usa exatamente os mesmos filtros e regras de reconhecimento da matriz
 /// ([FinancialEngine.monthEvents]).
 class DrilldownScreen extends StatefulWidget {
@@ -55,6 +76,10 @@ class DrilldownScreen extends StatefulWidget {
 
 class _DrilldownScreenState extends State<DrilldownScreen> {
   EventSource? source;
+
+  /// Primeiro nível agrupado por categoria (em vez de conta/cartão).
+  /// Lembrado enquanto o app estiver aberto.
+  static bool _byCategory = false;
 
   /// Ordenação da grade (clique no cabeçalho da coluna).
   GridColumn sort = GridColumn.date;
@@ -224,39 +249,286 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
       );
     }
 
+    final groups = _groups(e, events);
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
           ...summary,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SegmentedButton<bool>(
+                  key: const ValueKey('drill-group-toggle'),
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(
+                      value: false,
+                      icon: Icon(Icons.account_balance_wallet_outlined),
+                      label: Text('Conta e cartão'),
+                    ),
+                    ButtonSegment(
+                      value: true,
+                      icon: Icon(Icons.category_outlined),
+                      label: Text('Categoria'),
+                    ),
+                  ],
+                  selected: {_byCategory},
+                  onSelectionChanged: (s) =>
+                      setState(() => _byCategory = s.first),
+                ),
+                if (events.isNotEmpty)
+                  TextButton.icon(
+                    key: const ValueKey('drill-total'),
+                    icon: const Icon(Icons.list_alt, size: 18),
+                    label: Text('Ver todos os ${events.length} lançamentos'),
+                    onPressed: () => push(
+                      context,
+                      DrilldownScreen(
+                        month: widget.month,
+                        row: widget.row,
+                        filter: widget.filter,
+                        allCategories: true,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
           if (events.isEmpty)
             empty
-          else ...[
-            _totalTile(context, total, events.length),
-            ..._groupList(
-              context,
-              events,
-              keyOf: (x) => e.rootCategoryId(x.tx.categoryId),
-              labelOf: (k) => e.data.categoryById[k]?.name ?? 'Sem categoria',
-              iconOf: (k) {
-                final c = e.data.categoryById[k];
-                return (categoryIcon(c?.icon), Color(c?.color ?? 0xFF6B7280));
-              },
-              onTap: (k) => push(
-                context,
-                DrilldownScreen(
-                  month: widget.month,
-                  row: widget.row,
-                  filter: widget.filter,
-                  rootCategoryId: k,
-                ),
-              ),
-              total: total,
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _groupGrid(context, groups, total),
             ),
-          ],
         ],
       ),
+    );
+  }
+
+  /// Agrupamento do primeiro nível: por conta/cartão (padrão) ou por
+  /// categoria principal.
+  List<_Group> _groups(FinancialEngine e, List<RecognizedEvent> events) {
+    final sums = <String, Money>{};
+    final counts = <String, int>{};
+    for (final x in events) {
+      final k = _byCategory ? e.rootCategoryId(x.tx.categoryId) : _locKey(x.tx);
+      sums[k] = (sums[k] ?? Money.zero) + _value(x);
+      counts[k] = (counts[k] ?? 0) + 1;
+    }
+    return [
+      for (final k in sums.keys)
+        if (_byCategory)
+          () {
+            final c = e.data.categoryById[k];
+            return _Group(
+              key: k,
+              label: c?.name ?? 'Sem categoria',
+              kind: 'Categoria',
+              icon: categoryIcon(c?.icon),
+              color: Color(c?.color ?? 0xFF6B7280),
+              sum: sums[k]!,
+              count: counts[k]!,
+            );
+          }()
+        else
+          () {
+            final isCard = k.startsWith('c:');
+            final id = k.substring(2);
+            final color = isCard
+                ? e.data.cardById[id]?.color
+                : e.data.accountById[id]?.color;
+            return _Group(
+              key: k,
+              label: _locationName(e, k),
+              kind: isCard ? 'Cartão' : 'Conta',
+              icon: isCard ? Icons.credit_card : Icons.account_balance_outlined,
+              color: Color(color ?? 0xFF6B7280),
+              sum: sums[k]!,
+              count: counts[k]!,
+            );
+          }(),
+    ];
+  }
+
+  void _openGroup(_Group g) => push(
+    context,
+    DrilldownScreen(
+      month: widget.month,
+      row: widget.row,
+      filter: widget.filter,
+      rootCategoryId: _byCategory ? g.key : null,
+      locationKey: _byCategory ? null : g.key,
+    ),
+  );
+
+  /// Grade-resumo do primeiro nível, no mesmo padrão das demais grades.
+  Widget _groupGrid(BuildContext context, List<_Group> groups, Money total) {
+    final denom = total.cents.abs() == 0 ? 1 : total.cents.abs();
+    double share(_Group g) => (g.sum.cents.abs() / denom).clamp(0.0, 1.0);
+    String pct(_Group g) => '${(share(g) * 100).toStringAsFixed(0)}%';
+    int text(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
+    final colorize = widget.row == DrillRow.net;
+    final count = groups.fold<int>(0, (s, g) => s + g.count);
+    final bold = context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w700);
+    final tab = context.text.bodySmall?.copyWith(
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+
+    Widget avatar(_Group g, {double size = 28}) => CircleAvatar(
+      radius: size / 2,
+      backgroundColor: g.color.withValues(alpha: 0.14),
+      child: Icon(g.icon, color: g.color, size: size * 0.55),
+    );
+
+    Widget bar(_Group g) => ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: LinearProgressIndicator(
+        value: share(g),
+        minHeight: 6,
+        color: g.color,
+        backgroundColor: context.fin.gridLine,
+      ),
+    );
+
+    return SortGrid<_Group>(
+      key: ValueKey('drill-groups-$_byCategory'),
+      keyPrefix: 'drill-group',
+      rows: groups,
+      rowId: (g) => g.key,
+      accent: (context, g) => g.color,
+      onOpen: _openGroup,
+      initialSort: 'value',
+      initialAscending: false,
+      compactBelow: 640,
+      tieBreak: (a, b) => text(a.label, b.label),
+      compactRow: (context, g) => Row(
+        children: [
+          avatar(g),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  g.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(child: bar(g)),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${pct(g)} · ${g.count} itens',
+                      style: context.text.labelSmall,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          MoneyText(g.sum, colorize: colorize, style: bold),
+        ],
+      ),
+      footerLabel: (context, rows) =>
+          Text('Total · $count itens', style: gridFooterLabelStyle(context)),
+      compactFooter: (context, rows) =>
+          MoneyText(total, colorize: colorize, style: bold),
+      columns: [
+        SortCol(
+          id: 'name',
+          label: _byCategory ? 'Categoria' : 'Conta / cartão',
+          width: 220,
+          minWidth: 150,
+          flexible: true,
+          fill: true,
+          compare: (a, b) => text(a.label, b.label),
+          cell: (context, g) => GridCell(
+            child: Row(
+              children: [
+                avatar(g, size: 24),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    g.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (!_byCategory)
+          SortCol(
+            id: 'kind',
+            label: 'Tipo',
+            width: 90,
+            compare: (a, b) => text(a.kind, b.kind),
+            cell: (context, g) =>
+                GridCell(child: Text(g.kind, style: context.text.bodySmall)),
+          ),
+        SortCol(
+          id: 'count',
+          label: 'Itens',
+          width: 80,
+          right: true,
+          compare: (a, b) => a.count.compareTo(b.count),
+          cell: (context, g) =>
+              GridCell(right: true, child: Text('${g.count}', style: tab)),
+          footer: (context, rows) => Text('$count', style: tab),
+        ),
+        SortCol(
+          id: 'share',
+          label: '% do total',
+          width: 170,
+          minWidth: 120,
+          flexible: true,
+          compare: (a, b) => share(a).compareTo(share(b)),
+          cell: (context, g) => GridCell(
+            child: Row(
+              children: [
+                Expanded(child: bar(g)),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 36,
+                  child: Text(pct(g), textAlign: TextAlign.right, style: tab),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SortCol(
+          id: 'value',
+          label: 'Valor',
+          width: 130,
+          right: true,
+          highlight: true,
+          compare: (a, b) => a.sum.cents.abs().compareTo(b.sum.cents.abs()),
+          cell: (context, g) => GridCell(
+            right: true,
+            child: MoneyText(g.sum, colorize: colorize, style: bold),
+          ),
+          footer: (context, rows) =>
+              MoneyText(total, colorize: colorize, style: bold),
+        ),
+      ],
     );
   }
 
@@ -265,132 +537,6 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
     return key.startsWith('c:')
         ? (e.data.cardById[id]?.name ?? 'Cartão')
         : (e.data.accountById[id]?.name ?? 'Sem conta');
-  }
-
-  /// Linha "Total": abre a grade com os lançamentos de todas as categorias.
-  Widget _totalTile(BuildContext context, Money total, int count) {
-    final color = context.colors.primary;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ListTile(
-          key: const ValueKey('drill-total'),
-          onTap: () => push(
-            context,
-            DrilldownScreen(
-              month: widget.month,
-              row: widget.row,
-              filter: widget.filter,
-              allCategories: true,
-            ),
-          ),
-          leading: CircleAvatar(
-            backgroundColor: color.withValues(alpha: 0.12),
-            child: Icon(Icons.functions, color: color, size: 20),
-          ),
-          title: Text(
-            'Total',
-            style: context.text.titleSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          subtitle: Text(
-            'Todas as categorias · $count itens',
-            style: context.text.labelSmall,
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              MoneyText(
-                total,
-                colorize: widget.row == DrillRow.net,
-                style: context.text.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const Icon(Icons.chevron_right),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-      ],
-    );
-  }
-
-  List<Widget> _groupList(
-    BuildContext context,
-    List<RecognizedEvent> events, {
-    required String Function(RecognizedEvent) keyOf,
-    required String Function(String) labelOf,
-    required (IconData, Color) Function(String) iconOf,
-    required void Function(String) onTap,
-    required Money total,
-  }) {
-    final sums = <String, Money>{};
-    final counts = <String, int>{};
-    for (final x in events) {
-      final k = keyOf(x);
-      sums[k] = (sums[k] ?? Money.zero) + _value(x);
-      counts[k] = (counts[k] ?? 0) + 1;
-    }
-    final keys = sums.keys.toList()
-      ..sort((a, b) => sums[b]!.cents.abs().compareTo(sums[a]!.cents.abs()));
-    final denom = total.cents.abs() == 0 ? 1 : total.cents.abs();
-    return [
-      for (final k in keys)
-        () {
-          final (icon, color) = iconOf(k);
-          final share = (sums[k]!.cents.abs() / denom).clamp(0.0, 1.0);
-          return ListTile(
-            onTap: () => onTap(k),
-            leading: CircleAvatar(
-              backgroundColor: color.withValues(alpha: 0.12),
-              child: Icon(icon, color: color, size: 20),
-            ),
-            title: Text(labelOf(k)),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: share,
-                        minHeight: 6,
-                        color: color,
-                        backgroundColor: context.fin.gridLine,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      '${(share * 100).toStringAsFixed(0)}% · ${counts[k]} itens',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: context.text.labelSmall,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                MoneyText(
-                  sums[k]!,
-                  colorize: widget.row == DrillRow.net,
-                  style: context.text.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const Icon(Icons.chevron_right),
-              ],
-            ),
-          );
-        }(),
-    ];
   }
 
   // ---------------------------------------------------------------------
