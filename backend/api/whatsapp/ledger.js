@@ -60,14 +60,18 @@ function splitCents(cents, parts) {
  */
 function buildContext(docs, now = new Date()) {
   const of = (coll) => docs.filter((d) => d.coll === coll).map((d) => d.data);
+  const deps = (x) =>
+    (Array.isArray(x.dependents) ? x.dependents : [])
+      .filter((d) => d && d.id)
+      .map((d) => ({ id: d.id, name: String(d.name ?? ''), phone: String(d.phone ?? '') }));
   return {
     today: todayIso(now),
     accounts: of('accounts')
       .filter((a) => a.active !== false)
-      .map((a) => ({ id: a.id, name: a.name, institution: a.institution ?? '' })),
+      .map((a) => ({ id: a.id, name: a.name, institution: a.institution ?? '', dependents: deps(a) })),
     cards: of('cards')
       .filter((c) => c.active !== false)
-      .map((c) => ({ id: c.id, name: c.name, bank: c.bank ?? '' })),
+      .map((c) => ({ id: c.id, name: c.name, bank: c.bank ?? '', dependents: deps(c) })),
     categories: of('categories').map((c) => ({
       id: c.id,
       name: c.name,
@@ -75,6 +79,39 @@ function buildContext(docs, now = new Date()) {
       parentId: c.parentId ?? null,
     })),
   };
+}
+
+/**
+ * Chave para comparar telefones: só dígitos, com DDI 55 nos números
+ * brasileiros e sem o 9º dígito do celular (o WhatsApp às vezes manda o
+ * número sem ele).
+ */
+function phoneKey(phone) {
+  let d = String(phone ?? '').replace(/\D/g, '');
+  if (d.length === 10 || d.length === 11) d = `55${d}`;
+  if (d.length === 13 && d.startsWith('55') && d[4] === '9') d = d.slice(0, 4) + d.slice(5);
+  return d.length >= 8 ? d : '';
+}
+
+const samePhone = (a, b) => {
+  const k = phoneKey(a);
+  return !!k && k === phoneKey(b);
+};
+
+/**
+ * Contexto de quem manda do número de um dependente: só os cartões e contas
+ * em que ele aparece, e o id dele em cada um (o "Quem usou" do app).
+ * Retorna null se o número não é de nenhum dependente.
+ */
+function dependentContext(ctx, phone) {
+  const mine = (x) => x.dependents?.find((d) => samePhone(d.phone, phone));
+  const cards = ctx.cards.filter(mine);
+  const accounts = ctx.accounts.filter(mine);
+  if (!cards.length && !accounts.length) return null;
+  const byPlace = {};
+  for (const x of [...cards, ...accounts]) byPlace[x.id] = mine(x).id;
+  const name = mine(cards[0] ?? accounts[0]).name.trim() || 'Dependente';
+  return { ...ctx, cards, accounts, holder: { name, byPlace } };
 }
 
 /** Máximo de lançamentos lidos de uma mensagem (print de extrato). */
@@ -134,11 +171,16 @@ function normalizeItem(raw, ctx) {
   const category = ctx.categories.find(
     (c) => c.id === raw.category_id && c.kind === type,
   );
+  if (ctx.holder && type !== 'expense') {
+    return { error: 'Pelo seu número eu lanço só despesas. Ex.: "mercado 45,90".' };
+  }
   let card = type === 'expense' ? ctx.cards.find((c) => c.id === raw.card_id) : null;
   let account = card ? null : ctx.accounts.find((a) => a.id === raw.account_id);
   if (!card && !account) {
-    account = ctx.accounts[0];
-    if (!account && type === 'expense') card = ctx.cards[0];
+    // Dependente: o padrão é o cartão dele (adicional); titular: a 1ª conta.
+    if (ctx.holder) card = ctx.cards[0];
+    if (!card) account = ctx.accounts[0];
+    if (!card && !account && type === 'expense') card = ctx.cards[0];
   }
   if (!card && !account) {
     return { error: 'Cadastre uma conta no app antes de lançar pelo WhatsApp.' };
@@ -190,6 +232,7 @@ function normalizeItem(raw, ctx) {
       cardId: card?.id ?? null,
       installments,
       notes: String(raw.notes ?? '').trim().slice(0, 500),
+      ...(ctx.holder ? { holderId: ctx.holder.byPlace[(card ?? account).id] ?? null } : {}),
       ...(boletoCode ? { boletoCode } : {}),
       ...(pixCode ? { pixCode } : {}),
       ...(badCode ? { badCode: true } : {}),
@@ -218,6 +261,7 @@ function baseTx(draft, now) {
     installmentNumber: null,
     installmentCount: null,
     externalId: null,
+    ...(draft.holderId ? { holderId: draft.holderId } : {}),
     ...(isPayable(draft)
       ? { dueDate: draft.date, boletoCode: draft.boletoCode ?? null, pixCode: draft.pixCode ?? null }
       : {}),
@@ -267,6 +311,7 @@ function buildDocs(draft, today, now = new Date()) {
         categoryId: draft.categoryId,
         projectId: null,
         notes: base.notes,
+        ...(draft.holderId ? { holderId: draft.holderId } : {}),
         createdAt: ts,
         updatedAt: ts,
       },
@@ -313,7 +358,9 @@ function formatBatch(drafts, ctx, duplicates = 0) {
       : `🏦 ${ctx.accounts.find((x) => x.id === d.accountId)?.name ?? 'Conta'}`;
   const places = new Set(drafts.map(where));
   const same = places.size === 1 ? [...places][0] : null;
-  const lines = [`📋 *${drafts.length} lançamentos* · total ${brl(Math.abs(total))}${same ? ` · ${same}` : ''}`, ''];
+  const lines = [`📋 *${drafts.length} lançamentos* · total ${brl(Math.abs(total))}${same ? ` · ${same}` : ''}`];
+  if (ctx.holder) lines.push(`👤 Quem usou: ${ctx.holder.name}`);
+  lines.push('');
   drafts.forEach((d, i) => {
     const cat = ctx.categories.find((c) => c.id === d.categoryId);
     const parts = [
@@ -350,6 +397,7 @@ function formatSummary(draft, ctx) {
     const a = ctx.accounts.find((x) => x.id === draft.accountId);
     lines.push(`🏦 Conta ${a?.name ?? ''}`.trim());
   }
+  if (ctx.holder) lines.push(`👤 Quem usou: ${ctx.holder.name}`);
   lines.push(`📅 ${brDate(draft.date)}`);
   if (draft.installments > 1) {
     const first = splitCents(draft.amount, draft.installments)[0];
@@ -373,6 +421,9 @@ module.exports = {
   addMonths,
   splitCents,
   buildContext,
+  phoneKey,
+  samePhone,
+  dependentContext,
   normalizeDraft,
   normalizeDrafts,
   buildDocs,

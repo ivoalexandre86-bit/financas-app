@@ -9,6 +9,8 @@ const crypto = require('crypto');
 const { validSignature } = require('./meta');
 const {
   buildContext,
+  dependentContext,
+  phoneKey,
   normalizeDrafts,
   buildDocs,
   formatSummary,
@@ -263,6 +265,12 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
       [from],
     );
     const user = rows[0] && (await attachAccount(pool, rows[0]));
+    // Número cadastrado como contato de um dependente: lança no cartão ou
+    // conta dele, no orçamento do titular.
+    if (!user) {
+      const dep = await findDependent(from);
+      if (dep) return handleDependent(m, from, dep, text);
+    }
     // O número do bot pode ser o mesmo do WhatsApp Business do dono
     // (coexistência): conversas de quem não vinculou ficam intocadas, sem
     // resposta e sem marcar como lidas.
@@ -307,6 +315,89 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
       );
     }
 
+    const input = await readInput(from, m, text, {
+      onSaid: async (said) => {
+        if (parseSummaryRequest(said, todayIso())) await sendSummary(from, user, said);
+        else if (parsePurchaseQuestion(said, todayIso())) await sendPurchaseAnalysis(from, user, said);
+        else return false;
+        return true;
+      },
+    });
+    if (!input) return;
+    return newOrCorrection(from, user, input);
+  }
+
+  // Dependentes ----------------------------------------------------------------
+
+  /// Titular e dependente cujo contato é este número (cartões e contas
+  /// ativos). Se mais de um orçamento tiver o número, vale o mais recente.
+  async function findDependent(from) {
+    const key = phoneKey(from);
+    if (!key) return null;
+    const { rows } = await pool.query(
+      `select user_id, coll, data from app_docs
+        where coll in ('cards', 'accounts') and not deleted
+          and jsonb_typeof(data->'dependents') = 'array'
+          and (data->'dependents')::text like $1
+        order by updated_at desc`,
+      [`%${key.slice(-8)}%`],
+    );
+    for (const r of rows) {
+      const ctx = dependentContext(buildContext([r]), from);
+      if (!ctx) continue;
+      const u = await pool.query('select * from users where id = $1', [r.user_id]);
+      if (!u.rows[0]) continue;
+      return { owner: await attachAccount(pool, u.rows[0]), name: ctx.holder.name };
+    }
+    return null;
+  }
+
+  /// Mensagem de um dependente: só lança despesas (no cartão ou conta em
+  /// que ele aparece); resumo, boletos e grupos ficam com o titular.
+  async function handleDependent(m, from, dep, text) {
+    const { owner, name } = dep;
+    meta.markRead(m.id);
+    const reply = (t) => meta.sendText(from, t);
+    const ctx = await loadContext(owner.id, from);
+    if (!ctx) return; // dependente removido entre a busca e agora
+    const places = [
+      ...ctx.cards.map((c) => `cartão ${c.name}`),
+      ...ctx.accounts.map((a) => `conta ${a.name}`),
+    ];
+    const help =
+      `Olá, ${firstName(name)}! Você é dependente no orçamento de ${firstName(owner.name)}. ` +
+      `Mande seus gastos (texto, foto do cupom ou áudio) e eu lanço no ${places.join(' ou ')} ` +
+      `com o seu nome em "Quem usou".\n\nExemplos:\n• mercado 45,90\n• tênis 300 em 3x` +
+      (places.length > 1 ? `\n• uber 23 no ${places[1]}` : '');
+
+    if (m.type === 'interactive' && m.interactive?.type === 'button_reply') {
+      return onButton(from, owner, String(m.interactive.button_reply?.id ?? ''), ctx);
+    }
+    if (m.type === 'button' || m.type === 'interactive') return reply(help);
+    if (/^cancelar$/i.test(text)) return cancelLatest(from, owner);
+    if (/^(ajuda|menu|help|oi|olá|ola)$/i.test(text)) return reply(help);
+    const ownerOnly =
+      'Isso fica com o titular. Pelo seu número eu só lanço os seus gastos. ' +
+      'Ex.: "mercado 45,90".';
+    if (
+      text &&
+      (/^(meus\s+)?boletos?$/i.test(text) ||
+        parseSummaryRequest(text, todayIso()) ||
+        parsePurchaseQuestion(text, todayIso()))
+    ) {
+      return reply(ownerOnly);
+    }
+    if (['image', 'document', 'audio'].includes(m.type) && accessOf(owner).plan === 'gratis') {
+      return reply('Por enquanto eu leio só mensagens de texto. Me mande o gasto por escrito.');
+    }
+    const input = await readInput(from, m, text);
+    if (!input) return;
+    return newOrCorrection(from, owner, input, ctx);
+  }
+
+  /// Texto, foto, PDF ou áudio da mensagem como entrada da IA; null quando
+  /// já respondeu (tipo não suportado, áudio ilegível...).
+  async function readInput(from, m, text, { onSaid } = {}) {
     let input;
     switch (m.type) {
       case 'text':
@@ -318,26 +409,25 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
       case 'document': {
         const media = await meta.downloadMedia(m.document.id);
         if (media.mimeType !== 'application/pdf' && !media.mimeType.startsWith('image/')) {
-          return meta.sendText(from, 'Consigo ler fotos e PDFs. Esse tipo de arquivo eu não leio.');
+          return void (await meta.sendText(from, 'Consigo ler fotos e PDFs. Esse tipo de arquivo eu não leio.'));
         }
         input = { text: m.document?.caption, media };
         break;
       }
       case 'audio': {
         if (!transcribe) {
-          return meta.sendText(from, 'Áudio ainda não está ativado. Mande por texto ou foto, por favor.');
+          return void (await meta.sendText(from, 'Áudio ainda não está ativado. Mande por texto ou foto, por favor.'));
         }
         const said = await transcribe(await meta.downloadMedia(m.audio.id));
-        if (!said) return meta.sendText(from, 'Não entendi o áudio. Pode repetir ou escrever?');
-        if (parseSummaryRequest(said, todayIso())) return sendSummary(from, user, said);
-        if (parsePurchaseQuestion(said, todayIso())) return sendPurchaseAnalysis(from, user, said);
+        if (!said) return void (await meta.sendText(from, 'Não entendi o áudio. Pode repetir ou escrever?'));
+        if (onSaid && (await onSaid(said))) return null;
         input = { text: `(áudio transcrito) ${said}` };
         break;
       }
       default:
-        return meta.sendText(from, `Ainda não leio esse tipo de mensagem.\n\n${HELP}`);
+        return void (await meta.sendText(from, `Ainda não leio esse tipo de mensagem.\n\n${HELP}`));
     }
-    return newOrCorrection(from, user, input);
+    return input;
   }
 
   /// Último boleto lembrado (para as respostas "pagar" e "paguei").
@@ -414,14 +504,17 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
     return meta.sendText(from, formatAnalysis(analyzePurchase(docs, q, today)));
   }
 
-  async function loadContext(userId) {
+  /// Contas, cartões e categorias do orçamento. Com `dependentPhone`, só
+  /// os cartões e contas daquele dependente (null se ele não está em nenhum).
+  async function loadContext(userId, dependentPhone) {
     const { rows } = await pool.query(
       `select coll, data from app_docs
        where user_id = data_owner($1) and not deleted
          and coll in ('accounts', 'cards', 'categories')`,
       [userId],
     );
-    return buildContext(rows);
+    const ctx = buildContext(rows);
+    return dependentPhone ? dependentContext(ctx, dependentPhone) : ctx;
   }
 
   const limitOf = (user) =>
@@ -442,7 +535,8 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
     return rows[0].reads <= limit;
   }
 
-  async function newOrCorrection(from, user, input) {
+  /// `depCtx`: contexto do dependente que mandou a mensagem (ver handleDependent).
+  async function newOrCorrection(from, user, input, depCtx = null) {
     if (!(await withinLimit(user))) {
       const limit = limitOf(user);
       if (accessOf(user).plan === 'gratis') {
@@ -458,13 +552,15 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
           'Pelo app você continua lançando normalmente, e o limite volta no dia 1º.',
       );
     }
-    const ctx = await loadContext(user.id);
+    const ctx = depCtx ?? (await loadContext(user.id));
+    // O rascunho em edição é o deste número (titular e dependentes
+    // compartilham o orçamento, mas cada um corrige o seu).
     const { rows } = await pool.query(
       `select id, draft from whatsapp_drafts
-       where user_id = $1 and state = 'editing'
+       where user_id = $1 and wa_id = $2 and state = 'editing'
          and updated_at > now() - ${EDIT_WINDOW}
        order by updated_at desc limit 1`,
-      [user.id],
+      [user.id, from],
     );
     const editing = rows[0];
     const raw = await extract({
@@ -524,7 +620,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
     }
     // Despesa à vista de quem administra um grupo: pode ir só para o
     // orçamento dele ou ser dividida no grupo.
-    if ((await shareChoices(user.id, draft)).length) {
+    if (!depCtx && (await shareChoices(user.id, draft)).length) {
       return meta.sendButtons(
         from,
         `${formatSummary(draft, ctx)}\n\nLançar como despesa sua ou compartilhada? ` +
@@ -574,11 +670,11 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
     const { rows } = await pool.query(
       `update whatsapp_drafts set state = 'cancelled', updated_at = now()
        where id = (select id from whatsapp_drafts
-                   where user_id = $1 and state in ('pending', 'editing')
+                   where user_id = $1 and wa_id = $2 and state in ('pending', 'editing')
                      and updated_at > now() - ${EDIT_WINDOW}
                    order by updated_at desc limit 1)
        returning id`,
-      [user.id],
+      [user.id, from],
     );
     return meta.sendText(
       from,
@@ -632,19 +728,23 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
     return invoiceDue(card, invoiceForTx(card, tx));
   }
 
-  async function onButton(from, user, payload) {
+  /// `depCtx`: botão tocado por um dependente (só os do rascunho dele).
+  async function onButton(from, user, payload, depCtx = null) {
     const [action, id] = payload.split(':');
+    if (depCtx && !['ok', 'edit', 'no'].includes(action)) {
+      return meta.sendText(from, 'Essa opção fica com o titular.');
+    }
     if (action === 'bpay') return boletos.pay(from, user, id);
     if (action === 'bpaid') return boletos.paid(from, user, id);
     const client = await pool.connect();
     try {
       await client.query('begin');
       const { rows } = await client.query(
-        `select draft, state from whatsapp_drafts
+        `select draft, state, wa_id from whatsapp_drafts
          where id = $1 and user_id = $2 for update`,
         [id, user.id],
       );
-      const d = rows[0];
+      const d = depCtx && rows[0]?.wa_id !== from ? undefined : rows[0];
       if (!d || d.state === 'saved' || d.state === 'cancelled') {
         await client.query('rollback');
         const msg = d?.state === 'saved' ? 'Esse lançamento já foi gravado ✅'
@@ -695,6 +795,17 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
         );
         await client.query('commit');
         if (option) return shareSaved(from, user, docs[0].data, option);
+        if (depCtx) {
+          const it = items[0];
+          const where = it.cardId
+            ? `no cartão ${depCtx.cards.find((c) => c.id === it.cardId)?.name ?? ''}`
+            : `na conta ${depCtx.accounts.find((a) => a.id === it.accountId)?.name ?? ''}`;
+          return meta.sendText(
+            from,
+            `${items.length > 1 ? `${items.length} lançamentos gravados` : 'Lançado'} ✅ ` +
+              `${where.trim()} de ${firstName(user.name)}, em seu nome.`,
+          );
+        }
         const bill = items.length === 1 && isPayable(items[0]) ? docs[0].data : null;
         if (bill) {
           return meta.sendButtons(
@@ -715,8 +826,8 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
         // Só um rascunho em edição por vez.
         await client.query(
           `update whatsapp_drafts set state = 'pending'
-           where user_id = $1 and state = 'editing' and id <> $2`,
-          [user.id, id],
+           where user_id = $1 and wa_id = $3 and state = 'editing' and id <> $2`,
+          [user.id, id, from],
         );
       }
       await client.query(

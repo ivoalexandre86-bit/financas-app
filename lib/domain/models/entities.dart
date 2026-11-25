@@ -27,13 +27,24 @@ class Dependent {
   /// Final do cartão adicional (opcional; só faz sentido em cartões).
   final String lastFour;
 
-  const Dependent({required this.id, required this.name, this.lastFour = ''});
+  /// WhatsApp do dependente, só dígitos (opcional). Despesas que ele manda
+  /// ao bot entram neste cartão/conta com "Quem usou" = ele.
+  final String phone;
 
-  Dependent copyWith({String? name, String? lastFour}) => Dependent(
-    id: id,
-    name: name ?? this.name,
-    lastFour: lastFour ?? this.lastFour,
-  );
+  const Dependent({
+    required this.id,
+    required this.name,
+    this.lastFour = '',
+    this.phone = '',
+  });
+
+  Dependent copyWith({String? name, String? lastFour, String? phone}) =>
+      Dependent(
+        id: id,
+        name: name ?? this.name,
+        lastFour: lastFour ?? this.lastFour,
+        phone: phone ?? this.phone,
+      );
 
   /// "Ana" ou "Ana •• 1234".
   String get label => lastFour.isEmpty ? name : '$name •• $lastFour';
@@ -42,18 +53,33 @@ class Dependent {
     'id': id,
     'name': name,
     if (lastFour.isNotEmpty) 'lastFour': lastFour,
+    if (phone.isNotEmpty) 'phone': phone,
   };
 
   factory Dependent.fromJson(Map<String, Object?> j) => Dependent(
     id: j['id'] as String,
     name: (j['name'] as String?) ?? '',
     lastFour: (j['lastFour'] as String?) ?? '',
+    phone: (j['phone'] as String?) ?? '',
   );
 
   static List<Dependent> listFromJson(Object? v) => [
     for (final d in (v as List?) ?? const [])
       if (d is Map) Dependent.fromJson(Map<String, Object?>.from(d)),
   ];
+
+  /// "(47) 99999-1234" para exibir; outros formatos ficam como estão.
+  static String formatPhone(String digits) {
+    var d = digits;
+    if (d.length == 13 && d.startsWith('55')) d = d.substring(2);
+    if (d.length == 11) {
+      return '(${d.substring(0, 2)}) ${d.substring(2, 7)}-${d.substring(7)}';
+    }
+    if (d.length == 10) {
+      return '(${d.substring(0, 2)}) ${d.substring(2, 6)}-${d.substring(6)}';
+    }
+    return digits;
+  }
 }
 
 // Conta ----------------------------------------------------------------------
