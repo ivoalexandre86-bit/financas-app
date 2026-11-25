@@ -353,6 +353,11 @@ class AccountDetailsScreen extends StatelessWidget {
         title: Text(a.name),
         actions: [
           IconButton(
+            tooltip: 'Ajustar saldo',
+            icon: const Icon(Icons.tune),
+            onPressed: () => showAdjustBalanceDialog(context, a),
+          ),
+          IconButton(
             tooltip: 'Editar',
             icon: const Icon(Icons.edit_outlined),
             onPressed: () => push(context, AccountFormScreen(account: a)),
@@ -397,7 +402,32 @@ class AccountDetailsScreen extends StatelessWidget {
                       'Pagamentos de fatura',
                       MoneyText(payments.map((p) => p.amount).sum()),
                     ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      key: const ValueKey('acc-adjust-balance'),
+                      icon: const Icon(Icons.tune),
+                      label: const Text('Ajustar saldo'),
+                      onPressed: () => showAdjustBalanceDialog(context, a),
+                    ),
+                  ),
                 ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: SectionCard(
+              child: DependentsEditor(
+                key: const ValueKey('acc-dependents'),
+                value: a.dependents,
+                usage: fc.dependentUsage,
+                onChanged: (v) => runAction(
+                  context,
+                  () => fc.saveAccount(a.copyWith(dependents: v)),
+                  success: 'Dependentes salvos',
+                ),
               ),
             ),
           ),
@@ -587,4 +617,82 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
       ),
     );
   }
+}
+
+/// Ajustar saldo: o usuário informa o saldo que o banco mostra hoje e o app
+/// lança a diferença (receita ou despesa "Ajuste de saldo", concluída, na
+/// data de hoje). Para desfazer, basta excluir esse lançamento.
+Future<void> showAdjustBalanceDialog(BuildContext context, Account a) async {
+  final fc = context.read<FinanceController>();
+  final current = fc.engine.accountBalance(a.id);
+  final ctrl = TextEditingController(text: current.formatPlain());
+  final key = GlobalKey<FormState>();
+  final target = await showDialog<Money>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('Ajustar saldo · ${a.name}'),
+      content: Form(
+        key: key,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Saldo no app hoje: ${current.format()}'),
+            const SizedBox(height: 8),
+            const Text(
+              'Informe o saldo real (o que o banco mostra). O app lança a '
+              'diferença como "Ajuste de saldo"; para desfazer, exclua esse '
+              'lançamento.',
+            ),
+            const SizedBox(height: 12),
+            MoneyField(
+              key: const ValueKey('acc-adjust-value'),
+              controller: ctrl,
+              label: 'Saldo real',
+              allowZero: true,
+              allowNegative: true,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          key: const ValueKey('acc-adjust-ok'),
+          onPressed: () {
+            if (key.currentState!.validate()) {
+              Navigator.pop(ctx, Money.tryEval(ctrl.text));
+            }
+          },
+          child: const Text('Ajustar'),
+        ),
+      ],
+    ),
+  );
+  if (target == null || !context.mounted) return;
+  final diff = target - current;
+  if (diff.isZero) {
+    showMessage(context, 'O saldo já está certo.');
+    return;
+  }
+  await runAction(
+    context,
+    () => fc.saveTransaction(
+      FinTransaction(
+        id: newId('tx_'),
+        type: diff.isNegative
+            ? TransactionType.expense
+            : TransactionType.income,
+        amount: diff.abs(),
+        description: 'Ajuste de saldo',
+        date: fc.today,
+        accountId: a.id,
+        notes: 'Saldo ajustado de ${current.format()} para ${target.format()}.',
+      ),
+    ),
+    success: 'Saldo ajustado para ${target.format()}',
+  );
 }

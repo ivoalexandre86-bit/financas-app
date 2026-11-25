@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app.dart';
+import '../core/legal_links.dart';
 import '../core/money.dart';
 import '../data/growth.dart';
 import '../state/auth_controller.dart';
@@ -756,6 +757,12 @@ class _SideMenuState extends State<SideMenu> {
                         .findAncestorStateOfType<_AppShellState>()
                         ?.lock(),
                   ),
+                entry(
+                  key: const ValueKey('menu-manual'),
+                  icon: Icons.menu_book_outlined,
+                  label: 'Manual do usuário',
+                  onTap: () => LegalLinks.open(LegalLinks.manual),
+                ),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: entry(
