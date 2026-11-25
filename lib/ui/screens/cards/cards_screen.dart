@@ -11,6 +11,8 @@ import '../../theme.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/dependents_editor.dart';
+import '../../widgets/active_filter.dart';
+import '../../widgets/filters_panel.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
@@ -27,21 +29,30 @@ class CardsScreen extends StatefulWidget {
 
 class _CardsScreenState extends State<CardsScreen> with RememberedFilters {
   ViewMode view = ViewMode.cards;
+  ActiveFilter situation = ActiveFilter.active;
 
   @override
   String get filterKey => 'cards';
 
   @override
-  Map<String, Object?> filtersToJson() => {'view': view.name};
+  Map<String, Object?> filtersToJson() => {
+    'view': view.name,
+    'situation': situation.name,
+  };
 
   @override
-  void restoreFilters(Map<String, Object?> saved, FinanceController fc) =>
-      view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
+  void restoreFilters(Map<String, Object?> saved, FinanceController fc) {
+    view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
+    situation =
+        FilterJson.enumOrNull(ActiveFilter.values, saved['situation']) ??
+        situation;
+  }
 
   @override
   Widget build(BuildContext context) {
     final fc = context.watch<FinanceController>();
-    final cards = [...fc.data.cards]
+    final all = fc.data.cards;
+    final cards = [...all.where((x) => situation.matches(x.active))]
       ..sort(
         (a, b) => a.active == b.active
             ? a.name.compareTo(b.name)
@@ -56,6 +67,22 @@ class _CardsScreenState extends State<CardsScreen> with RememberedFilters {
             mode: view,
             onChanged: (v) => setFilters(() => view = v),
           ),
+          FilterButton(
+            keyPrefix: 'cards',
+            active: situation.count,
+            panel: FilterPanel(
+              keyPrefix: 'cards',
+              active: situation.count,
+              onClear: () => setFilters(() => situation = ActiveFilter.active),
+              fields: (_) => [
+                ActiveFilterField(
+                  keyName: 'cards-situation',
+                  value: situation,
+                  onChanged: (v) => setFilters(() => situation = v),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -64,13 +91,22 @@ class _CardsScreenState extends State<CardsScreen> with RememberedFilters {
         icon: const Icon(Icons.add),
         label: const Text('Novo cartão'),
       ),
-      body: cards.isEmpty
+      body: all.isEmpty
           ? EmptyState(
               icon: Icons.credit_card,
               title: 'Nenhum cartão cadastrado',
               message: 'Cadastre seus cartões para controlar faturas, limites e parcelas.',
               actionLabel: 'Novo cartão',
               onAction: () => push(context, const CardFormScreen()),
+            )
+          : cards.isEmpty
+          ? EmptyState(
+              icon: Icons.filter_alt_outlined,
+              title: situation == ActiveFilter.inactive
+                  ? 'Nenhum cartão inativo'
+                  : 'Nenhum cartão ativo',
+              actionLabel: 'Mostrar todos',
+              onAction: () => setFilters(() => situation = ActiveFilter.all),
             )
           : view == ViewMode.grid
           ? ListView(
