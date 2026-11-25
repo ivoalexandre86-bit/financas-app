@@ -8,6 +8,7 @@ import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/dependents_editor.dart';
 import 'cards_screen.dart';
 import 'invoice_details_screen.dart';
 
@@ -118,6 +119,20 @@ class CardDetailsScreen extends StatelessWidget {
                   fc.data.accountById[card.paymentAccountId]?.name ?? '—',
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          SectionCard(
+            child: DependentsEditor(
+              key: const ValueKey('card-dependents'),
+              value: card.dependents,
+              askLastFour: true,
+              usage: fc.dependentUsage,
+              onChanged: (v) => runAction(
+                context,
+                () => fc.saveCard(card.copyWith(dependents: v)),
+                success: 'Dependentes salvos',
+              ),
             ),
           ),
           if (current.isNotEmpty) ...[

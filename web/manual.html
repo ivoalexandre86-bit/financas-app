@@ -28,7 +28,7 @@
 </head>
 <body>
   <h1>Manual do Usuário</h1>
-  <p class="muted">App Finanças · atualizado em 24 de novembro de 2026</p>
+  <p class="muted">App Finanças · atualizado em 25 de novembro de 2026</p>
 
   <p>Este manual mostra, passo a passo, como fazer cada coisa no app. Use o índice para ir direto ao que precisa. O app abre em <a href="https://ivoalexandre86-bit.github.io/financas-app/">ivoalexandre86-bit.github.io/financas-app</a>, no computador ou no celular.</p>
 
@@ -164,12 +164,13 @@
   <h2 id="dependentes">4. Dependentes (cartão adicional)</h2>
   <p>Dependentes são pessoas que usam o seu cartão ou conta mas não entram no app (ex.: cartão adicional). Você marca quem usou cada compra e a fatura mostra o total de cada um.</p>
   <ol>
-    <li>Abra <span class="path">Contas e cartões › Cartões</span> (ou <em>Contas</em>) e edite o cartão.</li>
-    <li>Em <strong>Dependentes</strong>, toque em <strong>Adicionar dependente</strong>, informe o nome e, se quiser, o final do cartão adicional.</li>
-    <li>Salve o cartão.</li>
+    <li>Abra <span class="path">Contas e cartões › Cartões</span> (ou <em>Contas</em>) e toque no cartão (ou na conta).</li>
+    <li>Logo abaixo dos dados do cartão fica o quadro <strong>Dependentes</strong>. Toque em <strong>Adicionar dependente</strong>, informe o nome e, se quiser, o final do cartão adicional, e toque em <strong>Salvar</strong>. Pronto: já fica gravado.</li>
+    <li>Para mudar o nome, toque no dependente; para tirar, toque no <strong>X</strong>. (Também dá para fazer isso em <strong>Editar</strong> o cartão.)</li>
     <li>Ao lançar uma compra nesse cartão, aparece o campo <strong>Quem usou</strong>. Escolha a pessoa (em branco = titular).</li>
     <li>Na fatura, a seção <strong>Por pessoa</strong> mostra quanto cada um gastou. Em Movimentações, há a coluna e o filtro <strong>Quem usou</strong>.</li>
   </ol>
+  <p class="muted">O dependente não tem login: ele não entra no app. Se a pessoa precisa entrar e ver ou lançar no mesmo orçamento, convide-a em <a href="#pessoas-na-conta">Pessoas na conta</a>.</p>
 
   <!-- ================================================================ -->
   <h2 id="entrar">5. Criar conta, entrar e sair</h2>
@@ -193,6 +194,7 @@
     <li><strong>Planejamento:</strong> Projeção, Assistente IA, Orçamentos, Metas, Assinaturas, Calculadoras, Projetos, Simulações, Painéis, Importar planilha, Exportar relatórios.</li>
     <li><strong>Configurações:</strong> Preferências, Pessoas na conta, Categorias, Regras de categoria, Open Finance.</li>
   </ul>
+  <p>No fim do menu lateral fica o <strong>Manual do usuário</strong> (esta página).</p>
   <p>A tela <strong>Início</strong> mostra o saldo atual, as pendências do mês (despesas a pagar, receitas a receber, faturas a pagar e vencidas), receitas, despesas, resultado do mês e os próximos vencimentos. Use as setas no topo para trocar o mês. No fim do menu, <strong>Ocultar valores</strong> esconde os números (útil em público).</p>
 
   <!-- ================================================================ -->
@@ -203,6 +205,8 @@
     <li>Toque em <strong>Salvar</strong>.</li>
   </ol>
   <ul>
+    <li><strong>Ajustar saldo:</strong> se o saldo do app não bate com o banco, toque na conta e em <strong>Ajustar saldo</strong>. Informe o saldo real e toque em <strong>Ajustar</strong>: o app lança a diferença como “Ajuste de saldo” (receita ou despesa, na data de hoje). Para desfazer, exclua esse lançamento.</li>
+    <li><strong>Dependentes da conta:</strong> na mesma tela, quadro <strong>Dependentes</strong> (veja <a href="#dependentes">Dependentes</a>).</li>
     <li><strong>Transferir entre contas:</strong> na conta, use <strong>Transferir</strong>, ou lance uma transação do tipo <strong>Transf.</strong></li>
     <li><strong>Não usa mais a conta?</strong> Edite e desligue <strong>Conta ativa</strong>. Contas com lançamentos não podem ser excluídas; contas inativas não somam no saldo.</li>
   </ul>
@@ -299,23 +303,24 @@
 
   <!-- ================================================================ -->
   <h2 id="fechar-mes">16. Fechar mês, ajustar e reverter</h2>
+  <p class="muted">Quer corrigir o <strong>saldo de uma conta</strong> (o que o banco mostra)? Isso é outra coisa: veja <a href="#contas">Ajustar saldo</a> em Contas.</p>
   <p>Fechar um mês congela o resultado: lançamentos feitos ou alterados depois não mudam mais aquele mês em Início, Projeção, gráficos e relatórios. O saldo real das contas não muda.</p>
   <h3>Fechar um mês</h3>
   <ol>
     <li>Abra <span class="path">Planejamento › Projeção</span>.</li>
-    <li>Toque no <strong>nome do mês</strong> (cabeçalho da coluna).</li>
+    <li>Logo abaixo dos indicadores, toque em <strong>Ajustar ou fechar mês</strong> e escolha o mês. (Atalho: tocar no <strong>nome do mês</strong> no cabeçalho da tabela.)</li>
     <li>Toque em <strong>Fechar mês</strong>. O mês fica fechado com os valores calculados agora.</li>
   </ol>
   <h3>Ajustar o resultado manualmente</h3>
   <ol>
-    <li>Toque no nome do mês e escolha <strong>Ajustar resultado manualmente</strong>.</li>
+    <li>Toque em <strong>Ajustar ou fechar mês</strong>, escolha o mês e depois <strong>Ajustar resultado manualmente</strong>.</li>
     <li>Informe as <strong>receitas</strong> e <strong>despesas</strong> que valem para o mês e, se quiser, uma observação (ex.: “conferido com o extrato”).</li>
     <li>Toque em <strong>Salvar e fechar mês</strong>.</li>
   </ol>
   <h3>Reverter (reabrir)</h3>
   <ul>
-    <li><strong>Um mês:</strong> toque no nome do mês e escolha <strong>Reabrir mês (reverter)</strong>, ou <strong>Desfazer só o ajuste</strong> para mantê-lo fechado com os valores calculados.</li>
-    <li><strong>Vários de uma vez:</strong> na Projeção, toque no ícone de relógio com cadeado (<strong>Fechamentos e ajustes</strong>) e use <strong>Reverter ajustes manuais</strong> ou <strong>Reabrir todos</strong>.</li>
+    <li><strong>Um mês:</strong> toque em <strong>Ajustar ou fechar mês</strong>, escolha o mês e depois <strong>Reabrir mês (reverter)</strong>, ou <strong>Desfazer só o ajuste</strong> para mantê-lo fechado com os valores calculados.</li>
+    <li><strong>Vários de uma vez:</strong> na Projeção, toque em <strong>Ver ajustes</strong> (ou no ícone de relógio com cadeado no topo) e use <strong>Reverter ajustes manuais</strong> ou <strong>Reabrir todos</strong>.</li>
   </ul>
 
   <!-- ================================================================ -->

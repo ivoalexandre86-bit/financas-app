@@ -188,6 +188,68 @@ class _ProjectionScreenState extends State<ProjectionScreen>
     if (r is Money) setState(() => openingOverride = r);
   }
 
+  /// Escolhe o mês e abre as ações de fechar / ajustar / reabrir.
+  Future<void> _pickMonthToAdjust(List<YearMonth> months) async {
+    final fc = context.read<FinanceController>();
+    final now = YearMonth.now();
+    final m = await showModalBottomSheet<YearMonth>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(ctx).height * 0.7,
+          ),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(24, 0, 24, 4),
+                child: Text(
+                  'Qual mês você quer ajustar ou fechar?',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+                child: Text(
+                  'Dica: na tabela, tocar no nome do mês abre a mesma opção.',
+                ),
+              ),
+              for (final month in months)
+                Builder(
+                  builder: (_) {
+                    final c = fc.closingOf(month);
+                    return ListTile(
+                      key: ValueKey('proj-adjust-pick-${month.key}'),
+                      leading: Icon(
+                        c == null
+                            ? Icons.calendar_month_outlined
+                            : c.isAdjusted
+                            ? Icons.tune
+                            : Icons.lock,
+                      ),
+                      title: Text(month.longLabel),
+                      subtitle: Text(
+                        c == null
+                            ? (month == now ? 'Mês atual · aberto' : 'Aberto')
+                            : c.isAdjusted
+                            ? 'Ajustado manualmente'
+                            : 'Fechado',
+                      ),
+                      onTap: () => Navigator.pop(ctx, month),
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (m != null && mounted) await showMonthClosingActions(context, m);
+  }
+
   @override
   Widget build(BuildContext context) {
     final fc = context.watch<FinanceController>();
@@ -314,6 +376,31 @@ class _ProjectionScreenState extends State<ProjectionScreen>
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: _ProjectionKpis(result: result),
+          ),
+          // Ajuste manual / fechamento do mês, à vista (também abre tocando no
+          // nome do mês na tabela).
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  key: const ValueKey('proj-adjust-month'),
+                  icon: const Icon(Icons.tune, size: 18),
+                  label: const Text('Ajustar ou fechar mês'),
+                  onPressed: () =>
+                      _pickMonthToAdjust([for (final c in cols) c.month]),
+                ),
+                if (e.data.monthClosings.isNotEmpty)
+                  TextButton.icon(
+                    icon: const Icon(Icons.lock_clock, size: 18),
+                    label: Text('Ver ajustes (${e.data.monthClosings.length})'),
+                    onPressed: () => push(context, const MonthClosingsScreen()),
+                  ),
+              ],
+            ),
           ),
           if (shown.from != YearMonth.now())
             Center(
