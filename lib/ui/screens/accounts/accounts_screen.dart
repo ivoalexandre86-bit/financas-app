@@ -10,6 +10,8 @@ import '../../theme.dart';
 import '../../widgets/category_icons.dart';
 import '../../widgets/common.dart';
 import '../../widgets/dependents_editor.dart';
+import '../../widgets/active_filter.dart';
+import '../../widgets/filters_panel.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
@@ -37,21 +39,30 @@ class AccountsScreen extends StatefulWidget {
 class _AccountsScreenState extends State<AccountsScreen>
     with RememberedFilters {
   ViewMode view = ViewMode.cards;
+  ActiveFilter situation = ActiveFilter.active;
 
   @override
   String get filterKey => 'accounts';
 
   @override
-  Map<String, Object?> filtersToJson() => {'view': view.name};
+  Map<String, Object?> filtersToJson() => {
+    'view': view.name,
+    'situation': situation.name,
+  };
 
   @override
-  void restoreFilters(Map<String, Object?> saved, FinanceController fc) =>
-      view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
+  void restoreFilters(Map<String, Object?> saved, FinanceController fc) {
+    view = FilterJson.enumOrNull(ViewMode.values, saved['view']) ?? view;
+    situation =
+        FilterJson.enumOrNull(ActiveFilter.values, saved['situation']) ??
+        situation;
+  }
 
   @override
   Widget build(BuildContext context) {
     final fc = context.watch<FinanceController>();
-    final accounts = [...fc.data.accounts]
+    final all = fc.data.accounts;
+    final accounts = [...all.where((x) => situation.matches(x.active))]
       ..sort(
         (a, b) => a.active == b.active
             ? a.name.compareTo(b.name)
@@ -66,6 +77,22 @@ class _AccountsScreenState extends State<AccountsScreen>
             mode: view,
             onChanged: (v) => setFilters(() => view = v),
           ),
+          FilterButton(
+            keyPrefix: 'accounts',
+            active: situation.count,
+            panel: FilterPanel(
+              keyPrefix: 'accounts',
+              active: situation.count,
+              onClear: () => setFilters(() => situation = ActiveFilter.active),
+              fields: (_) => [
+                ActiveFilterField(
+                  keyName: 'accounts-situation',
+                  value: situation,
+                  onChanged: (v) => setFilters(() => situation = v),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -74,7 +101,7 @@ class _AccountsScreenState extends State<AccountsScreen>
         icon: const Icon(Icons.add),
         label: const Text('Nova conta'),
       ),
-      body: accounts.isEmpty
+      body: all.isEmpty
           ? EmptyState(
               icon: Icons.account_balance_outlined,
               title: 'Nenhuma conta cadastrada',
@@ -103,7 +130,17 @@ class _AccountsScreenState extends State<AccountsScreen>
                   ),
                 ),
                 const SizedBox(height: 12),
-                if (view == ViewMode.grid)
+                if (accounts.isEmpty)
+                  EmptyState(
+                    icon: Icons.filter_alt_outlined,
+                    title: situation == ActiveFilter.inactive
+                        ? 'Nenhuma conta inativa'
+                        : 'Nenhuma conta ativa',
+                    actionLabel: 'Mostrar todas',
+                    onAction: () =>
+                        setFilters(() => situation = ActiveFilter.all),
+                  )
+                else if (view == ViewMode.grid)
                   AccountsGrid(accounts: accounts)
                 else
                   Card(

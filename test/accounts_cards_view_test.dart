@@ -60,9 +60,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('accounts-view-grid')));
     await tester.pump();
     expect(find.byKey(const ValueKey('acc-row-nu')), findsOneWidget);
-    expect(find.byKey(const ValueKey('acc-row-old')), findsOneWidget);
-    expect(find.text('Saldo das ativas · 2 contas'), findsOneWidget);
-    expect(fc.gridFilter('accounts'), {'view': 'grid'});
+    // Padrão: só as ativas.
+    expect(find.byKey(const ValueKey('acc-row-old')), findsNothing);
+    expect(fc.gridFilter('accounts'), {'view': 'grid', 'situation': 'active'});
     // Reabrir a tela mantém a grade.
     await tester.pumpWidget(const SizedBox());
     await tester.pumpWidget(app(fc, const AccountsScreen()));
@@ -71,7 +71,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('accounts-view-cards')));
     await tester.pump();
     expect(find.byKey(const ValueKey('acc-row-nu')), findsNothing);
-    expect(fc.gridFilter('accounts'), {'view': 'cards'});
+    expect(fc.gridFilter('accounts')!['view'], 'cards');
     expect(tester.takeException(), isNull);
   });
 
@@ -89,10 +89,80 @@ void main() {
     expect(find.byType(CreditCardVisual), findsNothing);
     expect(find.byKey(const ValueKey('card-row-c6')), findsOneWidget);
     expect(find.text('Total dos ativos · 1 cartão'), findsOneWidget);
-    expect(fc.gridFilter('cards'), {'view': 'grid'});
+    expect(fc.gridFilter('cards')!['view'], 'grid');
     await tester.binding.setSurfaceSize(const Size(400, 900));
     await tester.pump();
     expect(find.byKey(const ValueKey('card-row-c6')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'contas e cartões: filtro Situação mostra ativos, inativos ou todos',
+    (tester) async {
+      final fc = await setup(tester);
+      await tester.runAsync(() async {
+        await fc.saveCard(
+          CreditCard(
+            id: 'velho',
+            name: 'Velho',
+            closingDay: 10,
+            dueDay: 20,
+            limit: const Money(100000),
+            active: false,
+          ),
+        );
+        await fc.setFilterStyle(FilterStyle.checklist);
+      });
+      await tester.binding.setSurfaceSize(const Size(1600, 1200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      Finder key(String k) => find.byKey(ValueKey(k), skipOffstage: false);
+
+      // Contas.
+      await tester.pumpWidget(app(fc, const AccountsScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('accounts-view-grid')));
+      await tester.pumpAndSettle();
+      expect(key('acc-row-nu'), findsOneWidget);
+      expect(key('acc-row-old'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('accounts-filters')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('accounts-situation-inactive')),
+      );
+      await tester.pumpAndSettle();
+      expect(key('acc-row-nu'), findsNothing);
+      expect(key('acc-row-old'), findsOneWidget);
+      expect(fc.gridFilter('accounts')!['situation'], 'inactive');
+      await tester.tap(find.byKey(const ValueKey('accounts-situation-all')));
+      await tester.pumpAndSettle();
+      expect(key('acc-row-nu'), findsOneWidget);
+      expect(key('acc-row-old'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('accounts-situation-clear')));
+      await tester.pumpAndSettle();
+      expect(key('acc-row-old'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('accounts-filters-done')));
+      await tester.pumpAndSettle();
+
+      // Cartões: escolha lembrada ao reabrir.
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(app(fc, const CardsScreen()));
+      await tester.pumpAndSettle();
+      expect(find.byType(CreditCardVisual), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('cards-filters')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('cards-situation-all')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(CreditCardVisual, skipOffstage: false),
+        findsNWidgets(2),
+      );
+      await tester.tap(find.byKey(const ValueKey('cards-filters-done')));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(app(fc, const CardsScreen()));
+      await tester.pumpAndSettle();
+      expect(find.byType(CreditCardVisual), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
