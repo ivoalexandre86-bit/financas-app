@@ -15,6 +15,7 @@ import '../../widgets/plan_upsell.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
 import 'drilldown_screen.dart';
+import 'month_adjust_screen.dart';
 import 'month_closing_ui.dart';
 import 'projection_filters_screen.dart';
 
@@ -189,7 +190,10 @@ class _ProjectionScreenState extends State<ProjectionScreen>
   }
 
   /// Escolhe o mês e abre as ações de fechar / ajustar / reabrir.
-  Future<void> _pickMonthToAdjust(List<YearMonth> months) async {
+  Future<void> _pickMonthToAdjust(
+    List<YearMonth> months,
+    MonthRange shown,
+  ) async {
     final fc = context.read<FinanceController>();
     final now = YearMonth.now();
     final m = await showModalBottomSheet<YearMonth>(
@@ -207,7 +211,7 @@ class _ProjectionScreenState extends State<ProjectionScreen>
               const Padding(
                 padding: EdgeInsets.fromLTRB(24, 0, 24, 4),
                 child: Text(
-                  'Qual mês você quer ajustar ou fechar?',
+                  'Qual mês você quer fechar ou reabrir?',
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
@@ -247,7 +251,9 @@ class _ProjectionScreenState extends State<ProjectionScreen>
         ),
       ),
     );
-    if (m != null && mounted) await showMonthClosingActions(context, m);
+    if (m != null && mounted) {
+      await showMonthClosingActions(context, m, range: shown);
+    }
   }
 
   @override
@@ -389,9 +395,17 @@ class _ProjectionScreenState extends State<ProjectionScreen>
                 OutlinedButton.icon(
                   key: const ValueKey('proj-adjust-month'),
                   icon: const Icon(Icons.tune, size: 18),
-                  label: const Text('Ajustar ou fechar mês'),
+                  label: const Text('Ajustar mês a mês'),
                   onPressed: () =>
-                      _pickMonthToAdjust([for (final c in cols) c.month]),
+                      push(context, MonthAdjustScreen(range: shown)),
+                ),
+                TextButton.icon(
+                  key: const ValueKey('proj-close-month'),
+                  icon: const Icon(Icons.lock_outline, size: 18),
+                  label: const Text('Fechar ou reabrir mês'),
+                  onPressed: () => _pickMonthToAdjust([
+                    for (final c in cols) c.month,
+                  ], shown),
                 ),
                 if (e.data.monthClosings.isNotEmpty)
                   TextButton.icon(
@@ -621,7 +635,11 @@ class _ProjectionScreenState extends State<ProjectionScreen>
                     : Colors.transparent,
                 child: InkWell(
                   key: ValueKey('proj-month-${c.month.key}'),
-                  onTap: () => showMonthClosingActions(context, c.month),
+                  onTap: () => showMonthClosingActions(
+                    context,
+                    c.month,
+                    range: MonthRange(cols.first.month, cols.last.month),
+                  ),
                   child: Container(
                     width: cellW,
                     height: _headerH,

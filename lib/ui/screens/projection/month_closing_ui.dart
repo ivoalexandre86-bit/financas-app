@@ -10,11 +10,26 @@ import '../../nav.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
+import 'month_adjust_screen.dart';
 
 // Fechar o mês, ajustar o resultado manualmente e reverter (reabrir).
 
 /// Folha de ações de um mês: fechar, ajustar, editar o ajuste ou reabrir.
-Future<void> showMonthClosingActions(BuildContext context, YearMonth month) {
+///
+/// "Ajustar" abre a grade [MonthAdjustScreen] com [range] (padrão: o mês e
+/// os seguintes, 6 meses), com o foco no mês.
+Future<void> showMonthClosingActions(
+  BuildContext context,
+  YearMonth month, {
+  MonthRange? range,
+}) {
+  void openGrid() => push(
+    context,
+    MonthAdjustScreen(
+      range: range ?? MonthRange.starting(month, 6),
+      focus: month,
+    ),
+  );
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -68,11 +83,11 @@ Future<void> showMonthClosingActions(BuildContext context, YearMonth month) {
                 leading: const Icon(Icons.tune),
                 title: const Text('Ajustar resultado manualmente'),
                 subtitle: const Text(
-                  'Informe as receitas e despesas que valem para o mês.',
+                  'Abre a grade para digitar o ajuste mês a mês.',
                 ),
                 onTap: () {
                   Navigator.pop(ctx);
-                  showAdjustMonthDialog(context, month);
+                  openGrid();
                 },
               ),
             ] else ...[
@@ -86,7 +101,7 @@ Future<void> showMonthClosingActions(BuildContext context, YearMonth month) {
                 ),
                 onTap: () {
                   Navigator.pop(ctx);
-                  showAdjustMonthDialog(context, month);
+                  openGrid();
                 },
               ),
               if (closing.isAdjusted)

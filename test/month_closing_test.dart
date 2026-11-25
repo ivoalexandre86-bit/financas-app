@@ -4,6 +4,7 @@ import 'package:financas_app/domain/engine/financial_engine.dart';
 import 'package:financas_app/domain/models/entities.dart';
 import 'package:financas_app/domain/models/month_closing.dart';
 import 'package:financas_app/state/finance_controller.dart';
+import 'package:financas_app/ui/screens/projection/month_adjust_screen.dart';
 import 'package:financas_app/ui/screens/projection/month_closing_ui.dart';
 import 'package:financas_app/ui/screens/projection/projection_screen.dart';
 import 'package:financas_app/ui/theme.dart';
@@ -138,6 +139,28 @@ void main() {
     },
   );
 
+  test('ajustes mês a mês: soma ao resultado e zero reabre', () async {
+    final fc = await _setup();
+    await fc.closeMonth(prev);
+    await fc.saveMonthAdjustments({
+      month: const Money(-50000),
+      month.add(1): const Money(12345),
+      prev: Money.zero,
+    });
+    final c = fc.closingOf(month)!;
+    expect(c.income.cents, 500000);
+    expect(c.expenses.cents, 250000);
+    expect(c.adjustment, const Money(-50000));
+    final next = fc.closingOf(month.add(1))!;
+    expect(next.net, const Money(12345));
+    expect(next.isAdjusted, isTrue);
+    expect(fc.closingOf(prev), isNull);
+    expect(
+      fc.engine.monthTotals(ProjectionFilter.none, month).net,
+      const Money(250000),
+    );
+  });
+
   test('ajuste não aceita valores negativos', () async {
     final fc = await _setup();
     expect(
@@ -182,25 +205,25 @@ void main() {
     expect(fc.closingOf(month), isNotNull);
     expect(find.text('fechado'), findsOneWidget);
 
-    // Ajuste manual pelo diálogo.
+    // Ajuste manual: abre a grade mês a mês e digita o ajuste.
     await tester.tap(find.byKey(ValueKey('proj-month-${month.key}')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('closing-adjust')));
     await tester.pumpAndSettle();
+    expect(find.byType(MonthAdjustScreen), findsOneWidget);
     await tester.enterText(
-      find.descendant(
-        of: find.byKey(const ValueKey('adjust-expenses')),
-        matching: find.byType(TextFormField),
-      ),
-      '2500,00',
+      find.byKey(ValueKey('adjust-cell-${month.key}')),
+      '-500',
     );
     await tester.pump();
+    expect(find.text('Salvar (1)'), findsOneWidget);
     await tester.runAsync(() async {
-      await tester.tap(find.byKey(const ValueKey('adjust-save')));
+      await tester.tap(find.byKey(const ValueKey('adjust-grid-save')));
       await tester.pump();
       await Future<void>.delayed(const Duration(milliseconds: 50));
     });
     await tester.pumpAndSettle();
+    expect(find.byType(MonthAdjustScreen), findsNothing);
     expect(fc.closingOf(month)!.expenses.cents, 250000);
     expect(fc.closingOf(month)!.isAdjusted, isTrue);
     expect(find.text('ajustado'), findsOneWidget);
