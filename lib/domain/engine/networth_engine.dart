@@ -22,16 +22,27 @@ class NetWorth {
   /// Parcelas a vencer: em conta (não pagas) e no cartão (faturas futuras).
   final Money installments;
 
+  /// Ajustes manuais do resultado dos meses já passados (Projeção ›
+  /// Ajustar mês a mês): a diferença entre o resultado informado e o
+  /// calculado pelos lançamentos.
+  final Money resultAdjustments;
+
   const NetWorth({
     required this.accounts,
     required this.assets,
     required this.liabilities,
     required this.cardInvoices,
     required this.installments,
+    this.resultAdjustments = Money.zero,
   });
 
   Money get total =>
-      accounts + assets - liabilities - cardInvoices - installments;
+      accounts +
+      assets -
+      liabilities -
+      cardInvoices -
+      installments +
+      resultAdjustments;
 }
 
 /// Ponto do gráfico de evolução (fim de cada mês).
@@ -62,7 +73,17 @@ class NetWorthEngine {
       liabilities: liabilities,
       cardInvoices: openInvoices,
       installments: remainingInstallments,
+      resultAdjustments: adjustmentsUntil(engine.currentMonth),
     );
+  }
+
+  /// Soma dos ajustes manuais do resultado dos meses até [month].
+  Money adjustmentsUntil(YearMonth month) {
+    var total = Money.zero;
+    for (final c in data.monthClosings) {
+      if (c.month <= month) total += c.adjustment;
+    }
+    return total;
   }
 
   /// Faturas até a atual (as futuras entram em [remainingInstallments]).
@@ -155,7 +176,7 @@ class NetWorthEngine {
   }
 
   Money _pastTotal(List<Asset> items, DateTime end) {
-    var v = accountsAt(end);
+    var v = accountsAt(end) + adjustmentsUntil(YearMonth.of(end));
     for (final a in items) {
       final x = a.valueAt(end);
       if (x != null) v += a.isLiability ? -x : x;
