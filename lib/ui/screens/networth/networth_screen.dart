@@ -105,8 +105,8 @@ class _NetWorthScreenState extends State<NetWorthScreen>
                 const SizedBox(height: 8),
                 Text(
                   'Meses anteriores: saldo das contas + bens − dívidas pelo '
-                  'histórico de valores. O mês atual inclui cartões e '
-                  'parcelas.',
+                  'histórico de valores, mais os ajustes de resultado dos '
+                  'meses fechados. O mês atual inclui cartões e parcelas.',
                   style: context.text.bodySmall?.copyWith(
                     color: context.fin.subtle,
                   ),
@@ -232,6 +232,13 @@ class NetWorthSummary extends StatelessWidget {
             nw.installments,
             minus: true,
           ),
+          if (!nw.resultAdjustments.isZero)
+            line(
+              'adjustments',
+              'Ajustes de resultado (meses fechados)',
+              nw.resultAdjustments.abs(),
+              minus: nw.resultAdjustments.isNegative,
+            ),
           const Divider(),
           Row(
             children: [

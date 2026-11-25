@@ -1,3 +1,4 @@
+import 'package:financas_app/core/dates.dart';
 import 'package:financas_app/core/money.dart';
 import 'package:financas_app/domain/models/entities.dart';
 import 'package:financas_app/state/finance_controller.dart';
@@ -92,5 +93,40 @@ void main() {
     await tester.pumpAndSettle();
     expect(fc.data.cardById['c1']!.dependents.single.name, 'Bia');
     expect(find.text('Bia'), findsOneWidget);
+  });
+
+  test('ajustes de saldo e de resultado refletem no patrimônio', () async {
+    final fc = FinanceController(MemoryRepo());
+    await fc.load();
+    await fc.saveAccount(
+      Account(id: 'a1', name: 'Nubank', initialBalance: const Money(10000)),
+    );
+    final before = fc.netWorthEngine.compute(const []).total;
+    expect(before, const Money(10000));
+
+    // Ajustar saldo (lança a diferença na conta).
+    await fc.saveTransaction(
+      FinTransaction(
+        id: 'adj',
+        type: TransactionType.income,
+        amount: const Money(5000),
+        description: 'Ajuste de saldo',
+        date: fc.today,
+        accountId: 'a1',
+      ),
+    );
+    expect(fc.netWorthEngine.compute(const []).total, const Money(15000));
+
+    // Ajuste do resultado de um mês passado entra; de um mês futuro, não.
+    final now = YearMonth.now();
+    await fc.saveMonthAdjustments({
+      now.add(-1): const Money(-2000),
+      now.add(2): const Money(9999),
+    });
+    final nw = fc.netWorthEngine.compute(const []);
+    expect(nw.resultAdjustments, const Money(-2000));
+    expect(nw.total, const Money(13000));
+    final hist = fc.netWorthEngine.history(const [], maxMonths: 3);
+    expect(hist.last.value, const Money(13000));
   });
 }
