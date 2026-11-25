@@ -348,6 +348,66 @@ void main() {
       expect(e.availableLimit(card), const Money(1000000 - 360000));
     });
 
+    test('cartão e conta inativos ficam fora da projeção (exceto pagos)', () {
+      final txs = [
+        FinTransaction(
+          id: 'pend',
+          type: TransactionType.expense,
+          amount: const Money(2000),
+          description: 'Cartão aberto',
+          date: DateTime(2026, 9, 20),
+          cardId: 'c',
+        ), // fatura out/26, vence 17/10, não paga
+        FinTransaction(
+          id: 'paid',
+          type: TransactionType.expense,
+          amount: const Money(3000),
+          description: 'Cartão pago',
+          date: DateTime(2026, 8, 5),
+          cardId: 'c',
+        ), // fatura ago/26, paga em 15/08
+        FinTransaction(
+          id: 'acc',
+          type: TransactionType.expense,
+          amount: const Money(1000),
+          description: 'Conta pendente',
+          date: DateTime(2026, 10, 2),
+          accountId: 'a',
+          status: TransactionStatus.pending,
+        ),
+        FinTransaction(
+          id: 'accDone',
+          type: TransactionType.expense,
+          amount: const Money(500),
+          description: 'Conta concluída',
+          date: DateTime(2026, 8, 2),
+          accountId: 'a',
+          status: TransactionStatus.completed,
+        ),
+      ];
+      final pays = [
+        InvoicePayment(
+          id: 'p',
+          cardId: 'c',
+          invoiceKey: '2026-08',
+          amount: const Money(3000),
+          date: DateTime(2026, 8, 15),
+        ),
+      ];
+      final data = FinanceData(
+        accounts: [acc.copyWith(active: false)],
+        cards: [card.copyWith(active: false)],
+        transactions: txs,
+        invoicePayments: pays,
+      );
+      final e = FinancialEngine(data, today: DateTime(2026, 9, 1));
+      final ids = {
+        for (final m in [YearMonth(2026, 8), YearMonth(2026, 10)])
+          ...e.monthEvents(ProjectionFilter.none, m).map((x) => x.tx.id),
+      };
+      expect(ids, {'paid', 'accDone'});
+    });
+
     test('drill-down usa as mesmas regras da matriz', () {
       final txs = [
         FinTransaction(
