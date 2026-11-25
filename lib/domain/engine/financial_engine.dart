@@ -660,6 +660,14 @@ class FinancialEngine {
     };
   }
 
+  /// Lançamento ainda não realizado numa conta inativa: fica fora da
+  /// projeção e dos totais (o que já foi concluído continua no histórico).
+  bool _inactivePending(FinTransaction tx) {
+    if (tx.status == TransactionStatus.completed) return false;
+    final acc = data.accountById[tx.accountId];
+    return acc != null && !acc.active;
+  }
+
   /// Eventos reconhecidos (receitas e despesas) até o fim de [until],
   /// aplicando o filtro.
   Iterable<RecognizedEvent> recognizedEvents(
@@ -673,6 +681,7 @@ class FinancialEngine {
     final index = _invoiceIndex(until.add(2));
     for (final tx in transactionsUntil(until.lastDay)) {
       if (tx.isTransfer || tx.cardId != null || !match(tx)) continue;
+      if (_inactivePending(tx)) continue;
       final m = YearMonth.of(tx.date);
       if (m > until) continue;
       final signed = tx.type == TransactionType.income ? tx.amount : -tx.amount;
@@ -681,10 +690,13 @@ class FinancialEngine {
     for (final byMonth in index.values) {
       for (final inv in byMonth.values) {
         if (inv.slices.every((s) => s.month > until)) continue;
+        final inactive = !inv.card.active;
         for (final tx in inv.transactions) {
           if (!match(tx)) continue;
           for (final sh in inv.shares[tx.id] ?? const <TxShare>[]) {
             if (sh.month > until || sh.amount.isZero) continue;
+            // Cartão inativo: só o que já foi pago (histórico) conta.
+            if (inactive && !sh.slice.settled) continue;
             yield RecognizedEvent(
               tx,
               sh.month,
