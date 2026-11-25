@@ -1202,6 +1202,33 @@ class FinanceController extends ChangeNotifier {
     return c;
   }
 
+  /// Grava, de uma vez, o ajuste do resultado de vários meses (grade
+  /// "Ajustar mês a mês"). Para cada mês, [adjustments] traz quanto somar ao
+  /// resultado calculado agora (positivo = mais receita, negativo = mais
+  /// despesa). Zero reabre o mês (volta ao cálculo automático).
+  Future<void> saveMonthAdjustments(Map<YearMonth, Money> adjustments) async {
+    final ops = <WriteOp>[];
+    for (final MapEntry(key: month, value: delta) in adjustments.entries) {
+      final old = closingOf(month);
+      if (delta.isZero) {
+        if (old != null) ops.add(WriteOp.delete(Coll.monthClosings, month.key));
+        continue;
+      }
+      final t = engine.computedMonthTotals(ProjectionFilter.none, month);
+      final c = MonthClosing(
+        month: month,
+        income: delta.isNegative ? t.income : t.income + delta,
+        expenses: delta.isNegative ? t.expenses - delta : t.expenses,
+        computedIncome: t.income,
+        computedExpenses: t.expenses,
+        note: old?.note,
+        createdAt: old?.createdAt,
+      );
+      ops.add(WriteOp.put(Coll.monthClosings, c.id, c.toJson()));
+    }
+    if (ops.isNotEmpty) await _commit(ops);
+  }
+
   /// Reabre o mês: desfaz o fechamento/ajuste e volta ao cálculo automático.
   Future<void> reopenMonth(YearMonth month) => reopenMonths([month]);
 
