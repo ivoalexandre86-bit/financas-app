@@ -23,6 +23,83 @@ test('pedido de resumo e mês pedido', () => {
   assert.equal(parseSummaryRequest('gastei 50 no mercado', today), null);
 });
 
+test('pedido de resumo em linguagem natural', () => {
+  const t = '2026-11-26';
+  assert.equal(parseSummaryRequest('Mande um resumo do mês atual', t), '2026-11');
+  assert.equal(parseSummaryRequest('me manda o resumo do mês passado por favor', t), '2026-10');
+  assert.equal(parseSummaryRequest('Pode me mandar o extrato de outubro?', t), '2026-10');
+  assert.equal(parseSummaryRequest('como está meu mês?', t), '2026-11');
+  assert.equal(parseSummaryRequest('Como estão as finanças?', t), '2026-11');
+  assert.equal(parseSummaryRequest('quanto gastei esse mês', t), '2026-11');
+  assert.equal(parseSummaryRequest('quanto vai sobrar no próximo mês?', t), '2026-12');
+  assert.equal(parseSummaryRequest('qual o saldo de dezembro', t), '2026-12');
+  assert.equal(parseSummaryRequest('resumo 01/2027', t), '2027-01');
+  assert.equal(parseSummaryRequest('uber 23 ontem no cartão Nubank', t), null);
+  assert.equal(parseSummaryRequest('paguei 120,50 de luz', t), null);
+  assert.equal(parseSummaryRequest('quando é o fechamento do nubank?', t), null);
+  assert.equal(parseSummaryRequest('cabe uma TV de 3.000 em 12x?', t), null);
+});
+
+test('resumo igual à Projeção: fechamento, inativos e fatura paga antes', () => {
+  const docs = {
+    accounts: [
+      { id: 'a', initialBalance: 100000 },
+      { id: 'old', initialBalance: 0, active: false },
+    ],
+    cards: [
+      { id: 'nu', name: 'Nubank', closingDay: 3, dueDay: 10 },
+      { id: 'velho', name: 'Velho', closingDay: 3, dueDay: 10, active: false },
+    ],
+    transactions: [
+      { id: 'i1', type: 'income', amount: 500000, date: '2026-11-05', status: 'completed', accountId: 'a' },
+      // conta inativa: o que está em aberto não conta, o concluído conta
+      { id: 'x1', type: 'expense', amount: 1760000, date: '2026-11-10', status: 'planned', accountId: 'old' },
+      { id: 'x2', type: 'expense', amount: 1000, date: '2026-11-10', status: 'completed', accountId: 'old' },
+      // fatura de dezembro (fecha 03/12, vence 10/12) paga em 28/11: conta em novembro
+      { id: 'c1', type: 'expense', amount: 40000, date: '2026-11-20', status: 'pending', cardId: 'nu' },
+      // cartão inativo sem pagamento: fora
+      { id: 'c2', type: 'expense', amount: 9900, date: '2026-10-20', status: 'pending', cardId: 'velho' },
+    ],
+    invoicePayments: [{ cardId: 'nu', invoiceKey: '2026-12', amount: 40000, date: '2026-11-28', accountId: 'a' }],
+  };
+  const s = computeSummary(docs, '2026-11', '2026-11-26');
+  assert.deepEqual(s.income, { done: 500000, open: 0 });
+  assert.deepEqual(s.expense, { done: 41000, open: 0 });
+  assert.equal(s.accumulated, 100000 + 500000 - 41000);
+  assert.equal(s.closing, null);
+
+  // Mês fechado: valem os valores do fechamento, também no acumulado.
+  docs.monthClosings = [{ id: '2026-11', month: '2026-11', income: 300000, expenses: 300000, computedIncome: 1, computedExpenses: 1 }];
+  const c = computeSummary(docs, '2026-11', '2026-11-26');
+  assert.equal(c.closing.income, 300000);
+  assert.equal(c.accumulated, 100000);
+  const text = formatMonthSummary(c, '2026-11-26');
+  assert.match(text, /Mês fechado/);
+  assert.match(text, /Receitas: \*R\$\s3\.000,00\*/);
+  assert.match(text, /Resultado: \*R\$\s0,00\*/);
+  assert.match(text, /Pelos lançamentos seria/);
+});
+
+test('fatura paga em duas vezes divide as compras como o app', () => {
+  const docs = {
+    cards: [{ id: 'nu', name: 'Nubank', closingDay: 3, dueDay: 10 }],
+    transactions: [
+      { id: 'a', type: 'expense', amount: 10001, date: '2026-09-20', status: 'pending', cardId: 'nu' },
+      { id: 'b', type: 'expense', amount: 19999, date: '2026-09-21', status: 'pending', cardId: 'nu' },
+    ],
+    // fatura de outubro (vence 10/10): 10.000 pagos em setembro, resto em outubro
+    invoicePayments: [
+      { cardId: 'nu', invoiceKey: '2026-10', amount: 10000, date: '2026-09-30' },
+      { cardId: 'nu', invoiceKey: '2026-10', amount: 20000, date: '2026-10-10' },
+    ],
+  };
+  const sep = computeSummary(docs, '2026-09', '2026-10-15');
+  const oct = computeSummary(docs, '2026-10', '2026-10-15');
+  assert.equal(sep.expense.done, 10000);
+  assert.equal(oct.expense.done, 20000);
+  assert.equal(sep.expense.done + oct.expense.done, 30000);
+});
+
 test('recorrências e faturas seguem as regras do app', () => {
   const rule = { id: 'r', frequency: 'monthly', startDate: '2026-01-31', pauses: [{ from: '2026-03-01', to: '2026-04-01' }] };
   assert.deepEqual(occurrences(rule, '2026-05-31'), ['2026-01-31', '2026-02-28', '2026-04-30', '2026-05-31']);
@@ -58,8 +135,10 @@ test('resumo do mês na visão de caixa', () => {
   };
   const s = computeSummary(docs, '2026-10', today);
   assert.deepEqual(s.income, { done: 500000, open: 100000 });
-  assert.deepEqual(s.expense, { done: 25000, open: 35000 });
-  assert.deepEqual(s.invoices, [{ card: 'Nubank', due: '2026-10-10', total: 20000, remaining: 15000 }]);
+  // pagamento sem data conta no vencimento; o saldo da fatura fica a pagar
+  assert.deepEqual(s.expense, { done: 30000, open: 50000 });
+  assert.equal(s.cardExpenses, 20000);
+  assert.deepEqual(s.invoices, [{ card: 'Nubank', due: '2026-10-10', inMonth: 20000, total: 20000, remaining: 15000 }]);
   assert.deepEqual(s.topCategories[0], { name: 'Casa', amount: 45000 });
   assert.deepEqual(s.upcoming.map((u) => u.label), ['Fatura Nubank', undefined]);
   assert.deepEqual(s.overdue, { count: 1, total: 5000 });

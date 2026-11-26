@@ -48,7 +48,7 @@ const HELP =
   'Mande um gasto ou recebimento e eu lanço no app. Pode ser texto, foto do cupom/comprovante ou áudio.\n\n' +
   'Exemplos:\n• gastei 45,90 no mercado\n• uber 23 ontem no cartão Nubank\n• tênis 600 em 3x no cartão\n• recebi 3500 de salário\n\n' +
   'Se você participa de despesas compartilhadas, eu pergunto se o gasto é só seu ou dividido no grupo.\n\n' +
-  'Para ver como está o mês, mande *resumo* (ou "resumo mês passado", "resumo novembro").\n\n' +
+  'Para ver como está o mês, peça do seu jeito: *resumo*, "mande um resumo do mês atual", "como está meu mês?", "resumo de outubro". Os números são os mesmos da Projeção do app.\n\n' +
   'Pensando numa compra? Pergunte: *cabe uma TV de 3.000 em 12x?* ou ' +
   '"posso comprar um celular de 2 mil em 10x no Nubank a partir de janeiro?"\n\n' +
   'Boletos: mande a foto, o PDF ou a linha digitável. Eu lanço, te lembro na véspera e no vencimento e ajudo a pagar. Mande *boletos* para ver os que estão em aberto.';
@@ -474,7 +474,8 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
       `select coll, data from app_docs
        where user_id = data_owner($1) and not deleted
          and coll in ('transactions', 'recurringTransactions', 'cards',
-                      'categories', 'invoicePayments', 'budgets')`,
+                      'categories', 'invoicePayments', 'budgets', 'accounts',
+                      'monthClosings')`,
       [userId],
     );
     const docs = {};
