@@ -262,12 +262,27 @@ function createApp({
   /// cada pessoa cria a sua; sem ele, quem cria é o administrador.
   app.post('/auth/register', wrap(async (req, res) => {
     limit(`register|${req.ip}`);
+    const inviteToken = req.body?.inviteToken ? String(req.body.inviteToken) : null;
     const user = await inTx(async (c) => {
       const { rows } = await c.query('select exists (select 1 from users) as e');
-      if (rows[0].e && !openSignup) {
-        throw new HttpError(403, 'Novas contas são criadas pelo administrador, em Usuários.');
+      // Convite pelo WhatsApp (feito pelo administrador): vale mesmo com o
+      // cadastro fechado, e a conta não paga.
+      const invited = inviteToken
+        ? (await c.query(
+            `select 1 from user_invites where token = $1 and status = 'pending' and expires_at > now()`,
+            [inviteToken],
+          )).rows.length > 0
+        : false;
+      if (rows[0].e && !openSignup && !invited) {
+        throw new HttpError(
+          403,
+          inviteToken
+            ? 'Convite inválido ou vencido. Peça um novo a quem convidou.'
+            : 'Novas contas são criadas pelo administrador, em Usuários.',
+        );
       }
-      const u = await insertUser(c, { ...req.body, isAdmin: !rows[0].e, freeAccess: false });
+      const u = await insertUser(c, { ...req.body, isAdmin: !rows[0].e, freeAccess: invited });
+      if (invited) await app.locals.invites?.acceptOnSignup(c, inviteToken, u);
       // Canal de aquisição, convite (indicação) e eventos do funil.
       const b = req.body ?? {};
       return growth.onSignup(c, u, {

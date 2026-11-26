@@ -5,6 +5,7 @@ import 'package:sembast/sembast.dart';
 import '../auth_service.dart';
 import '../db_factory.dart';
 import '../growth.dart';
+import '../signup_invite.dart';
 import 'api_client.dart';
 
 /// Login pela API na nuvem: a mesma conta e os mesmos dados em qualquer
@@ -152,9 +153,12 @@ class CloudAuthService implements AuthService {
         'password': password,
         // Canal de aquisição, convite e aparelho (funil e indicação).
         ...Growth.signupExtras(),
+        // Convite pelo WhatsApp (link com ?cadastro=).
+        if (SignupInvite.token != null) 'inviteToken': SignupInvite.token,
       }),
     );
     await Growth.clearRef();
+    await SignupInvite.clear();
     return user;
   }
 

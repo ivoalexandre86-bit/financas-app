@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../data/cloud/cloud_auth_service.dart';
+import '../../../data/cloud/invite_api.dart';
+import '../../../data/signup_invite.dart';
 import '../../../state/auth_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
@@ -17,6 +20,33 @@ class _LoginScreenState extends State<LoginScreen> {
   final email = TextEditingController();
   final password = TextEditingController();
   bool obscure = true;
+
+  /// Convite pelo WhatsApp que abriu o app (link com ?cadastro=).
+  InviteInfo? invite;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInvite();
+  }
+
+  Future<void> _loadInvite() async {
+    final s = context.read<AuthController>().service;
+    if (s is! CloudAuthService) return;
+    await SignupInvite.init();
+    final token = SignupInvite.token;
+    if (token == null) return;
+    try {
+      final info = await HttpInviteApi.lookup(s.api, token);
+      if (!mounted) return;
+      setState(() => invite = info);
+      // Quem chega pelo convite vai direto para o cadastro.
+      push(context, RegisterScreen(invite: info));
+    } on Exception catch (e) {
+      // Convite usado ou vencido: não oferece de novo.
+      if (e.toString().contains('Convite')) await SignupInvite.clear();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +65,24 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     const _Logo(),
                     const SizedBox(height: 32),
+                    if (invite != null) ...[
+                      Card(
+                        key: const ValueKey('invite-banner'),
+                        child: ListTile(
+                          leading: const Icon(Icons.mark_email_unread_outlined),
+                          title: Text(
+                            '${invite!.inviterName} convidou você',
+                          ),
+                          subtitle: const Text(
+                            'Crie a sua conta para participar.',
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () =>
+                              push(context, RegisterScreen(invite: invite)),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     Text('Entrar', style: context.text.headlineMedium),
                     const SizedBox(height: 4),
                     Text(
@@ -95,12 +143,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           : const Text('Entrar'),
                     ),
                     const SizedBox(height: 12),
-                    if (auth.canRegister)
+                    if (auth.canRegister || invite != null)
                       OutlinedButton(
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size.fromHeight(52),
                         ),
-                        onPressed: () => push(context, const RegisterScreen()),
+                        onPressed: () =>
+                            push(context, RegisterScreen(invite: invite)),
                         child: const Text('Criar conta'),
                       )
                     else

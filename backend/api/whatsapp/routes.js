@@ -36,6 +36,7 @@ const { attachAccount } = require('../account');
 const { createReminderJob } = require('./reminders');
 const { mountBoletoPayments } = require('./payments');
 const { isPayable } = require('./ledger');
+const { mountInvites } = require('./invites');
 
 const CODE_MINUTES = 10;
 /** Leituras da IA por mês por usuário (administradores não têm limite). */
@@ -102,6 +103,18 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
     payments: boletos,
   });
   app.locals.reminders = reminders;
+
+  // Convites pelo WhatsApp (cadastro de pessoas novas).
+  const invites = mountInvites(app, {
+    pool,
+    authed,
+    wrap,
+    HttpError,
+    getMeta: () => (isEnabled() ? meta : null),
+    template: whatsapp?.inviteTemplate,
+    appUrl: whatsapp?.appUrl,
+  });
+  app.locals.invites = invites;
   if (whatsapp?.startReminders) loaded.then(() => reminders.start());
 
   // App ----------------------------------------------------------------------
@@ -221,6 +234,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
         // Entregas que a Meta não conseguiu fazer (ex.: número fora da lista
         // de teste, janela de 24 h): só aparecem aqui, não na hora do envio.
         for (const st of change.value?.statuses ?? []) {
+          invites.onStatus(st).catch((e) => console.error('WhatsApp: status do convite', e));
           if (st.status === 'failed') {
             console.warn(
               `WhatsApp: entrega falhou para ${st.recipient_id}: ${JSON.stringify(st.errors ?? [])}`,
@@ -270,6 +284,18 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
     if (!user) {
       const dep = await findDependent(from);
       if (dep) return handleDependent(m, from, dep, text);
+    }
+    // Convidado que ainda não se cadastrou: responde com o link do convite.
+    if (!user) {
+      const inv = await invites.pendingFor(from);
+      if (inv) {
+        meta.markRead(m.id);
+        const text =
+          `Olá, ${firstName(inv.name)}! ${firstName(inv.inviter_name)} convidou você para o Finanças. ` +
+          'Toque no botão para criar a sua conta; depois disso eu já lanço os gastos que você me mandar por aqui.';
+        if (meta.sendCta) return meta.sendCta(from, text, 'Fazer cadastro', inv.link);
+        return meta.sendText(from, `${text}\n\n${inv.link}`);
+      }
     }
     // O número do bot pode ser o mesmo do WhatsApp Business do dono
     // (coexistência): conversas de quem não vinculou ficam intocadas, sem
