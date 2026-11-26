@@ -389,6 +389,10 @@ test('fluxo pelo webhook', { skip: !url && 'TEST_DATABASE_URL não definido' }, 
     assert.match(sent[0].text, /^📊 \*Resumo de /);
     await deliver('5511999990000', text('resumo março 2030'));
     assert.match(sent[0].text, /Resumo de março\/2030/);
+    await deliver('5511999990000', text('Mande um resumo do mês atual'));
+    assert.equal(extracted.length, before);
+    assert.match(sent[0].text, /^📊 \*Resumo de /);
+    assert.match(sent[0].text, /Saldo acumulado/);
   });
 
   await t.test('pergunta de compra parcelada responde sem passar pela IA', async () => {

@@ -240,7 +240,8 @@ function createReminderJob({
       `select coll, data from app_docs
         where user_id = data_owner($1) and not deleted
           and coll in ('transactions', 'recurringTransactions', 'cards',
-                       'categories', 'invoicePayments', 'budgets')`,
+                       'categories', 'invoicePayments', 'budgets', 'accounts',
+                      'monthClosings')`,
       [link.user_id],
     );
     const docs = {};
