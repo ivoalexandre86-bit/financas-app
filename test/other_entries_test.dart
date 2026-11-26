@@ -502,7 +502,7 @@ void main() {
     expect(fc.otherEntries.length, 4);
     expect(find.textContaining('Parcelado 1/4'), findsOneWidget);
 
-    await tester.tap(find.text('Planilha'));
+    await tester.tap(find.text('Mês a mês'));
     await tester.pumpAndSettle();
     expect(find.text('Sofá'), findsOneWidget);
     final total = tester.widget<Text>(
@@ -596,5 +596,131 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('oe-filters')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('oe-search')), findsOneWidget);
+  });
+
+  test('despesa avulsa vira recorrente sem perder pagamentos', () async {
+    final fc = await _setup();
+    final apto = await fc.saveOtherEntry(
+      OtherEntry(
+        id: 'apto',
+        type: TransactionType.expense,
+        description: 'Apartamento',
+        amount: 320000,
+        month: _m,
+        allocations: const [
+          Allocation('pai', AllocMode.percent, 35),
+          Allocation('mae', AllocMode.percent, 35),
+        ],
+      ),
+    );
+    await fc.saveOtherPayment(
+      apto,
+      OtherPayment(
+        id: 'p1',
+        personId: 'pai',
+        amount: 112000,
+        date: _m.firstDay,
+      ),
+    );
+    final series = await fc.createOtherSeries(
+      fc.otherEntryById('apto')!,
+      kind: OtherSeriesKind.recurring,
+      count: 12,
+    );
+    expect(series.length, 12);
+    expect(series.first.id, 'apto');
+    final first = fc.otherEntryById('apto')!;
+    expect(first.seriesIndex, 1);
+    expect(first.seriesKind, OtherSeriesKind.recurring);
+    expect(first.payments.single.amount, 112000);
+    expect(first.history.last.text, contains('recorrente'));
+    final rest = fc.otherEntries.where(
+      (e) => e.seriesId == first.seriesId && e.id != 'apto',
+    );
+    expect(rest.length, 11);
+    expect(rest.every((e) => e.payments.isEmpty && e.amount == 320000), isTrue);
+    expect(rest.map((e) => e.month).toSet().length, 11);
+    // Já em série: não pode virar outra série.
+    expect(
+      () => fc.createOtherSeries(
+        first,
+        kind: OtherSeriesKind.recurring,
+        count: 3,
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  testWidgets('grade abre os valores por pessoa; mês a mês abre por pessoa', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    late FinanceController fc;
+    await tester.runAsync(() async {
+      fc = await _setup();
+      await fc.createOtherSeries(
+        OtherEntry(
+          id: 'apto',
+          type: TransactionType.expense,
+          description: 'Apartamento',
+          amount: 300000,
+          month: _m,
+          allocations: const [
+            Allocation('pai', AllocMode.percent, 40),
+            Allocation('mae', AllocMode.percent, 30),
+          ],
+        ),
+        kind: OtherSeriesKind.recurring,
+        count: 3,
+      );
+    });
+    final firstId = fc.otherEntries.firstWhere((e) => e.seriesIndex == 1).id;
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: fc,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const SimulationsScreen(initialTab: 1),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('oe-shares-$firstId')), findsNothing);
+    await tester.tap(find.byKey(ValueKey('oe-expand-$firstId')));
+    await tester.pumpAndSettle();
+    final panel = find.byKey(ValueKey('oe-shares-$firstId'));
+    expect(panel, findsOneWidget);
+    expect(
+      find.descendant(of: panel, matching: find.textContaining('1.200,00')),
+      findsWidgets,
+    );
+    // A parte sem divisão (30%) fica com "eu".
+    expect(find.byKey(ValueKey('oe-share-$firstId-ivo')), findsOneWidget);
+    expect(
+      find.descendant(of: panel, matching: find.textContaining('900,00')),
+      findsWidgets,
+    );
+
+    // Mês a mês: uma linha da série, 3 meses; abre por pessoa.
+    await tester.tap(find.text('Mês a mês'));
+    await tester.pumpAndSettle();
+    final seriesId = fc.otherEntryById(firstId)!.seriesId!;
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('oe-sheet-total'))).data,
+      contains('9.000,00'),
+    );
+    final paiCell = find.byKey(
+      ValueKey('oe-sheet-cell-sub-$seriesId/pai-${_m.add(1).key}'),
+    );
+    expect(paiCell, findsNothing);
+    await tester.tap(find.byKey(ValueKey('oe-sheet-row-$seriesId')));
+    await tester.pumpAndSettle();
+    expect(paiCell, findsOneWidget);
+    expect(
+      find.descendant(of: paiCell, matching: find.textContaining('1.200,00')),
+      findsOneWidget,
+    );
   });
 }
