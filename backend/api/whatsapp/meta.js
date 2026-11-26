@@ -17,9 +17,9 @@ function validSignature(rawBody, header, appSecret) {
 }
 
 /**
- * @param {{token: string, phoneNumberId: string, apiVersion?: string}} opts
+ * @param {{token: string, phoneNumberId: string, wabaId?: string, apiVersion?: string}} opts
  */
-function createMetaClient({ token, phoneNumberId, apiVersion = 'v23.0' }) {
+function createMetaClient({ token, phoneNumberId, wabaId, apiVersion = 'v23.0' }) {
   const auth = { authorization: `Bearer ${token}` };
 
   async function graph(path, init = {}) {
@@ -44,7 +44,51 @@ function createMetaClient({ token, phoneNumberId, apiVersion = 'v23.0' }) {
     return res;
   }
 
+  // Conta do WhatsApp Business (WABA) do token: variável de ambiente ou,
+  // sem ela, a que o próprio token alcança (escopo
+  // whatsapp_business_management do debug_token).
+  let waba = wabaId ? Promise.resolve(String(wabaId)) : null;
+  function resolveWaba() {
+    waba ??= graph(
+      `debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(token)}`,
+    )
+      .then((r) => {
+        const scopes = r?.data?.granular_scopes ?? [];
+        const s = scopes.find((g) => g.scope === 'whatsapp_business_management') ??
+          scopes.find((g) => g.scope === 'whatsapp_business_messaging');
+        const id = s?.target_ids?.[0];
+        if (!id) throw new Error('Token sem conta do WhatsApp Business');
+        return String(id);
+      })
+      .catch((e) => {
+        waba = null;
+        throw e;
+      });
+    return waba;
+  }
+
   return {
+    /// Situação de um modelo de mensagem na Meta: APPROVED, PENDING,
+    /// REJECTED, PAUSED, DISABLED… ou null se ainda não existe.
+    async templateStatus(name, language = 'pt_BR') {
+      const id = await resolveWaba();
+      const r = await graph(
+        `${id}/message_templates?name=${encodeURIComponent(name)}&fields=name,status,language,rejected_reason`,
+      );
+      const t = (r?.data ?? []).find((x) => x.name === name && x.language === language);
+      return t ? { status: t.status, rejectedReason: t.rejected_reason ?? null } : null;
+    },
+
+    /// Envia um modelo novo para a análise da Meta.
+    async createTemplate(def) {
+      const id = await resolveWaba();
+      return graph(`${id}/message_templates`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(def),
+      });
+    },
+
     sendText: (to, text) =>
       send(to, { type: 'text', text: { body: text.slice(0, 4096) } }),
 

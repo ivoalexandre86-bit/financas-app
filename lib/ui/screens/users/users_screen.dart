@@ -12,6 +12,7 @@ import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
 import '../../widgets/tx_grid.dart';
 import '../../widgets/view_mode.dart';
+import 'invites_screen.dart';
 
 /// Lista de usuários do dispositivo (somente administradores). Cada usuário
 /// entra com o próprio e-mail e senha e tem um orçamento separado.
@@ -60,6 +61,13 @@ class _UsersScreenState extends State<UsersScreen> with RememberedFilters {
       appBar: AppBar(
         title: const Text('Usuários'),
         actions: [
+          if (CloudConfig.enabled && !(me?.isDemo ?? true))
+            IconButton(
+              key: const ValueKey('open-invites'),
+              tooltip: 'Convidar pelo WhatsApp',
+              icon: const Icon(Icons.forward_to_inbox_outlined),
+              onPressed: () => push(context, const InvitesScreen()),
+            ),
           ViewModeToggle(
             keyPrefix: 'users',
             mode: view,
@@ -96,6 +104,20 @@ class _UsersScreenState extends State<UsersScreen> with RememberedFilters {
                   ),
                 ),
               ),
+              if (CloudConfig.enabled && !(me?.isDemo ?? true))
+                Card(
+                  margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: ListTile(
+                    key: const ValueKey('invites-tile'),
+                    leading: const Icon(Icons.forward_to_inbox_outlined),
+                    title: const Text('Convidar pelo WhatsApp'),
+                    subtitle: const Text(
+                      'O bot manda o convite com o link para a pessoa fazer o cadastro.',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => push(context, const InvitesScreen()),
+                  ),
+                ),
               if (view == ViewMode.grid)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),

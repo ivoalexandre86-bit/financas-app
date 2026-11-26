@@ -51,6 +51,7 @@ function whatsAppFromEnv(env) {
       ? createMetaClient({
           token: env.WHATSAPP_TOKEN,
           phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID,
+          wabaId: env.WHATSAPP_WABA_ID || undefined,
         })
       : undefined,
     extract: createExtractor({
@@ -65,6 +66,8 @@ function whatsAppFromEnv(env) {
     // Lembrete de boleto com botões Pagar agora / Já paguei (modelo com 3
     // parâmetros: descrição, valor, vencimento; 2 botões de resposta rápida).
     boletoTemplate: env.WHATSAPP_BOLETO_TEMPLATE || undefined,
+    inviteTemplate: env.WHATSAPP_INVITE_TEMPLATE || undefined,
+    appUrl: env.APP_URL || undefined,
     // Página de pagamento e retorno do Open Finance.
     publicUrl: env.PUBLIC_API_URL || env.RENDER_EXTERNAL_URL || undefined,
     // Pagamento do Pix do boleto pelo Open Finance: precisa que a Pluggy

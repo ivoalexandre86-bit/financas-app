@@ -4,18 +4,21 @@ import 'package:provider/provider.dart';
 import '../../../core/cloud_config.dart';
 import '../../../core/legal_links.dart';
 import '../../../data/auth_service.dart';
+import '../../../data/cloud/invite_api.dart';
 import '../../../state/auth_controller.dart';
 import '../../theme.dart';
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+  /// Convite pelo WhatsApp que trouxe a pessoa (nome já preenchido).
+  final InviteInfo? invite;
+  const RegisterScreen({super.key, this.invite});
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _form = GlobalKey<FormState>();
-  final name = TextEditingController();
+  late final name = TextEditingController(text: widget.invite?.name ?? '');
   final email = TextEditingController();
   final password = TextEditingController();
   final confirm = TextEditingController();
@@ -31,6 +34,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: ListView(
           padding: const EdgeInsets.all(24),
           children: [
+            if (widget.invite != null) ...[
+              Card(
+                key: const ValueKey('register-invite'),
+                color: context.colors.primaryContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Você foi selecionado(a) por '
+                        '${widget.invite!.inviterName}',
+                        style: context.text.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.invite!.joinAccount
+                            ? 'Ao criar a conta, você passa a usar o orçamento '
+                                  'de ${widget.invite!.inviterName}, e o seu '
+                                  'WhatsApp já fica ligado ao bot.'
+                            : 'Ao criar a conta, você ganha o seu próprio '
+                                  'orçamento, e o seu WhatsApp já fica ligado '
+                                  'ao bot.',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             Text(
               CloudConfig.enabled
                   ? 'Crie sua conta: seus dados ficam na nuvem e aparecem '

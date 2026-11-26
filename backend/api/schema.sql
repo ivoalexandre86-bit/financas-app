@@ -351,3 +351,31 @@ language sql stable as $$
       where user_id = u and status = 'active' limit 1),
     u)
 $$;
+
+-- Convites pelo WhatsApp --------------------------------------------------
+-- O administrador informa nome e número; o bot manda a mensagem (modelo
+-- aprovado na Meta) com o link de cadastro. Ao criar a conta pelo link, o
+-- número já fica ligado ao bot e, se pedido, a pessoa entra na conta de
+-- quem convidou. Convite cancelado é apagado.
+create table if not exists user_invites (
+  id            uuid primary key default gen_random_uuid(),
+  token         text not null unique,
+  phone         text not null,
+  name          text not null,
+  invited_by    uuid not null references users (id) on delete cascade,
+  join_account  boolean not null default false,
+  status        text not null default 'pending' check (status in ('pending', 'accepted')),
+  -- not_sent (modelo ainda não aprovado / bot desligado) | sent | delivered
+  -- | read | failed
+  send_status   text not null default 'not_sent',
+  send_error    text,
+  wa_id         text,
+  wa_message_id text,
+  user_id       uuid references users (id) on delete set null,
+  created_at    timestamptz not null default now(),
+  sent_at       timestamptz,
+  expires_at    timestamptz not null,
+  accepted_at   timestamptz
+);
+create index if not exists user_invites_phone on user_invites (phone);
+create index if not exists user_invites_message on user_invites (wa_message_id);
