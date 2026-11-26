@@ -1703,9 +1703,46 @@ class FinanceController extends ChangeNotifier {
     };
     final seriesId = newId('ser_');
     final out = <OtherEntry>[];
+    // Lançamento já existente que vira o 1º da série: mantém id, pagamentos
+    // e histórico.
+    final existing = otherEntryById(first.id);
+    if (existing != null && existing.inSeries) {
+      throw ArgumentError('Este lançamento já faz parte de uma série');
+    }
     for (var i = 0; i < count; i++) {
       final m = first.month.add(i * step);
       final d = first.dueDate;
+      if (i == 0 && existing != null) {
+        final changes = _otherChanges(existing, first);
+        out.add(
+          first
+              .copyWith(
+                amount: amounts[0],
+                allocations: [
+                  for (final a in first.allocations)
+                    fixedSplit.containsKey(a.personId)
+                        ? Allocation(
+                            a.personId,
+                            a.mode,
+                            fixedSplit[a.personId]![0].cents,
+                          )
+                        : a,
+                ],
+                seriesId: seriesId,
+                seriesKind: kind,
+                seriesIndex: 1,
+                seriesCount: count,
+                updatedAt: DateTime.now(),
+              )
+              .withHistory(
+                [
+                  if (changes.isNotEmpty) changes,
+                  'Virou ${kind.label.toLowerCase()} (1 de $count)',
+                ].join('. '),
+              ),
+        );
+        continue;
+      }
       out.add(
         OtherEntry(
           id: newId('oe_'),

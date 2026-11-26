@@ -18,6 +18,7 @@ import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
 import 'sim_common.dart';
 import 'other_grid.dart';
+import 'other_sheet.dart';
 
 Color payStatusColor(BuildContext context, PayStatus? s) => switch (s) {
   PayStatus.paid => context.fin.positive,
@@ -119,12 +120,39 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
 
   bool get isIncome => widget.type == TransactionType.income;
 
+  /// Na visão mês a mês, um mês escolhido abre 12 meses a partir dele.
+  static const sheetSpan = 12;
+
   bool _inPeriod(OtherEntry e) {
     if (period == 'all') return true;
     if (period.startsWith('y:')) {
       return '${e.month.year}' == period.substring(2);
     }
-    return e.month.key == period.substring(2);
+    final m = YearMonth.parse(period.substring(2));
+    if (sheet) {
+      return e.month.compareTo(m) >= 0 &&
+          e.month.compareTo(m.add(sheetSpan - 1)) <= 0;
+    }
+    return e.month == m;
+  }
+
+  /// Colunas da visão mês a mês: todos os meses do período, mesmo vazios.
+  List<YearMonth> _sheetMonths(List<OtherEntry> list) {
+    YearMonth first, last;
+    if (period.startsWith('m:')) {
+      first = YearMonth.parse(period.substring(2));
+      last = first.add(sheetSpan - 1);
+    } else if (period.startsWith('y:')) {
+      final y = int.parse(period.substring(2));
+      first = YearMonth(y, 1);
+      last = YearMonth(y, 12);
+    } else {
+      final ms = [for (final e in list) e.month]..sort();
+      if (ms.isEmpty) return const [];
+      first = ms.first;
+      last = ms.last;
+    }
+    return [for (var m = first; m.compareTo(last) <= 0; m = m.add(1)) m];
   }
 
   @override
@@ -377,8 +405,8 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
                 ),
                 ButtonSegment(
                   value: true,
-                  icon: Icon(Icons.table_chart_outlined),
-                  label: Text('Planilha'),
+                  icon: Icon(Icons.calendar_view_month_outlined),
+                  label: Text('Mês a mês'),
                 ),
               ],
               selected: {sheet},
@@ -396,9 +424,23 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
               ),
           ],
         ),
-        if (selMonth != null) ...[
+        if (selMonth != null && !sheet) ...[
           const SizedBox(height: 12),
           _MonthLine(type: widget.type, month: selMonth),
+        ],
+        if (sheet) ...[
+          const SizedBox(height: 8),
+          Text(
+            (selMonth != null
+                    ? '${selMonth.shortLabel} a '
+                          '${selMonth.add(sheetSpan - 1).shortLabel}. '
+                    : '') +
+                (sheetByPerson
+                    ? 'Toque numa pessoa para ver os lançamentos dela.'
+                    : 'Toque num lançamento para abrir os valores por '
+                          'pessoa; toque num valor para abrir o mês.'),
+            style: context.text.bodySmall?.copyWith(color: context.fin.subtle),
+          ),
         ],
         const SizedBox(height: 12),
         if (list.isEmpty)
@@ -414,7 +456,11 @@ class _OtherEntriesViewState extends State<OtherEntriesView>
             ),
           )
         else if (sheet)
-          OtherSheet(entries: list, byPerson: sheetByPerson)
+          OtherSheet(
+            entries: list,
+            months: _sheetMonths(list),
+            byPerson: sheetByPerson,
+          )
         else
           OtherGrid(
             entries: list,
@@ -488,196 +534,6 @@ class _MonthLine extends StatelessWidget {
             : Text(fmtCents(tx.amount.cents), style: context.text.titleMedium),
       ),
     );
-  }
-}
-
-/// Visão agrupada: linhas (lançamento/série ou pessoa) × meses, com totais.
-class OtherSheet extends StatelessWidget {
-  final List<OtherEntry> entries;
-  final bool byPerson;
-  const OtherSheet({super.key, required this.entries, required this.byPerson});
-
-  static const _labelW = 240.0, _monthW = 116.0, _totalW = 128.0;
-
-  @override
-  Widget build(BuildContext context) {
-    final fc = context.watch<FinanceController>();
-    final live = entries.where((e) => !e.isDeleted).toList();
-    final months = {for (final e in live) e.month}.toList()..sort();
-    if (months.isEmpty) return const SizedBox.shrink();
-    // Linhas: chave → (rótulo, valor por mês, pago por mês, lançamentos).
-    final rows = <String, _SheetRow>{};
-    if (byPerson) {
-      for (final e in live) {
-        final owed = e.owedByPerson();
-        for (final p in owed.entries) {
-          final r = rows[p.key] ??= _SheetRow(
-            fc.personById(p.key)?.name ?? '?',
-          );
-          r.add(e.month, p.value, e.paidBy(p.key), e);
-        }
-        if (e.unallocated > 0) {
-          // Em despesas, o que ninguém assumiu é do responsável pelo
-          // orçamento.
-          if (e.isIncome || e.allocations.isEmpty) {
-            rows['~'] ??= _SheetRow('Sem divisão');
-            rows['~']!.add(e.month, e.unallocated, 0, e);
-          } else {
-            final meId = fc.meIds.firstOrNull ?? '~me';
-            final r = rows[meId] ??= _SheetRow(
-              fc.personById(meId)?.name ?? 'Você',
-            );
-            r.add(e.month, e.unallocated, 0, e);
-          }
-        }
-      }
-    } else {
-      for (final e in live) {
-        final r = rows[e.seriesId ?? e.id] ??= _SheetRow(
-          e.description,
-          detail: e.inSeries
-              ? '${e.seriesKind!.label} · ${e.seriesCount}×'
-              : null,
-        );
-        r.add(e.month, e.amount, null, e);
-      }
-    }
-    final totals = <YearMonth, int>{};
-    for (final r in rows.values) {
-      for (final v in r.values.entries) {
-        totals[v.key] = (totals[v.key] ?? 0) + v.value;
-      }
-    }
-    final grand = totals.values.fold(0, (a, v) => a + v);
-    final head = context.text.labelMedium?.copyWith(color: context.fin.subtle);
-    final bold = context.text.titleSmall;
-
-    Widget cell(double w, Widget child, {bool right = true}) => SizedBox(
-      width: w,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        child: Align(
-          alignment: right ? Alignment.centerRight : Alignment.centerLeft,
-          child: child,
-        ),
-      ),
-    );
-
-    return Card(
-      margin: EdgeInsets.zero,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                cell(
-                  _labelW,
-                  Text(byPerson ? 'Pessoa' : 'Lançamento', style: head),
-                  right: false,
-                ),
-                for (final m in months)
-                  cell(_monthW, Text(m.shortLabel, style: head)),
-                cell(_totalW, Text('Total', style: head)),
-              ],
-            ),
-            const Divider(height: 1),
-            for (final r in rows.values) ...[
-              Row(
-                children: [
-                  cell(
-                    _labelW,
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(r.label, overflow: TextOverflow.ellipsis),
-                        if (r.detail != null)
-                          Text(
-                            r.detail!,
-                            style: context.text.bodySmall?.copyWith(
-                              color: context.fin.subtle,
-                            ),
-                          ),
-                      ],
-                    ),
-                    right: false,
-                  ),
-                  for (final m in months)
-                    SizedBox(
-                      width: _monthW,
-                      child: InkWell(
-                        onTap: r.entries[m] == null
-                            ? null
-                            : () => push(
-                                context,
-                                OtherEntryScreen(entryId: r.entries[m]!.id),
-                              ),
-                        child: cell(
-                          _monthW,
-                          r.values[m] == null
-                              ? Text('—', style: head)
-                              : Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(fmtCents(r.values[m]!)),
-                                    if (r.paid[m] != null && r.paid[m]! > 0)
-                                      Text(
-                                        'pago ${fmtCents(r.paid[m]!)}',
-                                        style: context.text.bodySmall?.copyWith(
-                                          color: context.fin.positive,
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ),
-                  cell(
-                    _totalW,
-                    Text(
-                      fmtCents(r.values.values.fold(0, (a, v) => a + v)),
-                      style: bold,
-                    ),
-                  ),
-                ],
-              ),
-              const Divider(height: 1),
-            ],
-            Row(
-              children: [
-                cell(_labelW, Text('Total', style: bold), right: false),
-                for (final m in months)
-                  cell(_monthW, Text(fmtCents(totals[m] ?? 0), style: bold)),
-                cell(
-                  _totalW,
-                  Text(
-                    fmtCents(grand),
-                    key: const ValueKey('oe-sheet-total'),
-                    style: bold,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SheetRow {
-  final String label;
-  final String? detail;
-  final values = <YearMonth, int>{};
-  final paid = <YearMonth, int>{};
-  final entries = <YearMonth, OtherEntry>{};
-  _SheetRow(this.label, {this.detail});
-
-  void add(YearMonth m, int value, int? paidValue, OtherEntry e) {
-    values[m] = (values[m] ?? 0) + value;
-    if (paidValue != null) paid[m] = (paid[m] ?? 0) + paidValue;
-    entries[m] ??= e;
   }
 }
 
@@ -900,11 +756,11 @@ Future<OtherEntry?> editOtherEntry(
         saved = await fc.saveOtherEntry(draft, following: following);
       }
     },
-    success: entry != null
+    success: r.kind != null
+        ? '${r.count} lançamentos ${entry == null ? 'criados' : 'na série'}'
+        : entry != null
         ? 'Lançamento salvo'
-        : r.kind == null
-        ? 'Lançamento criado'
-        : '${r.count} lançamentos criados',
+        : 'Lançamento criado',
   );
   return saved;
 }
@@ -1141,7 +997,10 @@ class _OtherEntryFormState extends State<OtherEntryForm> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Repetição', style: context.text.titleSmall),
+        Text(
+          widget.isNew ? 'Repetição' : 'Repetir nos próximos meses',
+          style: context.text.titleSmall,
+        ),
         const SizedBox(height: 8),
         SegmentedButton<OtherSeriesKind?>(
           key: const ValueKey('oe-repeat'),
@@ -1317,9 +1176,9 @@ class _OtherEntryFormState extends State<OtherEntryForm> {
                 onChanged: (v) => setState(() => due = v),
               ),
               const SizedBox(height: 12),
-              if (widget.isNew)
+              if (!e.inSeries)
                 _repeatFields(context, d)
-              else if (e.inSeries)
+              else
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(

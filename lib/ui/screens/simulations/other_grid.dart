@@ -7,6 +7,7 @@ import '../../../domain/models/other_entry.dart';
 import '../../../state/finance_controller.dart';
 import '../../theme.dart';
 import '../../widgets/tx_grid.dart';
+import '../cards/invoice_purchases.dart' show GlowDot;
 import 'other_entries.dart' show payStatusColor;
 import 'sim_common.dart';
 
@@ -54,7 +55,7 @@ class _Layout {
   const _Layout(this.cells, this.totalWidth);
 
   static const stripeW = GridLayout.stripeW;
-  static const actionW = 36.0;
+  static const actionW = 76.0;
 
   /// A sobra vai para a descrição; faltando espaço, descrição e pessoas
   /// encolhem até o mínimo e depois a grade rola na horizontal.
@@ -101,6 +102,13 @@ class OtherGrid extends StatefulWidget {
 class _OtherGridState extends State<OtherGrid> {
   OtherCol sort = OtherCol.month;
   bool ascending = true;
+
+  /// Lançamentos com os valores por pessoa abertos na própria grade.
+  final expanded = <String>{};
+
+  void _toggle(String id) => setState(
+    () => expanded.contains(id) ? expanded.remove(id) : expanded.add(id),
+  );
 
   List<OtherCol> get _cols => [
     for (final c in OtherCol.values)
@@ -153,13 +161,15 @@ class _OtherGridState extends State<OtherGrid> {
         final compact = width < 760;
         final layout = compact ? null : _Layout.of(width, _cols);
         final body = <Widget>[
-          for (final (i, r) in rows.indexed)
+          for (final (i, r) in rows.indexed) ...[
             layout == null
                 ? _CompactRow(
                     r: r,
                     index: i,
                     people: people(r.e),
                     isIncome: widget.isIncome,
+                    expanded: expanded.contains(r.e.id),
+                    onToggle: () => _toggle(r.e.id),
                     onOpen: () => widget.onOpen(r.e),
                   )
                 : _GridRow(
@@ -167,8 +177,18 @@ class _OtherGridState extends State<OtherGrid> {
                     index: i,
                     layout: layout,
                     people: people(r.e),
+                    expanded: expanded.contains(r.e.id),
+                    onToggle: () => _toggle(r.e.id),
                     onOpen: () => widget.onOpen(r.e),
                   ),
+            if (expanded.contains(r.e.id))
+              _Shares(
+                e: r.e,
+                isIncome: widget.isIncome,
+                width: layout?.totalWidth,
+                onOpen: () => widget.onOpen(r.e),
+              ),
+          ],
           _Footer(rows: rows, layout: layout, isIncome: widget.isIncome),
         ];
         return GridPanel(
@@ -288,12 +308,16 @@ class _GridRow extends StatelessWidget {
   final int index;
   final _Layout layout;
   final String people;
+  final bool expanded;
+  final VoidCallback onToggle;
   final VoidCallback onOpen;
   const _GridRow({
     required this.r,
     required this.index,
     required this.layout,
     required this.people,
+    required this.expanded,
+    required this.onToggle,
     required this.onOpen,
   });
 
@@ -396,6 +420,7 @@ class _GridRow extends StatelessWidget {
       accent: payStatusColor(context, r.status),
       zebra: index.isOdd,
       dimmed: e.isDeleted,
+      selected: expanded,
       height: 40,
       onTap: onOpen,
       child: Row(
@@ -404,7 +429,14 @@ class _GridRow extends StatelessWidget {
           for (final (c, w) in layout.cells) SizedBox(width: w, child: cell(c)),
           SizedBox(
             width: _Layout.actionW,
-            child: Icon(Icons.chevron_right, size: 20, color: p.neon),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _ExpandButton(id: e.id, expanded: expanded, onTap: onToggle),
+                Icon(Icons.chevron_right, size: 20, color: p.neon),
+                const SizedBox(width: 6),
+              ],
+            ),
           ),
         ],
       ),
@@ -418,12 +450,16 @@ class _CompactRow extends StatelessWidget {
   final int index;
   final String people;
   final bool isIncome;
+  final bool expanded;
+  final VoidCallback onToggle;
   final VoidCallback onOpen;
   const _CompactRow({
     required this.r,
     required this.index,
     required this.people,
     required this.isIncome,
+    required this.expanded,
+    required this.onToggle,
     required this.onOpen,
   });
 
@@ -436,6 +472,7 @@ class _CompactRow extends StatelessWidget {
       accent: payStatusColor(context, r.status),
       zebra: index.isOdd,
       dimmed: e.isDeleted,
+      selected: expanded,
       onTap: onOpen,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
@@ -501,7 +538,7 @@ class _CompactRow extends StatelessWidget {
                 _status(context, r.status),
               ],
             ),
-            const Icon(Icons.chevron_right, size: 20),
+            _ExpandButton(id: e.id, expanded: expanded, onTap: onToggle),
           ],
         ),
       ),
@@ -601,4 +638,198 @@ class _Footer extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ExpandButton extends StatelessWidget {
+  final String id;
+  final bool expanded;
+  final VoidCallback onTap;
+  const _ExpandButton({
+    required this.id,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    key: ValueKey('oe-expand-$id'),
+    tooltip: expanded ? 'Recolher' : 'Ver valores por pessoa',
+    visualDensity: VisualDensity.compact,
+    iconSize: 20,
+    color: GridPalette.of(context).neon,
+    icon: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+    onPressed: onTap,
+  );
+}
+
+/// Valores por pessoa de um lançamento, abertos logo abaixo da linha.
+class _Shares extends StatelessWidget {
+  final OtherEntry e;
+  final bool isIncome;
+  final double? width;
+  final VoidCallback onOpen;
+  const _Shares({
+    required this.e,
+    required this.isIncome,
+    required this.width,
+    required this.onOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fc = context.watch<FinanceController>();
+    final p = GridPalette.of(context);
+    final me = fc.meIds;
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    final tab = context.text.bodySmall?.copyWith(
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    final meId = me.firstOrNull;
+    final shares = meId == null ? e.shares() : e.sharesWithOwner(meId);
+    final rest = e.amount - shares.fold<int>(0, (a, s) => a + s.owed);
+    Widget money(double w, int v, {Color? color, bool bold = false}) =>
+        SizedBox(
+          width: w,
+          child: Text(
+            v == 0 ? '—' : fmtCents(v),
+            textAlign: TextAlign.right,
+            style: (v == 0 ? subtle : tab)?.copyWith(
+              color: v == 0 ? null : color,
+              fontWeight: bold ? FontWeight.w700 : null,
+            ),
+          ),
+        );
+    final panel = Container(
+      key: ValueKey('oe-shares-${e.id}'),
+      decoration: BoxDecoration(
+        color: p.neon.withValues(alpha: 0.04),
+        border: Border(
+          left: BorderSide(color: p.neon.withValues(alpha: 0.6), width: 3),
+          bottom: BorderSide(color: p.line),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 4, 12, 4),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final narrow = box.maxWidth < 560;
+          final w = narrow ? 84.0 : 112.0;
+          Widget head(String t) => SizedBox(
+            width: w,
+            child: Text(t, textAlign: TextAlign.right, style: subtle),
+          );
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (shares.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    isIncome
+                        ? 'Sem pagador definido.'
+                        : 'Sem divisão: o valor todo fica com você.',
+                    style: subtle,
+                  ),
+                )
+              else ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Expanded(child: Text('Pessoa', style: subtle)),
+                      head('Parte'),
+                      if (!narrow) head(isIncome ? 'Recebido' : 'Pago'),
+                      head(isIncome ? 'A receber' : 'Falta'),
+                      if (!narrow) const SizedBox(width: 120),
+                    ],
+                  ),
+                ),
+                for (final s in shares)
+                  Builder(
+                    builder: (context) {
+                      final person = fc.personById(s.personId);
+                      final mine = me.contains(s.personId);
+                      final balance = mine ? 0 : (s.owed - s.paid);
+                      return Padding(
+                        key: ValueKey('oe-share-${e.id}-${s.personId}'),
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            GlowDot(Color(person?.color ?? 0xFF94A3B8)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                [
+                                  person?.name ?? '?',
+                                  if (s.percent != null)
+                                    '· ${_pct(s.percent!)}',
+                                ].join(' '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: context.text.bodyMedium,
+                              ),
+                            ),
+                            money(w, s.owed, bold: true),
+                            if (!narrow)
+                              money(
+                                w,
+                                mine ? 0 : s.paid,
+                                color: context.fin.positive,
+                              ),
+                            money(
+                              w,
+                              balance < 0 ? 0 : balance,
+                              color: context.fin.negative,
+                            ),
+                            if (!narrow)
+                              SizedBox(
+                                width: 120,
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: mine
+                                      ? Text('sua parte', style: subtle)
+                                      : _status(context, s.status),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                if (rest > 0)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 16),
+                        Expanded(child: Text('Sem divisão', style: subtle)),
+                        money(w, rest),
+                        if (!narrow) SizedBox(width: w),
+                        SizedBox(width: w),
+                        if (!narrow) const SizedBox(width: 120),
+                      ],
+                    ),
+                  ),
+              ],
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: onOpen,
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: Text(
+                    'Abrir ${isIncome ? 'receita' : 'despesa'} completa',
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    return width == null ? panel : SizedBox(width: width, child: panel);
+  }
+}
+
+String _pct(double v) {
+  final r = (v * 10).round() / 10;
+  return '${r == r.roundToDouble() ? r.toStringAsFixed(0) : r.toStringAsFixed(1).replaceAll('.', ',')}%';
 }
