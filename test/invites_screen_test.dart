@@ -113,6 +113,11 @@ void main() {
     expect(find.text('Enviado'), findsOneWidget);
   });
 
+  testWidgets('servidor sem a rota: aviso claro', (tester) async {
+    await _pump(tester, _OldServerApi());
+    expect(find.text('Servidor ainda não atualizado'), findsOneWidget);
+  });
+
   testWidgets('número curto não passa', (tester) async {
     final api = _FakeApi();
     await _pump(tester, api);
@@ -126,3 +131,10 @@ void main() {
     expect(api.created, isEmpty);
   });
 }
+
+class _OldServerApi extends _FakeApi {
+  @override
+  Future<InvitesState> list() async =>
+      throw Exception('Erro 404 no servidor');
+}
+

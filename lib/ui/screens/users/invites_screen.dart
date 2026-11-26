@@ -162,6 +162,18 @@ class _InvitesScreenState extends State<InvitesScreen> {
               future: _state,
               builder: (context, snap) {
                 if (snap.hasError) {
+                  // Servidor sem a rota de convites (ainda não atualizado).
+                  if ('${snap.error}'.contains('404')) {
+                    return EmptyState(
+                      icon: Icons.cloud_sync_outlined,
+                      title: 'Servidor ainda não atualizado',
+                      message:
+                          'Os convites pelo WhatsApp precisam da versão nova '
+                          'do servidor. Tente de novo em alguns minutos.',
+                      actionLabel: 'Tentar de novo',
+                      onAction: _reload,
+                    );
+                  }
                   return ErrorState(message: '${snap.error}', onRetry: _reload);
                 }
                 if (!snap.hasData) {
