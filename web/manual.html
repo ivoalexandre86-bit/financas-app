@@ -28,7 +28,7 @@
 </head>
 <body>
   <h1>Manual do Usuário</h1>
-  <p class="muted">App Finanças · atualizado em 25 de novembro de 2026</p>
+  <p class="muted">App Finanças · atualizado em 27 de novembro de 2026</p>
 
   <p>Este manual mostra, passo a passo, como fazer cada coisa no app. Use o índice para ir direto ao que precisa. O app abre em <a href="https://ivoalexandre86-bit.github.io/financas-app/">ivoalexandre86-bit.github.io/financas-app</a>, no computador ou no celular.</p>
 
@@ -51,7 +51,7 @@
       <li><a href="#parcelamentos">Compras parceladas</a></li>
       <li><a href="#recorrencias">Recorrências (salário, aluguel, assinaturas)</a></li>
       <li><a href="#boletos">Boletos e contas a vencer</a></li>
-      <li><a href="#projecao">Projeção dos próximos meses</a></li>
+      <li><a href="#projecao">Projeção dos próximos meses</a> (e <a href="#cenarios">cenários</a>, <a href="#fgts">FGTS</a>)</li>
       <li><a href="#fechar-mes">Fechar mês, ajustar e reverter</a></li>
       <li><a href="#orcamentos">Orçamentos e metas</a></li>
       <li><a href="#whatsapp">Lançar pelo WhatsApp</a></li>
@@ -352,6 +352,27 @@
     <li><strong>Cartões e contas inativos:</strong> ficam fora da projeção. Só o que já foi pago neles continua no histórico dos meses passados.</li>
   </ul>
   <p class="muted">No plano Grátis a projeção mostra 3 meses; assinando, 12.</p>
+
+  <h3 id="cenarios">Cenários: ver a projeção com uma simulação</h3>
+  <p>Um <strong>cenário</strong> é um conjunto de entradas e saídas previstas que <strong>não mexe no seu orçamento</strong>. Exemplo: um saque do FGTS. Quando existe algum cenário, aparece o campo <strong>Cenário</strong> no topo da Projeção.</p>
+  <ul>
+    <li><strong>Orçamento base:</strong> a projeção normal, só com o que você lançou.</li>
+    <li><strong>Escolher um cenário:</strong> a projeção soma os valores dele e mostra cada item com o mês, e o <strong>acumulado no fim do período: base → cenário</strong>.</li>
+    <li>Valores marcados como <strong>(estimado)</strong> ainda não foram confirmados.</li>
+    <li>Meses passados e meses fechados não mudam: um item com data passada entra no mês atual (ou no próximo mês aberto).</li>
+    <li>Os cenários valem só na visão completa. Com filtros, limpe-os para ver o cenário.</li>
+  </ul>
+
+  <h3 id="fgts">FGTS: saldo e saques simulados</h3>
+  <p><span class="path">Contas e cartões › FGTS</span> (também pelo cartão <strong>FGTS</strong> em <span class="path">Patrimônio</span>).</p>
+  <ol>
+    <li>Toque em <strong>Registrar saldo do FGTS</strong>. Informe o <strong>saldo total</strong>, a <strong>data do saldo</strong> e deixe <strong>Saldo conferido no extrato</strong> ligado se você copiou o valor do app FGTS (fica <em>Confirmado</em>); desligue se for uma estimativa (fica <em>Estimado</em>).</li>
+    <li>Opcional: o <strong>depósito mensal</strong> (ou o salário bruto e <strong>Calcular 8%</strong>) e o rendimento ao ano (3% por lei). Com eles o app mostra o <strong>saldo previsto</strong> em 1, 2 e 5 anos.</li>
+    <li>O FGTS entra no <strong>Patrimônio</strong> como um <strong>ativo à parte</strong>, fora do caixa: ele não aparece no saldo das contas nem na Projeção.</li>
+  </ol>
+  <p><strong>Simular um saque:</strong> toque em <strong>Simular saque</strong>, escolha um cenário (ou <em>Novo cenário</em>), a <strong>finalidade</strong> (saque-aniversário, demissão, compra da casa própria, financiamento habitacional, aposentadoria, doença grave, calamidade ou outro), o <strong>valor</strong> e a <strong>data prevista</strong>. Marque <strong>Valor confirmado</strong> e <strong>Data confirmada</strong> quando tiver certeza. Atalhos: <em>Usar limite do saque-aniversário</em> e <em>Todo o saldo previsto</em>. A tela mostra o caixa projetado com e sem o saque. O dinheiro só entra na Projeção quando você escolhe esse cenário.</p>
+  <p><strong>Quando o dinheiro cair:</strong> toque em <strong>Registrar recebimento</strong>, informe valor, data e conta. O app lança a receita, baixa o saldo do FGTS e tira o saque do cenário, para não contar duas vezes.</p>
+  <div class="tip"><strong>Por que não atualiza sozinho?</strong> Não existe hoje uma fonte oficial ou autorizada que entregue o saldo do FGTS a um app de finanças pessoais. O FGTS não faz parte do Open Finance, e a consulta autorizada pela Caixa (desde novembro de 2026) é só para instituições financeiras habilitadas e não mostra o saldo total. Confira o saldo no app FGTS e atualize aqui.</div>
 
   <!-- ================================================================ -->
   <h2 id="fechar-mes">16. Fechar mês, ajustar e reverter</h2>

@@ -30,6 +30,7 @@ enum Coll {
   categoryRules,
   assets,
   monthClosings,
+  scenarios,
   debts,
   debtScenarios,
 }
