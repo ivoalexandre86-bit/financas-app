@@ -1,6 +1,7 @@
 import '../../core/ids.dart';
 import '../../core/money.dart';
 import '../../domain/models/entities.dart';
+import '../../domain/open_finance/bank_sync.dart';
 import '../open_finance.dart';
 import 'api_client.dart';
 
@@ -23,6 +24,63 @@ class PluggyOpenFinanceProvider extends OpenFinanceProvider {
   @override
   Future<bool> isConfigured() async =>
       (await api.get('openfinance/status'))['configured'] == true;
+
+  @override
+  Future<bool> autoSyncs() async =>
+      (await api.get('openfinance/status'))['autoSync'] == true;
+
+  @override
+  Future<List<OFItemStatus>> itemStatuses() async {
+    final r = await api.get('openfinance/items');
+    return [
+      for (final i in (r['items'] as List).cast<Map>())
+        OFItemStatus.fromJson(i.cast<String, Object?>()),
+    ];
+  }
+
+  @override
+  Future<OFItemStatus?> syncNow(String itemId) async {
+    final r = await api.post(
+      'openfinance/items/${Uri.encodeComponent(itemId)}/sync',
+    );
+    return OFItemStatus.fromJson((r['item'] as Map).cast<String, Object?>());
+  }
+
+  @override
+  Future<String> renewToken(String itemId) async =>
+      (await api.post('openfinance/connect-token', {
+            'itemId': itemId,
+          }))['connectToken']
+          as String;
+
+  @override
+  Future<OFChanges> fetchChanges(
+    OpenFinanceConnection connection, {
+    String? cursor,
+    DateTime? since,
+  }) async {
+    final account = connection.providerAccountId;
+    if (account == null) throw StateError('Conexão sem conta do provedor');
+    final q = cursor != null
+        ? '?since=${Uri.encodeQueryComponent(cursor)}'
+        : since != null
+        ? '?from=${since.toIso8601String().substring(0, 10)}'
+        : '';
+    final r = await api.get(
+      'openfinance/accounts/${Uri.encodeComponent(account)}/transactions$q',
+    );
+    return OFChanges([
+      for (final t in (r['transactions'] as List).cast<Map>())
+        ProviderTransaction(
+          externalId: 'pluggy:${t['id']}',
+          date: DateTime.parse(t['date'] as String),
+          signedAmount: Money(t['amountCents'] as int),
+          description: t['description'] as String,
+          pending: t['pending'] == true,
+          deleted: t['deleted'] == true,
+        ),
+    ], r['cursor'] as String?);
+  }
 
   @override
   Future<String> connectToken() async =>

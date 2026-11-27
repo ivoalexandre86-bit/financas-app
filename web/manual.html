@@ -399,9 +399,25 @@
   <ol>
     <li>Abra <span class="path">Configurações › Open Finance</span> e toque em <strong>Conectar seus bancos</strong>.</li>
     <li>Na janela que abre, escolha <strong>MeuPluggy</strong> e marque as contas e cartões. (Se ainda não tem, crie a conta no Meu Pluggy e autorize seus bancos lá; é gratuito.)</li>
-    <li>De volta ao app, em cada conta ou cartão do banco, escolha qual conta do app é ela e toque em <strong>Sincronizar</strong>.</li>
-    <li>Os lançamentos chegam em <strong>Transações para revisar</strong>. Em cada um, toque em ⋮ e escolha <strong>Importar como novo</strong>, <strong>Conciliar com lançamento</strong> (se você já tinha lançado à mão) ou <strong>Ignorar</strong>.</li>
+    <li>De volta ao app, em cada conta ou cartão do banco, escolha em <strong>Vincular a conta/cartão</strong> qual conta do app é ela.</li>
+    <li>Pronto: a partir daí a <strong>sincronização é automática</strong>. O banco atualiza os dados (em geral uma vez por dia) e o app traz o que mudou ao abrir e a cada 15 minutos, sem você tocar em nada.</li>
   </ol>
+  <h3>O que acontece com cada lançamento do banco</h3>
+  <ul>
+    <li><strong>Já lançado por você:</strong> se você tinha lançado à mão (ou é uma conta recorrente cadastrada) com o mesmo valor e data até 3 dias de diferença, o app reconhece e só liga os dois. Nada é somado de novo.</li>
+    <li><strong>Agendado no banco</strong> (Pix ou boleto agendado, compra ainda em processamento): entra na <strong>Projeção</strong> como <em>previsto</em>. Quando o banco confirma, o mesmo lançamento vira <em>concluído</em>; ele conta uma vez só. Se o agendamento for cancelado no banco, o previsto sai da projeção.</li>
+    <li><strong>Novo, sem par:</strong> fica em <strong>Transações para revisar</strong> (toque em ⋮ para <strong>Importar como novo</strong>, <strong>Conciliar com lançamento</strong> ou <strong>Ignorar</strong>). Se preferir, ligue <strong>Lançar sozinho o que não tiver par</strong> no cartão da conta e ele entra direto como concluído.</li>
+    <li>Sincronizar de novo nunca duplica: cada lançamento do banco é reconhecido pelo código que o banco dá a ele.</li>
+    <li>Se o banco só manda o histórico (sem agendamentos), a projeção continua usando as contas fixas e parcelas que você cadastrou no app.</li>
+  </ul>
+  <h3>Acompanhar a conexão</h3>
+  <ul>
+    <li>No cartão de cada conta aparecem a data dos <strong>dados do banco</strong>, a <strong>última sincronização</strong> e a <strong>próxima atualização automática</strong>.</li>
+    <li><strong>Sincronizar agora</strong> pede ao banco uma atualização na hora e traz o que já chegou.</li>
+    <li>Se algo falhar, o motivo aparece em vermelho e uma nova tentativa é feita sozinha.</li>
+    <li>Quando o consentimento vence (ou está para vencer em 7 dias) ou o banco deixa de aceitar o acesso, aparece <strong>Renovar consentimento</strong>: toque, autorize de novo no banco e a sincronização volta. (A renovação abre na versão web do app; se conectou pelo Meu Pluggy, também dá para renovar em meu.pluggy.ai.)</li>
+    <li>Quem entrou na conta com <strong>acesso limitado</strong> não vê nem usa as conexões do Open Finance; só quem tem acesso total.</li>
+  </ul>
   <p>Para parar de compartilhar, use <strong>Revogar consentimento</strong> ou <strong>Remover conexão</strong>. O que já foi importado continua.</p>
 
   <!-- ================================================================ -->

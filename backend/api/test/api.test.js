@@ -11,7 +11,7 @@ const url = process.env.TEST_DATABASE_URL;
 
 test('API', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
   const pool = new Pool({ connectionString: url });
-  await pool.query('drop table if exists account_members, funnel_events, referrals, marketing_spend, openfinance_interest, share_audit, share_payments, share_settlements, share_allocations, share_expenses, share_recurrences, share_categories, share_members, share_groups, of_items, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, whatsapp_usage, app_docs, users cascade');
+  await pool.query('drop table if exists of_webhook_events, of_transactions, account_members, funnel_events, referrals, marketing_spend, openfinance_interest, share_audit, share_payments, share_settlements, share_allocations, share_expenses, share_recurrences, share_categories, share_members, share_groups, of_items, whatsapp_links, whatsapp_link_codes, whatsapp_drafts, whatsapp_seen, whatsapp_usage, app_docs, users cascade');
   await migrate(pool);
   const ITEM = '11111111-2222-3333-4444-555555555555';
   const OTHER_ITEM = '99999999-2222-3333-4444-555555555555';
@@ -33,7 +33,7 @@ test('API', { skip: !url && 'TEST_DATABASE_URL não definido' }, async (t) => {
       if (id === 'acc2') return { id, itemId: OTHER_ITEM };
       throw new PluggyError(404, 'not found');
     },
-    listTransactions: async (accountId, from) => [
+    listTransactions: async (accountId, from) => accountId !== 'acc1' ? [] : [
       { id: 't1', date: '2026-10-01T00:00:00.000Z', description: 'MERCADO', type: 'DEBIT', amount: -12.34, from },
       { id: 't2', date: '2026-10-02T00:00:00.000Z', description: 'PIX', type: 'CREDIT', amount: 100 },
       { id: 't3', date: '2026-10-03T00:00:00.000Z', description: 'LOJA', type: 'DEBIT', amount: 50,

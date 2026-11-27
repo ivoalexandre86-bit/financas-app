@@ -1034,6 +1034,13 @@ class OpenFinanceConnection {
   /// Conexão (item) e conta no provedor real; nulos no sandbox.
   final String? providerItemId;
   final String? providerAccountId;
+
+  /// Lançar sozinho o que chegar do banco sem par entre os lançamentos
+  /// (desligado: fica em "Novos" para revisar).
+  final bool autoImport;
+
+  /// Cursor do servidor: a próxima leitura traz só o que mudou depois dele.
+  final String? syncCursor;
   final DateTime createdAt;
 
   OpenFinanceConnection({
@@ -1048,11 +1055,15 @@ class OpenFinanceConnection {
     this.linkedCardId,
     this.providerItemId,
     this.providerAccountId,
+    this.autoImport = false,
+    this.syncCursor,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
   OpenFinanceConnection copyWith({
     ConsentStatus? consentStatus,
+    bool? autoImport,
+    Object? syncCursor = _unset,
     Object? consentExpiresAt = _unset,
     Object? lastSyncAt = _unset,
     Object? lastError = _unset,
@@ -1080,6 +1091,10 @@ class OpenFinanceConnection {
         : linkedCardId as String?,
     providerItemId: providerItemId,
     providerAccountId: providerAccountId,
+    autoImport: autoImport ?? this.autoImport,
+    syncCursor: identical(syncCursor, _unset)
+        ? this.syncCursor
+        : syncCursor as String?,
     createdAt: createdAt,
   );
 
@@ -1095,6 +1110,8 @@ class OpenFinanceConnection {
     'linkedCardId': linkedCardId,
     'providerItemId': providerItemId,
     'providerAccountId': providerAccountId,
+    'autoImport': autoImport,
+    'syncCursor': syncCursor,
     'createdAt': createdAt.toIso8601String(),
   };
 
@@ -1119,6 +1136,8 @@ class OpenFinanceConnection {
         linkedCardId: j['linkedCardId'] as String?,
         providerItemId: j['providerItemId'] as String?,
         providerAccountId: j['providerAccountId'] as String?,
+        autoImport: j['autoImport'] == true,
+        syncCursor: j['syncCursor'] as String?,
         createdAt: _ts(j['createdAt']),
       );
 }
@@ -1136,6 +1155,10 @@ class ExternalTransaction {
   final ExternalTxStatus status;
   final String? matchedTransactionId;
 
+  /// O banco ainda não confirmou (agendado, data futura, compra em
+  /// processamento): entra na projeção como previsto.
+  final bool providerPending;
+
   ExternalTransaction({
     required this.id,
     required this.connectionId,
@@ -1145,18 +1168,24 @@ class ExternalTransaction {
     required this.description,
     this.status = ExternalTxStatus.pending,
     this.matchedTransactionId,
+    this.providerPending = false,
   });
 
   ExternalTransaction copyWith({
     ExternalTxStatus? status,
     Object? matchedTransactionId = _unset,
+    DateTime? date,
+    Money? signedAmount,
+    String? description,
+    bool? providerPending,
   }) => ExternalTransaction(
     id: id,
     connectionId: connectionId,
     externalId: externalId,
-    date: date,
-    signedAmount: signedAmount,
-    description: description,
+    date: date ?? this.date,
+    signedAmount: signedAmount ?? this.signedAmount,
+    description: description ?? this.description,
+    providerPending: providerPending ?? this.providerPending,
     status: status ?? this.status,
     matchedTransactionId: identical(matchedTransactionId, _unset)
         ? this.matchedTransactionId
@@ -1172,6 +1201,7 @@ class ExternalTransaction {
     'description': description,
     'status': status.name,
     'matchedTransactionId': matchedTransactionId,
+    if (providerPending) 'providerPending': true,
   };
 
   factory ExternalTransaction.fromJson(Map<String, Object?> j) =>
@@ -1188,6 +1218,7 @@ class ExternalTransaction {
           ExternalTxStatus.pending,
         ),
         matchedTransactionId: j['matchedTransactionId'] as String?,
+        providerPending: j['providerPending'] == true,
       );
 }
 

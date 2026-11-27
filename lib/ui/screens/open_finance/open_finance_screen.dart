@@ -9,6 +9,7 @@ import '../../../data/cloud/cloud_auth_service.dart';
 import '../../../data/cloud/pluggy_connect.dart';
 import '../../../data/open_finance.dart';
 import '../../../domain/models/entities.dart';
+import '../../../domain/open_finance/bank_sync.dart';
 import '../../../state/auth_controller.dart';
 import '../../../state/finance_controller.dart';
 import '../../theme.dart';
@@ -191,9 +192,11 @@ class OpenFinanceScreen extends StatelessWidget {
       ),
       content: const Text(
         'Falta só um passo: em cada conta ou cartão da lista, escolha em '
-        '"Vincular a conta/cartão" qual conta do app ela representa e toque em '
-        'Sincronizar.\n\nOs lançamentos do banco chegam em "Transações para revisar". '
-        'Os que você já tinha lançado à mão são reconhecidos e não duplicam.',
+        '"Vincular a conta/cartão" qual conta do app ela representa.\n\n'
+        'Daí em diante a sincronização é automática: o banco atualiza os dados e o app '
+        'traz o que mudou sozinho. Agendamentos do banco entram na projeção como '
+        'previstos e, quando o banco confirma, viram o mesmo lançamento, sem contar duas vezes. '
+        'O que você já tinha lançado à mão é reconhecido e não duplica.',
       ),
       actions: [
         FilledButton(
@@ -205,14 +208,15 @@ class OpenFinanceScreen extends StatelessWidget {
   );
 
   Future<void> _syncAll(BuildContext context, FinanceController fc) async {
-    var added = 0, matched = 0, failed = 0;
+    final results = <BankSyncResult>[];
+    var failed = 0;
+    final seen = <String>{};
     for (final c in fc.connections.where(
       (c) => c.consentStatus == ConsentStatus.active,
     )) {
+      if (!seen.add(c.providerItemId ?? c.id)) continue;
       try {
-        final r = await fc.syncConnection(c);
-        added += r.added;
-        matched += r.matched;
+        results.add(await fc.syncNow(c));
       } catch (_) {
         failed++;
       }
@@ -220,9 +224,8 @@ class OpenFinanceScreen extends StatelessWidget {
     if (context.mounted) {
       showMessage(
         context,
-        '$added novas transações · $matched conciliadas automaticamente'
-        '${failed > 0 ? ' · $failed com erro' : ''}',
-        error: failed > 0 && added == 0,
+        syncSummary(results) + (failed > 0 ? ' · $failed com erro' : ''),
+        error: failed > 0 && results.isEmpty,
       );
     }
   }
@@ -271,6 +274,8 @@ class OpenFinanceScreen extends StatelessWidget {
                 style: context.text.bodySmall,
               ),
             ),
+          if (!fc.openFinance.isSandbox && fc.connections.isNotEmpty)
+            _AutoSyncBanner(fc: fc),
           const SizedBox(height: 12),
           if (fc.connections.isEmpty && fc.openFinance.connectsByItemId)
             _HowItWorks(onStart: () => _connect(context, fc))
@@ -323,12 +328,31 @@ class _ConnectionCard extends StatelessWidget {
     final c = connection;
     final active = c.consentStatus == ConsentStatus.active;
     final items = fc.externalTransactions.where((e) => e.connectionId == c.id);
-    final color = active ? context.fin.positive : context.fin.warning;
+    final status = fc.itemStatusOf(c);
+    final scheduled = items
+        .where(
+          (e) =>
+              e.providerPending &&
+              (e.status == ExternalTxStatus.imported ||
+                  e.status == ExternalTxStatus.matched),
+        )
+        .length;
+    final linkedToApp = c.linkedAccountId != null || c.linkedCardId != null;
+    final color = !active
+        ? context.fin.warning
+        : status?.needsRenewal == true
+        ? context.fin.negative
+        : context.fin.positive;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: SectionCard(
         title: c.institutionName,
-        trailing: Pill(c.consentStatus.label, color: color),
+        trailing: Pill(
+          active && status?.needsRenewal == true
+              ? 'Renovar'
+              : c.consentStatus.label,
+          color: color,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -338,17 +362,42 @@ class _ConnectionCard extends StatelessWidget {
                   ? '—'
                   : Dates.format(c.consentExpiresAt!),
             ),
+            if (status?.providerUpdatedAt != null)
+              InfoRow.text(
+                'Dados do banco de',
+                dateTimeBr(status!.providerUpdatedAt!),
+              ),
             InfoRow.text(
               'Última sincronização',
-              c.lastSyncAt == null
-                  ? 'Nunca'
-                  : '${Dates.format(c.lastSyncAt!)} ${c.lastSyncAt!.hour.toString().padLeft(2, '0')}:${c.lastSyncAt!.minute.toString().padLeft(2, '0')}',
+              c.lastSyncAt == null ? 'Nunca' : dateTimeBr(c.lastSyncAt!),
             ),
+            if (status?.nextAutoSyncAt != null)
+              InfoRow.text(
+                'Próxima atualização automática',
+                dateTimeBr(status!.nextAutoSyncAt!),
+              ),
             InfoRow.text('Transações recebidas', '${items.length}'),
+            if (scheduled > 0)
+              InfoRow.text('Previstas pelo banco', '$scheduled na projeção'),
+            if (status != null && status.message != null)
+              _StatusNote(status: status),
             if (c.lastError != null)
-              Text(
-                'Erro: ${c.lastError}',
-                style: TextStyle(color: context.fin.negative),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Falha na última sincronização: ${c.lastError}',
+                  style: TextStyle(color: context.fin.negative),
+                ),
+              ),
+            if (status != null &&
+                (status.needsRenewal || status.health == 'expiring'))
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.verified_user_outlined),
+                  label: const Text('Renovar consentimento'),
+                  onPressed: () => _renew(context, fc, c),
+                ),
               ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String?>(
@@ -382,23 +431,32 @@ class _ConnectionCard extends StatelessWidget {
                 cardId: v != null && v.startsWith('c:') ? v.substring(2) : null,
               ),
             ),
-            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Lançar sozinho o que não tiver par'),
+              subtitle: Text(
+                linkedToApp
+                    ? 'Ligado: o que o banco confirmar e não bater com um lançamento seu entra como concluído. '
+                          'Desligado: fica em "Transações para revisar".'
+                    : 'Vincule a uma conta ou cartão do app para usar.',
+              ),
+              value: c.autoImport && linkedToApp,
+              onChanged: linkedToApp ? (v) => fc.setAutoImport(c, v) : null,
+            ),
+            const SizedBox(height: 4),
             Row(
               children: [
                 Expanded(
                   child: FilledButton.tonalIcon(
                     icon: const Icon(Icons.sync),
-                    label: const Text('Sincronizar'),
+                    label: const Text('Sincronizar agora'),
                     onPressed: !active
                         ? null
                         : () async {
                             try {
-                              final r = await fc.syncConnection(c);
+                              final r = await fc.syncNow(c);
                               if (context.mounted) {
-                                showMessage(
-                                  context,
-                                  '${r.added} novas transações · ${r.matched} conciliadas automaticamente',
-                                );
+                                showMessage(context, syncSummary([r]));
                               }
                             } catch (e) {
                               if (context.mounted) {
@@ -460,6 +518,162 @@ class _ConnectionCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Renova o consentimento na janela do provedor (modo de atualização da
+/// conexão). Fora da web, orienta a renovar pelo Meu Pluggy.
+Future<void> _renew(
+  BuildContext context,
+  FinanceController fc,
+  OpenFinanceConnection c,
+) async {
+  if (!pluggyConnectSupported) {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Renovar consentimento'),
+        content: const Text(
+          'Abra o app pelo navegador (versão web) e toque de novo em "Renovar consentimento": '
+          'a janela da Pluggy abre o banco para você autorizar outra vez. '
+          'Se conectou pelo Meu Pluggy, renove lá em meu.pluggy.ai.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => launchUrl(Uri.parse('https://meu.pluggy.ai')),
+            child: const Text('Abrir Meu Pluggy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Entendi'),
+          ),
+        ],
+      ),
+    );
+    return;
+  }
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  String? done;
+  final ok = await runAction(context, () async {
+    final token = await fc.renewConsentToken(c);
+    done = await openPluggyConnect(
+      token,
+      dark: dark,
+      updateItem: c.providerItemId,
+    );
+  });
+  if (!ok || done == null || !context.mounted) return;
+  await runAction(
+    context,
+    () => fc.afterConsentRenewed(c),
+    success: 'Consentimento renovado. A sincronização voltou a funcionar.',
+  );
+}
+
+/// "dd/mm/aaaa às hh:mm".
+String dateTimeBr(DateTime d) {
+  final l = d.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${Dates.format(l)} às ${two(l.hour)}:${two(l.minute)}';
+}
+
+/// Resumo de uma ou mais sincronizações para a mensagem na tela.
+String syncSummary(List<BankSyncResult> rs) {
+  int sum(int Function(BankSyncResult) f) => rs.fold(0, (a, r) => a + f(r));
+  final added = sum((r) => r.added);
+  final matched = sum((r) => r.matched);
+  final imported = sum((r) => r.imported);
+  final scheduled = sum((r) => r.scheduled);
+  final confirmed = sum((r) => r.confirmed);
+  final removed = sum((r) => r.removed);
+  if (added == 0 && confirmed == 0 && removed == 0) {
+    return 'Tudo em dia: nada novo no banco';
+  }
+  final review = added - matched - imported - scheduled;
+  return [
+    if (added > 0) '$added novas',
+    if (matched > 0) '$matched conciliadas',
+    if (imported > 0) '$imported lançadas',
+    if (scheduled > 0) '$scheduled previstas na projeção',
+    if (confirmed > 0) '$confirmed confirmadas pelo banco',
+    if (removed > 0) '$removed removidas no banco',
+    if (review > 0) '$review para revisar',
+  ].join(' · ');
+}
+
+class _StatusNote extends StatelessWidget {
+  final OFItemStatus status;
+  const _StatusNote({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final bad = status.needsRenewal || status.health == 'error';
+    final color = bad ? context.fin.negative : context.fin.warning;
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            status.health == 'updating'
+                ? Icons.hourglass_top
+                : bad
+                ? Icons.error_outline
+                : Icons.info_outline,
+            size: 18,
+            color: color,
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(status.message!, style: context.text.bodySmall)),
+        ],
+      ),
+    );
+  }
+}
+
+class _AutoSyncBanner extends StatelessWidget {
+  final FinanceController fc;
+  const _AutoSyncBanner({required this.fc});
+
+  @override
+  Widget build(BuildContext context) {
+    final on = fc.autoSyncEnabled;
+    final last = fc.lastAutoSyncAt;
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: (on ? context.fin.positive : context.fin.warning).withValues(
+          alpha: 0.10,
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            fc.autoSyncing ? Icons.sync : Icons.autorenew,
+            color: on ? context.fin.positive : context.fin.warning,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              on
+                  ? 'Sincronização automática ligada: o banco atualiza os dados e o app '
+                        'traz o que mudou sozinho (ao abrir e a cada 15 minutos).'
+                        '${last == null ? '' : ' Última verificação: ${dateTimeBr(last)}.'}'
+                  : 'O app traz o que mudou ao abrir e a cada 15 minutos. Os avisos '
+                        'automáticos do banco ainda não estão ativos no servidor.',
+              style: context.text.bodySmall,
+            ),
+          ),
+        ],
       ),
     );
   }

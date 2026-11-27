@@ -99,6 +99,10 @@ migrate(pool)
             })
           : null,
       whatsapp: whatsAppFromEnv(process.env),
+      // Webhook da Pluggy e varredura periódica das conexões (sincronização
+      // automática). O Render define RENDER_EXTERNAL_URL sozinho.
+      publicUrl: process.env.PUBLIC_API_URL || process.env.RENDER_EXTERNAL_URL || undefined,
+      startOpenFinanceSync: process.env.OPENFINANCE_AUTO_SYNC !== 'false',
       // Cadastro aberto para o app nas lojas; OPEN_SIGNUP=false fecha.
       openSignup: process.env.OPEN_SIGNUP !== 'false',
       // Assinaturas das lojas pelo RevenueCat (chave secreta da API v1 e o
