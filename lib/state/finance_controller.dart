@@ -19,6 +19,7 @@ import '../domain/engine/budget_engine.dart';
 import '../domain/engine/dashboard_engine.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/engine/installments.dart';
+import '../domain/engine/month_end_planner.dart';
 import '../domain/engine/networth_engine.dart';
 import '../domain/engine/other_entries_engine.dart';
 import '../domain/engine/scenario_engine.dart';
@@ -107,6 +108,7 @@ class FinanceController extends ChangeNotifier {
   Asset? get fgts => assets.where((a) => a.isFgts).firstOrNull;
 
   ScenarioEngine get scenarioEngine => ScenarioEngine(engine);
+
   /// Empréstimos e financiamentos (Dívidas e contratos).
   List<DebtContract> debts = [];
 
@@ -1361,6 +1363,7 @@ class FinanceController extends ChangeNotifier {
       computedIncome: t.income,
       computedExpenses: t.expenses,
       note: note?.trim().isEmpty ?? true ? null : note!.trim(),
+      decision: old?.decision,
       createdAt: old?.createdAt,
     );
     await _commit([WriteOp.put(Coll.monthClosings, c.id, c.toJson())]);
@@ -1387,6 +1390,7 @@ class FinanceController extends ChangeNotifier {
         computedIncome: t.income,
         computedExpenses: t.expenses,
         note: old?.note,
+        decision: old?.decision,
         createdAt: old?.createdAt,
       );
       ops.add(WriteOp.put(Coll.monthClosings, c.id, c.toJson()));
@@ -1408,6 +1412,181 @@ class FinanceController extends ChangeNotifier {
       for (final k in keys) WriteOp.delete(Coll.monthClosings, k),
     ]);
     return keys.length;
+  }
+
+  // ---------------------------------------------------------------------------
+  // "O que fazer agora?" (passo final do fechamento)
+
+  /// Analisa o fim de [month] com a reserva mínima, as metas e as dívidas
+  /// cadastradas (Dívidas e contratos) do usuário.
+  MonthEndAnalysis monthEndAnalysis(
+    YearMonth month, {
+    List<DebtContract>? debts,
+    List<RenegotiationOffer> offers = const [],
+    Money? amount,
+    int cutPercent = 10,
+  }) => MonthEndPlanner(engine).analyze(
+    month,
+    minimumReserve: minimumReserve,
+    goals: goals,
+    debts: debts ?? activeDebts,
+    offers: offers,
+    amount: amount,
+    cutPercent: cutPercent,
+  );
+
+  /// Salva a opção como cenário (Projeção › Cenário), sem mudar o
+  /// orçamento base: cada mudança mensal vira um fluxo estimado.
+  Future<PlanScenario> saveMonthEndScenario(
+    MonthEndAnalysis a,
+    MonthEndOption o,
+  ) async {
+    if (o.deltas.isEmpty) {
+      throw ArgumentError('Esta opção não muda o caixa dos próximos meses');
+    }
+    final first = MonthEndPlanner(engine).firstOpenDate();
+    final flows = [
+      for (final MapEntry(key: m, value: v) in o.deltas.entries)
+        if (!v.isZero)
+          ScenarioFlow(
+            id: newId('sf_'),
+            date: m == YearMonth.of(first) ? first : m.firstDay,
+            amount: v,
+            description: o.title,
+            source: ScenarioSource.monthEnd,
+            refId: a.closedMonth.key,
+            purpose: o.kind.label,
+            notes: o.assumptions.join(' '),
+          ),
+    ]..sort((x, y) => x.date.compareTo(y.date));
+    final sc = PlanScenario(
+      id: newId('sc_'),
+      name: '${o.title} (fechamento de ${a.closedMonth.shortLabel})',
+      kind: ScenarioSource.monthEnd,
+      flows: flows,
+      notes: o.why,
+    );
+    await saveScenario(sc);
+    return sc;
+  }
+
+  /// Data em que as saídas planejadas caem (hoje ou o 1º mês aberto).
+  DateTime monthEndPlanDate() => MonthEndPlanner(engine).firstOpenDate();
+
+  /// Aplica a opção escolhida **só no planejamento futuro** e registra a
+  /// decisão no fechamento de [a.closedMonth]. Nunca grava nada em mês
+  /// fechado: saídas planejadas caem hoje ou no primeiro mês aberto. Não faz
+  /// pagamentos nem altera contratos.
+  Future<MonthEndDecision> applyMonthEndOption(
+    MonthEndAnalysis a,
+    MonthEndOption o, {
+    String? accountId,
+  }) async {
+    final closing = closingOf(a.closedMonth);
+    if (closing == null) {
+      throw ArgumentError('Feche ${a.closedMonth.longLabel} antes de planejar');
+    }
+    if (!o.isComplete) {
+      throw ArgumentError('Faltam dados: ${o.missingFields.join(', ')}');
+    }
+    final planner = MonthEndPlanner(engine);
+    final date = planner.firstOpenDate();
+    final note = 'Planejado no fechamento de ${a.closedMonth.longLabel}';
+    final changes = <String>[];
+    switch (o.kind) {
+      case MonthEndOptionKind.reserve || MonthEndOptionKind.goal:
+        if (!o.upfront.isPositive)
+          throw ArgumentError('Sem valor para guardar');
+        var g = goals.where((x) => x.id == o.targetId).firstOrNull;
+        if (g == null) {
+          g = SavingsGoal(
+            id: newId('goal_'),
+            name: 'Reserva de emergência',
+            target: minimumReserve > o.upfront ? minimumReserve : o.upfront,
+          );
+          changes.add('Meta “${g.name}” criada');
+        }
+        await addGoalContribution(
+          g,
+          GoalContribution(
+            id: newId('gc_'),
+            date: date,
+            amount: o.upfront,
+            note: note,
+          ),
+        );
+        changes.add(
+          'Aporte de ${o.upfront.formatVisible()} em “${g.name}” em ${Dates.format(date)}',
+        );
+      case MonthEndOptionKind.debtPrepay:
+        final acc = accountId ?? otherAccount?.id;
+        if (acc == null) throw ArgumentError('Cadastre uma conta');
+        final name = o.debtEstimate?.debt.name ?? o.title;
+        await saveTransaction(
+          FinTransaction(
+            id: newId('tx_'),
+            type: TransactionType.expense,
+            amount: o.upfront,
+            description: 'Amortização extra – $name',
+            date: date,
+            accountId: acc,
+            status: TransactionStatus.pending,
+            notes:
+                '$note. Só planejamento: o app não faz o pagamento nem altera '
+                'o contrato.',
+          ),
+        );
+        changes.add(
+          'Saída prevista de ${o.upfront.formatVisible()} em ${Dates.format(date)} (amortização de $name)',
+        );
+      case MonthEndOptionKind.postpone:
+        for (var i = 0; i < o.postponed.length; i++) {
+          final t = o.postponed[i];
+          final to = o.postponedTo[i];
+          if (planner.isClosed(YearMonth.of(t.date)) ||
+              planner.isClosed(YearMonth.of(to))) {
+            throw ArgumentError(
+              'Não é possível mudar lançamentos de mês fechado',
+            );
+          }
+          await saveTransaction(
+            t.copyWith(date: to, dueDate: t.dueDate == null ? null : to),
+          );
+          changes.add(
+            '“${t.description}” passou de ${Dates.format(t.date)} para ${Dates.format(to)}',
+          );
+        }
+      case MonthEndOptionKind.keepCash ||
+          MonthEndOptionKind.cutDiscretionary ||
+          MonthEndOptionKind.renegotiate:
+        changes.add('Só registro: nenhum lançamento foi alterado');
+    }
+    final d = MonthEndDecision(
+      kind: o.kind.name,
+      title: o.title,
+      amount: o.upfront,
+      scenario: a.scenario.name,
+      changes: changes,
+    );
+    final c = closingOf(a.closedMonth)!;
+    await _commit([
+      WriteOp.put(
+        Coll.monthClosings,
+        c.id,
+        MonthClosing(
+          month: c.month,
+          income: c.income,
+          expenses: c.expenses,
+          computedIncome: c.computedIncome,
+          computedExpenses: c.computedExpenses,
+          note: c.note,
+          decision: d,
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+        ).toJson(),
+      ),
+    ]);
+    return d;
   }
 
   // ---------------------------------------------------------------------------
