@@ -69,15 +69,18 @@ test('resumo igual à Projeção: fechamento, inativos e fatura paga antes', () 
   assert.equal(s.closing, null);
 
   // Mês fechado: valem os valores do fechamento, também no acumulado.
-  docs.monthClosings = [{ id: '2026-11', month: '2026-11', income: 300000, expenses: 300000, computedIncome: 1, computedExpenses: 1 }];
+  docs.monthClosings = [{ id: '2026-11', month: '2026-11', income: 300000, expenses: 300000, computedIncome: 200000, computedExpenses: 300000 }];
   const c = computeSummary(docs, '2026-11', '2026-11-26');
   assert.equal(c.closing.income, 300000);
   assert.equal(c.accumulated, 100000);
   const text = formatMonthSummary(c, '2026-11-26');
   assert.match(text, /Mês fechado/);
-  assert.match(text, /Receitas: \*R\$\s3\.000,00\*/);
+  // Receitas/despesas calculadas ao fechar; o ajuste fica numa linha própria.
+  assert.match(text, /Receitas: \*R\$\s2\.000,00\*/);
+  assert.match(text, /Ajuste manual: \*\+R\$\s1\.000,00\*/);
+  assert.doesNotMatch(text, /Receitas: \*R\$\s3\.000,00\*/);
   assert.match(text, /Resultado: \*R\$\s0,00\*/);
-  assert.match(text, /Pelos lançamentos seria/);
+  assert.match(text, /Pelos lançamentos de hoje seria/);
 });
 
 test('fatura paga em duas vezes divide as compras como o app', () => {

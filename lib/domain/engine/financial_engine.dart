@@ -134,7 +134,11 @@ class MonthTotals {
   Money income = Money.zero;
   Money expenses = Money.zero; // positivo
   Money transfersNet = Money.zero; // só quando há filtro de conta
-  Money get net => income - expenses;
+
+  /// Ajuste manual do fechamento do mês (linha própria; não entra em
+  /// [income] nem em [expenses]).
+  Money adjustment = Money.zero;
+  Money get net => income - expenses + adjustment;
 }
 
 class ProjectionColumn {
@@ -146,6 +150,9 @@ class ProjectionColumn {
   final Money accumulated;
   final bool isPast;
   final bool isCurrent;
+
+  /// Ajuste manual do fechamento do mês, mostrado numa linha própria.
+  final Money adjustment;
   const ProjectionColumn({
     required this.month,
     required this.income,
@@ -155,8 +162,17 @@ class ProjectionColumn {
     required this.accumulated,
     required this.isPast,
     required this.isCurrent,
+    this.adjustment = Money.zero,
   });
-  Money get net => income - expenses;
+  Money get net => income - expenses + adjustment;
+
+  /// Receitas com o ajuste positivo somado (para quem só tem duas séries).
+  Money get incomeWithAdjustment =>
+      adjustment.isNegative ? income : income + adjustment;
+
+  /// Despesas com o ajuste negativo somado (para quem só tem duas séries).
+  Money get expensesWithAdjustment =>
+      adjustment.isNegative ? expenses - adjustment : expenses;
 }
 
 class ProjectionResult {
@@ -173,6 +189,8 @@ class ProjectionResult {
 
   Money get totalIncome => columns.map((c) => c.income).sum();
   Money get totalExpenses => columns.map((c) => c.expenses).sum();
+  Money get totalAdjustment => columns.map((c) => c.adjustment).sum();
+  Money get totalNet => totalIncome - totalExpenses + totalAdjustment;
 }
 
 /// Parte do valor de uma fatura reconhecida em um mês (regime de caixa).
@@ -740,9 +758,12 @@ class FinancialEngine {
   MonthTotals monthTotals(ProjectionFilter filter, YearMonth month) {
     final closing = closingFor(filter, month);
     if (closing != null) {
+      // Receitas e despesas calculadas ao fechar; o ajuste manual fica à
+      // parte, numa linha própria.
       return MonthTotals()
-        ..income = closing.income
-        ..expenses = closing.expenses;
+        ..income = closing.computedIncome
+        ..expenses = closing.computedExpenses
+        ..adjustment = closing.adjustment;
     }
     final t = MonthTotals();
     for (final e in monthEvents(filter, month)) {
@@ -801,8 +822,9 @@ class FinancialEngine {
         prior += c.net;
       } else {
         buckets[c.month]!
-          ..income = c.income
-          ..expenses = c.expenses;
+          ..income = c.computedIncome
+          ..expenses = c.computedExpenses
+          ..adjustment = c.adjustment;
       }
     }
 
@@ -850,6 +872,7 @@ class FinancialEngine {
           month: m,
           income: b.income,
           expenses: b.expenses,
+          adjustment: b.adjustment,
           transfersNet: b.transfersNet,
           opening: start,
           accumulated: running,

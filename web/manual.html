@@ -218,7 +218,9 @@
     <li><strong>Configurações:</strong> Preferências, Pessoas na conta, Categorias, Regras de categoria, Open Finance.</li>
   </ul>
   <p>No fim do menu lateral fica o <strong>Manual do usuário</strong> (esta página).</p>
-  <p>A tela <strong>Início</strong> mostra o saldo atual, as pendências do mês (despesas a pagar, receitas a receber, faturas a pagar e vencidas), receitas, despesas, resultado do mês e os próximos vencimentos. Use as setas no topo para trocar o mês. No fim do menu, <strong>Ocultar valores</strong> esconde os números (útil em público).</p>
+  <p>A tela <strong>Início</strong> mostra o saldo atual, as pendências do mês (despesas a pagar, receitas a receber, faturas a pagar e vencidas), receitas, despesas, resultado do mês e os próximos vencimentos. Use as setas no topo para trocar o mês.</p>
+  <p><strong>Saldo atual</strong> é o dinheiro real nas contas ativas (saldo inicial mais lançamentos concluídos, menos pagamentos de fatura). Se ele não bate com o banco, toque em <strong>Ajustar saldo</strong> no próprio card: escolha a conta, informe o saldo real e o app lança a diferença como “Ajuste de saldo”. O <strong>Projetado</strong> vem da Projeção e considera os fechamentos e ajustes de mês; o Saldo atual, não.</p>
+  <p>Em mês fechado com ajuste manual, receitas e despesas mostram os valores dos lançamentos e o ajuste aparece num card próprio, <strong>Ajuste manual (mês fechado)</strong>, antes do resultado. No fim do menu, <strong>Ocultar valores</strong> esconde os números (útil em público).</p>
 
   <!-- ================================================================ -->
   <h2 id="contas">7. Contas bancárias</h2>
@@ -228,7 +230,7 @@
     <li>Toque em <strong>Salvar</strong>.</li>
   </ol>
   <ul>
-    <li><strong>Ajustar saldo:</strong> se o saldo do app não bate com o banco, toque na conta e em <strong>Ajustar saldo</strong>. Informe o saldo real e toque em <strong>Ajustar</strong>: o app lança a diferença como “Ajuste de saldo” (receita ou despesa, na data de hoje), e o novo saldo já entra no <strong>Patrimônio</strong>. Para desfazer, exclua esse lançamento.</li>
+    <li><strong>Ajustar saldo:</strong> se o saldo do app não bate com o banco, toque em <strong>Ajustar saldo</strong> no card Saldo atual do Início (e escolha a conta), ou toque na conta e em <strong>Ajustar saldo</strong>. Informe o saldo real e toque em <strong>Ajustar</strong>: o app lança a diferença como “Ajuste de saldo” (receita ou despesa, na data de hoje), e o novo saldo já entra no <strong>Patrimônio</strong>. Para desfazer, exclua esse lançamento.</li>
     <li><strong>Dependentes da conta:</strong> na mesma tela, quadro <strong>Dependentes</strong> (veja <a href="#dependentes">Dependentes</a>).</li>
     <li><strong>Transferir entre contas:</strong> na conta, use <strong>Transferir</strong>, ou lance uma transação do tipo <strong>Transf.</strong></li>
     <li><strong>Não usa mais a conta?</strong> Edite e desligue <strong>Conta ativa</strong>. Contas com lançamentos não podem ser excluídas; contas inativas não somam no saldo.</li>
@@ -378,6 +380,7 @@
   <h2 id="fechar-mes">16. Fechar mês, ajustar e reverter</h2>
   <p class="muted">Quer corrigir o <strong>saldo de uma conta</strong> (o que o banco mostra)? Isso é outra coisa: veja <a href="#contas">Ajustar saldo</a> em Contas.</p>
   <p>Fechar um mês congela o resultado: lançamentos feitos ou alterados depois não mudam mais aquele mês em Início, Projeção, gráficos e relatórios. O saldo real das contas não muda.</p>
+  <p>O ajuste manual não é somado às receitas nem às despesas: ele aparece numa linha própria, <strong>Ajuste manual</strong>, no Início, na Projeção, no resumo do mês, nos relatórios exportados e no resumo do WhatsApp. Receitas e despesas continuam mostrando os valores dos lançamentos (do momento em que o mês foi fechado), e o resultado já inclui o ajuste.</p>
   <h3>Fechar um mês</h3>
   <ol>
     <li>Abra <span class="path">Planejamento › Projeção</span>.</li>

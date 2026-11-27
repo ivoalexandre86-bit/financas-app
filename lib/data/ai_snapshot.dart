@@ -43,7 +43,9 @@ String buildAiSnapshot(
   for (final m in r.monthly) {
     b.writeln(
       '- ${m.month.longLabel}: receitas ${brl(m.income)}, despesas '
-      '${brl(m.expenses)}, resultado ${brl(m.income - m.expenses)}',
+      '${brl(m.expenses)}'
+      '${m.adjustment.isZero ? '' : ', ajuste manual ${brl(m.adjustment)}'}'
+      ', resultado ${brl(m.income - m.expenses + m.adjustment)}',
     );
   }
 
