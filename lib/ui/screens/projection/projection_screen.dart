@@ -15,6 +15,7 @@ import '../../widgets/form_fields.dart';
 import '../../widgets/plan_upsell.dart';
 import '../../widgets/remembered_filters.dart';
 import '../../widgets/tx_grid.dart';
+import '../transactions/transaction_form_screen.dart';
 import 'drilldown_screen.dart';
 import 'month_adjust_screen.dart';
 import 'month_closing_ui.dart';
@@ -408,6 +409,7 @@ class _ProjectionScreenState extends State<ProjectionScreen>
               runSpacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
+                _NewEntryButton(months: [for (final c in cols) c.month]),
                 OutlinedButton.icon(
                   key: const ValueKey('proj-adjust-month'),
                   icon: const Icon(Icons.tune, size: 18),
@@ -1262,6 +1264,54 @@ class _RangeDialogState extends State<_RangeDialog> {
           child: const Text('Aplicar'),
         ),
       ],
+    );
+  }
+}
+
+/// "Lançar": abre o formulário de despesa ou receita sem sair da Projeção.
+/// A data sugerida é hoje quando o mês atual está na tela; senão, o dia 1 do
+/// primeiro mês mostrado. Ao salvar, a grade se atualiza sozinha.
+class _NewEntryButton extends StatelessWidget {
+  final List<YearMonth> months;
+  const _NewEntryButton({required this.months});
+
+  DateTime _date(DateTime today) {
+    final now = YearMonth.of(today);
+    if (months.isEmpty || months.contains(now)) return today;
+    return months.first.firstDay;
+  }
+
+  void _open(BuildContext context, TransactionType type) {
+    final today = context.read<FinanceController>().today;
+    push(
+      context,
+      TransactionFormScreen(initialType: type, initialDate: _date(today)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MenuAnchor(
+      menuChildren: [
+        MenuItemButton(
+          key: const ValueKey('proj-new-expense'),
+          leadingIcon: Icon(Icons.south_east, color: context.fin.negative),
+          onPressed: () => _open(context, TransactionType.expense),
+          child: const Text('Despesa'),
+        ),
+        MenuItemButton(
+          key: const ValueKey('proj-new-income'),
+          leadingIcon: Icon(Icons.north_east, color: context.fin.positive),
+          onPressed: () => _open(context, TransactionType.income),
+          child: const Text('Receita'),
+        ),
+      ],
+      builder: (context, ctrl, _) => FilledButton.icon(
+        key: const ValueKey('proj-new-entry'),
+        icon: const Icon(Icons.add, size: 18),
+        label: const Text('Lançar'),
+        onPressed: () => ctrl.isOpen ? ctrl.close() : ctrl.open(),
+      ),
     );
   }
 }
