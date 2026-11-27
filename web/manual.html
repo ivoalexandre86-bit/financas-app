@@ -53,7 +53,7 @@
       <li><a href="#boletos">Boletos e contas a vencer</a></li>
       <li><a href="#projecao">Projeção dos próximos meses</a> (e <a href="#cenarios">cenários</a>, <a href="#fgts">FGTS</a>)</li>
       <li><a href="#fechar-mes">Fechar mês, ajustar e reverter</a> (e <a href="#o-que-fazer-agora">O que fazer agora?</a>)</li>
-      <li><a href="#orcamentos">Orçamentos e metas</a></li>
+      <li><a href="#orcamentos">Orçamentos, metas e dívidas</a> (e <a href="#dividas">Dívidas e contratos: Price, SAC e antecipação</a>)</li>
       <li><a href="#whatsapp">Lançar pelo WhatsApp</a></li>
       <li><a href="#open-finance">Open Finance (trazer lançamentos do banco)</a></li>
       <li><a href="#importar">Importar planilha</a></li>
@@ -419,7 +419,7 @@
   </ul>
 
   <!-- ================================================================ -->
-  <h2 id="orcamentos">17. Orçamentos e metas</h2>
+  <h2 id="orcamentos">17. Orçamentos, metas e dívidas</h2>
   <p><strong>Orçamento (limite por categoria):</strong></p>
   <ol>
     <li>Abra <span class="path">Planejamento › Orçamentos</span> e toque em <strong>Novo orçamento</strong>.</li>
@@ -427,6 +427,35 @@
     <li>Salve. O app mostra gasto, previsto, restante e se vai passar do limite.</li>
   </ol>
   <p><strong>Meta de economia:</strong> em <span class="path">Planejamento › Metas</span>, crie a meta com o valor alvo e registre <strong>aportes</strong> conforme guarda dinheiro.</p>
+
+
+  <h3 id="dividas">Dívidas e contratos: Price, SAC e antecipação</h3>
+  <p>Em <span class="path">Planejamento › Dívidas e contratos</span> você cadastra empréstimos e financiamentos e simula o que economiza ao pagar antes. O app só planeja: nada é pago nem alterado no banco.</p>
+  <p><strong>Cadastrar um contrato:</strong></p>
+  <ol>
+    <li>Na aba <strong>Contratos</strong>, toque em <strong>Novo contrato</strong>.</li>
+    <li>Se tiver o contrato ou o extrato, toque em <strong>Anexar e ler dados</strong> (PDF ou foto). O app preenche os campos e marca cada um com <em>Lido do anexo</em>. Confira todos antes de salvar. Também dá para só anexar e preencher à mão.</li>
+    <li>Informe o <strong>saldo devedor</strong>, as <strong>parcelas restantes</strong>, a <strong>taxa de juros</strong> (ao mês ou ao ano), o <strong>sistema</strong> (Price = parcelas iguais; SAC = parcelas que diminuem), seguros e taxas mensais e, se houver, o indexador (TR, IPCA…) com uma estimativa ao mês.</li>
+    <li>Em <strong>O contrato permite</strong>, diga se ele aceita antecipar as últimas parcelas, amortizar reduzindo prazo ou parcela e quitar. "Não sei" calcula, mas avisa para conferir.</li>
+    <li>Em <strong>Parcelas na Projeção</strong>, escolha uma opção. <em>Vinculadas a um lançamento existente</em> serve quando você já lançou as parcelas como recorrência ou parcelamento. <em>Geradas a partir do contrato</em> faz o app lançar uma despesa planejada por parcela. Cada parcela conta uma vez só na Projeção.</li>
+  </ol>
+  <p><strong>Antecipar ou quitar:</strong> abra o contrato e, em <strong>Antecipar ou quitar</strong>, escolha a opção e o valor. O app mostra o que sai do caixa agora, a economia estimada, os juros a menos, a parcela e o prazo antes e depois, e o caixa projetado mês a mês comparado com a sua reserva mínima. Embaixo vêm a data do cálculo e as premissas (taxa, indexador, seguros, tarifa).</p>
+  <ul>
+    <li><strong>Antecipar as últimas parcelas:</strong> paga o valor presente delas, com desconto dos juros. As outras parcelas não mudam.</li>
+    <li><strong>Amortizar e reduzir o prazo:</strong> mantém a parcela e termina antes. Costuma economizar mais.</li>
+    <li><strong>Amortizar e reduzir a parcela:</strong> mantém o prazo e baixa a parcela, o que alivia o caixa todo mês.</li>
+    <li><strong>Quitar:</strong> paga o saldo devedor.</li>
+  </ul>
+  <div class="tip"><strong>Estimativa do app × cotação do credor:</strong> o banco calcula juros por dia e pode cobrar encargos que o app não conhece. Peça o boleto de quitação ou a simulação de amortização e registre em <strong>Cotações do credor</strong>. Enquanto a cotação estiver válida, o valor do credor prevalece e aparece com a etiqueta <em>Cotação do credor</em>. Se faltar algum dado do contrato, o app mostra quais campos faltam em vez de estimar, e você pode completar os dados ou informar a cotação.</div>
+  <p><strong>Novo financiamento (Price × SAC):</strong> na aba <strong>Novo financiamento</strong>, informe valor, taxa, prazo, data da primeira parcela, seguros e custos de contratação. O app monta os dois cronogramas com os mesmos termos (parcela, juros, amortização e saldo de cada mês) e compara a primeira e a última parcela, o total de juros, o custo total e o CET estimado.</p>
+  <p><strong>Comparar dívidas:</strong> na aba <strong>Comparar dívidas</strong>, informe quanto dinheiro tem disponível e a sua <strong>reserva mínima</strong>. O app aplica o mesmo valor em cada dívida e em cada opção. Ordene por <em>Maior economia total</em> ou <em>Maior redução da parcela</em>. Cada opção mostra a saída de caixa, a economia, a parcela a menos, o prazo e o menor saldo projetado, com aviso se ficar abaixo da reserva.</p>
+  <p><strong>Salvar e levar para o plano:</strong></p>
+  <ul>
+    <li><strong>Salvar simulação</strong> guarda o resultado na aba <strong>Simulações salvas</strong>. Lá você marca duas ou mais simulações para comparar lado a lado.</li>
+    <li><strong>Ver na Projeção</strong> mostra a opção como cenário, com antes e depois, sem mudar o orçamento.</li>
+    <li><strong>Levar para o planejamento</strong> pede confirmação e então lança a saída de caixa planejada e troca as parcelas futuras pelas do cronograma novo. Meses fechados e parcelas já pagas não mudam.</li>
+  </ul>
+  <p><strong>Pagamentos:</strong> quando você marca uma parcela gerada como paga, ela aparece em <strong>Pagamentos registrados</strong> no contrato. <strong>Atualizar saldo pelas pagas</strong> avança o saldo devedor e as parcelas restantes. Pagamentos feitos de outra forma podem ser ligados ao contrato em <strong>Vincular pagamento</strong>.</p>
 
   <!-- ================================================================ -->
   <h2 id="whatsapp">18. Lançar pelo WhatsApp</h2>

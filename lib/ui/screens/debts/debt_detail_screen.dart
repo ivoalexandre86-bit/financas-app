@@ -9,7 +9,10 @@ import '../../../domain/engine/debt_engine.dart';
 import '../../../domain/engine/financial_engine.dart';
 import '../../../domain/models/debt.dart';
 import '../../../state/finance_controller.dart';
+import '../../../domain/models/scenario.dart';
+import '../../app_shell.dart';
 import '../../nav.dart';
+import '../projection/projection_screen.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
@@ -151,6 +154,41 @@ Future<void> addLenderQuote(
     () => fc.saveDebt(d.copyWith(quotes: [...d.quotes, q])),
     success: 'Cotação salva',
   );
+}
+
+/// Mostra a opção como cenário na Projeção (antes/depois), sem mudar o
+/// orçamento: um cenário com a saída de agora e a diferença de cada parcela.
+Future<void> showOnProjection(BuildContext context, PrepayResult r) async {
+  final fc = context.read<FinanceController>();
+  final id = 'debt_${r.debt.id}_${r.option.name}';
+  final flows = <ScenarioFlow>[
+    for (final e in r.cashDelta().entries)
+      ScenarioFlow(
+        id: '${id}_${e.key.key}',
+        date: e.key == YearMonth.of(r.calculatedAt)
+            ? r.calculatedAt
+            : DateTime(e.key.year, e.key.month, 1),
+        amount: e.value,
+        description: e.value.isNegative && e.key == YearMonth.of(r.calculatedAt)
+            ? '${r.debt.name}: ${r.option.label.toLowerCase()}'
+            : '${r.debt.name}: diferença nas parcelas',
+        source: ScenarioSource.debt,
+        refId: r.debt.id,
+        amountConfirmed: r.isLenderQuote,
+      ),
+  ];
+  final sc = PlanScenario(
+    id: id,
+    name: '${r.option.label} – ${r.debt.name}',
+    kind: ScenarioSource.debt,
+    flows: flows,
+    notes: r.assumptions.join('\n'),
+  );
+  await fc.saveScenario(sc);
+  fc.selectScenario(sc.id);
+  if (context.mounted && !AppShell.goTo(context, 'projection')) {
+    await push(context, const ProjectionScreen());
+  }
 }
 
 /// Confirma e leva a opção para o planejamento.
@@ -429,6 +467,12 @@ class _DebtDetailScreenState extends State<DebtDetailScreen> {
                         onPressed: () => _saveScenario(fc, r),
                         icon: const Icon(Icons.bookmark_add_outlined),
                         label: const Text('Salvar simulação'),
+                      ),
+                      OutlinedButton.icon(
+                        key: const Key('prepay-scenario'),
+                        onPressed: () => showOnProjection(context, r),
+                        icon: const Icon(Icons.table_chart_outlined),
+                        label: const Text('Ver na Projeção'),
                       ),
                       FilledButton.icon(
                         key: const Key('prepay-apply'),
