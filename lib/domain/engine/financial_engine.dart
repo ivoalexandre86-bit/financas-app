@@ -1146,6 +1146,8 @@ class FinancialEngine {
     var count = 0;
     for (final t in data.transactions) {
       if (!t.isInstallment || t.status == TransactionStatus.cancelled) continue;
+      // Receita parcelada (reembolso) não é compromisso.
+      if (t.type != TransactionType.expense) continue;
       if (t.status == TransactionStatus.completed && t.cardId == null) continue;
       final cash = cashDate(t);
       if (cash.isAfter(today)) {

@@ -901,6 +901,9 @@ class RecurringRule {
 
 class InstallmentGroup {
   final String id;
+
+  /// Despesa (compra parcelada) ou receita (ex.: reembolso em parcelas).
+  final TransactionType type;
   final String description;
   final Money totalAmount;
   final int count;
@@ -921,6 +924,7 @@ class InstallmentGroup {
 
   InstallmentGroup({
     required this.id,
+    this.type = TransactionType.expense,
     required this.description,
     required this.totalAmount,
     required this.count,
@@ -939,6 +943,7 @@ class InstallmentGroup {
 
   Map<String, Object?> toJson() => {
     'id': id,
+    if (type == TransactionType.income) 'type': type.name,
     'description': description,
     'totalAmount': totalAmount.cents,
     'count': count,
@@ -956,6 +961,9 @@ class InstallmentGroup {
 
   factory InstallmentGroup.fromJson(Map<String, Object?> j) => InstallmentGroup(
     id: j['id'] as String,
+    type: j['type'] == 'income'
+        ? TransactionType.income
+        : TransactionType.expense,
     description: (j['description'] as String?) ?? '',
     totalAmount: Money(j['totalAmount'] as int),
     count: j['count'] as int,
@@ -970,6 +978,8 @@ class InstallmentGroup {
     createdAt: _ts(j['createdAt']),
     updatedAt: _ts(j['updatedAt']),
   );
+
+  bool get isIncome => type == TransactionType.income;
 }
 
 // Pagamento de fatura -----------------------------------------------------------

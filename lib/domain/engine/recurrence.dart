@@ -96,6 +96,22 @@ class Recurrence {
     return result;
   }
 
+  /// Data da [n]-ésima ocorrência (1 = a primeira), sem considerar data
+  /// final nem pausas. Usada para "repetir N vezes": a data final da regra
+  /// passa a ser essa data.
+  static DateTime nthOccurrence(RecurringRule r, int n) {
+    final first = firstOccurrence(r);
+    final k = n < 1 ? 0 : n - 1;
+    final (months, days) = step(r);
+    return months > 0
+        ? Dates.addMonths(
+            first,
+            k * months,
+            anchorDay: r.dayOfMonth ?? first.day,
+          )
+        : DateTime(first.year, first.month, first.day + k * days);
+  }
+
   /// Próxima ocorrência a partir de [from] (inclusive), ou `null`.
   static DateTime? nextOccurrence(RecurringRule r, DateTime from) {
     final list = occurrences(

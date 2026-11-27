@@ -70,6 +70,7 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
       () => fc.updateInstallmentGroup(
         InstallmentGroup(
           id: old.id,
+          type: old.type,
           description: description.text.trim(),
           totalAmount: Money.tryEval(total.text)!,
           count: n,
@@ -93,7 +94,9 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
         ),
       ),
       success: n == 1
-          ? 'Compra passou a ser à vista'
+          ? (old.isIncome
+                ? 'Receita passou a ser única'
+                : 'Compra passou a ser à vista')
           : 'Parcelamento atualizado',
     );
     if (!mounted) return;
@@ -128,7 +131,9 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
           children: [
             MoneyField(
               controller: total,
-              label: 'Valor total da compra',
+              label: g!.isIncome
+                  ? 'Valor total a receber'
+                  : 'Valor total da compra',
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 12),
@@ -144,7 +149,7 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
                 padding: const EdgeInsets.only(top: 8, left: 4),
                 child: Text(
                   n == 1
-                      ? 'À vista: ${value.format()} (deixa de ser parcelada)'
+                      ? '${g!.isIncome ? 'Única' : 'À vista'}: ${value.format()} (deixa de ser parcelada)'
                       : '$n× de ${value.split(n).first.format()}'
                             '${value.split(n).toSet().length > 1 ? ' (ajuste de centavos na 1ª)' : ''}',
                   key: const ValueKey('installment-preview'),
@@ -165,14 +170,14 @@ class _InstallmentEditScreenState extends State<InstallmentEditScreen> {
             const SizedBox(height: 12),
             CategoryDropdown(
               fc: fc,
-              kind: CategoryKind.expense,
+              kind: g!.isIncome ? CategoryKind.income : CategoryKind.expense,
               value: categoryId,
               onChanged: (v) => setState(() => categoryId = v),
             ),
             const SizedBox(height: 12),
             DateField(
               value: date,
-              label: 'Data da compra',
+              label: g!.isIncome ? 'Data da 1ª parcela' : 'Data da compra',
               onChanged: (d) => setState(() => date = d ?? date),
             ),
             const SizedBox(height: 12),

@@ -621,7 +621,7 @@ class FinanceController extends ChangeNotifier {
       final first = byNumber[1];
       final single = FinTransaction(
         id: first?.id ?? newId('tx_'),
-        type: TransactionType.expense,
+        type: updated.type,
         amount: updated.totalAmount,
         description: updated.description,
         categoryId: updated.categoryId,

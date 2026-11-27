@@ -47,7 +47,7 @@ class Installments {
           }
           return FinTransaction(
             id: newId('tx_'),
-            type: TransactionType.expense,
+            type: group.type,
             amount: parts[i],
             description: group.description,
             categoryId: group.categoryId,
