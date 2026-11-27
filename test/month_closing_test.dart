@@ -6,6 +6,7 @@ import 'package:financas_app/domain/models/month_closing.dart';
 import 'package:financas_app/state/finance_controller.dart';
 import 'package:financas_app/ui/screens/projection/month_adjust_screen.dart';
 import 'package:financas_app/ui/screens/projection/month_closing_ui.dart';
+import 'package:financas_app/ui/screens/projection/month_end_plan_screen.dart';
 import 'package:financas_app/ui/screens/projection/projection_screen.dart';
 import 'package:financas_app/ui/theme.dart';
 import 'package:flutter/material.dart';
@@ -203,6 +204,10 @@ void main() {
     });
     await tester.pumpAndSettle();
     expect(fc.closingOf(month), isNotNull);
+    // Último passo do fechamento: "O que fazer agora?".
+    expect(find.byType(MonthEndPlanScreen), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
     expect(find.text('fechado'), findsOneWidget);
 
     // Ajuste manual: abre a grade mês a mês e digita o ajuste.

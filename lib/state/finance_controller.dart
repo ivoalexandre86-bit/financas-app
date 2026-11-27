@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -21,8 +22,10 @@ import '../domain/engine/debt_engine.dart';
 import '../domain/engine/debt_sync.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/engine/installments.dart';
+import '../domain/engine/month_end_planner.dart';
 import '../domain/engine/networth_engine.dart';
 import '../domain/engine/other_entries_engine.dart';
+import '../domain/engine/scenario_engine.dart';
 import '../domain/engine/shared_engine.dart';
 import '../domain/engine/simulation_engine.dart';
 import '../domain/import/expense_import.dart';
@@ -30,11 +33,14 @@ import '../domain/models/asset.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/debt.dart';
 import '../domain/models/entities.dart';
+import '../domain/models/fgts.dart';
 import '../domain/models/month_closing.dart';
 import '../domain/models/other_entry.dart';
 import '../domain/models/planning.dart';
+import '../domain/models/scenario.dart';
 import '../domain/models/shared.dart';
 import '../domain/models/simulation.dart';
+import '../domain/open_finance/bank_sync.dart';
 
 /// Escopo de alteração de uma regra recorrente.
 enum RuleEditScope {
@@ -57,10 +63,14 @@ class FinanceController extends ChangeNotifier {
   final bool isDemo;
   final OpenFinanceProvider openFinance;
 
+  /// Sincroniza o Open Finance sozinho ao abrir e periodicamente.
+  final bool autoSyncOnLoad;
+
   FinanceController(
     this.repo, {
     this.isDemo = false,
     OpenFinanceProvider? openFinance,
+    this.autoSyncOnLoad = true,
   }) : openFinance = openFinance ?? SandboxOpenFinanceProvider();
 
   FinanceData data = FinanceData();
@@ -91,6 +101,21 @@ class FinanceController extends ChangeNotifier {
 
   /// Bens e dívidas registrados para o patrimônio líquido.
   List<Asset> assets = [];
+
+  /// Cenários de planejamento (FGTS, dívidas, fechamento do mês). Só mudam
+  /// a Projeção quando escolhidos; o orçamento base fica intacto.
+  List<PlanScenario> scenarios = [];
+
+  /// Cenário escolhido na Projeção (`null` = orçamento base).
+  String? selectedScenarioId;
+
+  PlanScenario? get selectedScenario =>
+      scenarios.where((s) => s.id == selectedScenarioId).firstOrNull;
+
+  /// Saldo do FGTS (o primeiro registrado), se houver.
+  Asset? get fgts => assets.where((a) => a.isFgts).firstOrNull;
+
+  ScenarioEngine get scenarioEngine => ScenarioEngine(engine);
 
   /// Empréstimos e financiamentos (Dívidas e contratos).
   List<DebtContract> debts = [];
@@ -183,6 +208,7 @@ class FinanceController extends ChangeNotifier {
         // Falha na nuvem: segue com a cópia local.
       }
     }
+    if (!_disposed) _startAutoSync();
   }
 
   /// Corrige no orçamento as linhas geradas por "Outras despesas" que não
@@ -230,6 +256,11 @@ class FinanceController extends ChangeNotifier {
     assets = [
       for (final j in await repo.loadRaw(Coll.assets)) Asset.fromJson(j),
     ]..sort(_byAssetName);
+    scenarios = [
+      for (final j in await repo.loadRaw(Coll.scenarios))
+        PlanScenario.fromJson(j),
+    ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    if (selectedScenario == null) selectedScenarioId = null;
     debts = [
       for (final j in await repo.loadRaw(Coll.debts)) DebtContract.fromJson(j),
     ]..sort(_byDebtName);
@@ -250,6 +281,7 @@ class FinanceController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _autoSyncTimer?.cancel();
     super.dispose();
   }
 
@@ -1175,6 +1207,87 @@ class FinanceController extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // Cenários de planejamento
+
+  /// Cria ou altera um cenário.
+  Future<void> saveScenario(PlanScenario s) async {
+    if (s.name.trim().isEmpty) throw ArgumentError('Informe um nome');
+    scenarios = [...scenarios.where((x) => x.id != s.id), s]
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    notifyListeners();
+    await repo.write([WriteOp.put(Coll.scenarios, s.id, s.toJson())]);
+  }
+
+  Future<void> deleteScenario(PlanScenario s) async {
+    scenarios = scenarios.where((x) => x.id != s.id).toList();
+    if (selectedScenarioId == s.id) selectedScenarioId = null;
+    notifyListeners();
+    await repo.write([WriteOp.delete(Coll.scenarios, s.id)]);
+  }
+
+  /// Escolhe o cenário mostrado na Projeção (`null` = orçamento base).
+  void selectScenario(String? id) {
+    selectedScenarioId = scenarios.any((s) => s.id == id) ? id : null;
+    notifyListeners();
+  }
+
+  // ---------------------------------------------------------------------------
+  // FGTS
+
+  /// Registra o saque [flow] do cenário [s] como recebido: lança a receita
+  /// (concluída) na conta [accountId], baixa o saldo do FGTS e marca o fluxo
+  /// como realizado, para que a Projeção não conte o valor duas vezes.
+  Future<void> receiveFgtsWithdrawal(
+    PlanScenario s,
+    ScenarioFlow flow, {
+    required String accountId,
+    required Money amount,
+    required DateTime date,
+    String? categoryId,
+  }) async {
+    if (amount.cents <= 0) throw ArgumentError('Informe o valor recebido');
+    final asset = assets.where((a) => a.id == flow.refId).firstOrNull;
+    if (asset == null) throw ArgumentError('FGTS não encontrado');
+    final tx = FinTransaction(
+      id: newId('tx_'),
+      type: TransactionType.income,
+      amount: amount,
+      description: 'Saque do FGTS · ${FgtsPurpose.parse(flow.purpose).label}',
+      categoryId: categoryId,
+      date: date,
+      accountId: accountId,
+      tags: const ['FGTS'],
+    );
+    final err = validateTransaction(tx);
+    if (err != null) throw ArgumentError(err);
+    final left = asset.value - amount;
+    final nextAsset = asset
+        .withValue(left.isNegative ? Money.zero : left, date)
+        .copyWith(
+          fgts: (asset.fgts ?? FgtsDetails()).copyWith(balanceDate: date),
+        );
+    final nextScenario = s.withFlow(
+      flow.copyWith(
+        amount: amount,
+        date: date,
+        amountConfirmed: true,
+        dateConfirmed: true,
+        realized: true,
+        transactionId: tx.id,
+      ),
+    );
+    assets = [...assets.where((x) => x.id != asset.id), nextAsset]
+      ..sort(_byAssetName);
+    scenarios = [...scenarios.where((x) => x.id != s.id), nextScenario]
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    await _commit([
+      _putTx(tx),
+      WriteOp.put(Coll.assets, nextAsset.id, nextAsset.toJson()),
+      WriteOp.put(Coll.scenarios, nextScenario.id, nextScenario.toJson()),
+    ]);
+  }
+
+  // ---------------------------------------------------------------------------
   // Dívidas e contratos
 
   /// Reserva mínima em caixa (Preferências).
@@ -1440,6 +1553,7 @@ class FinanceController extends ChangeNotifier {
       computedIncome: t.income,
       computedExpenses: t.expenses,
       note: note?.trim().isEmpty ?? true ? null : note!.trim(),
+      decision: old?.decision,
       createdAt: old?.createdAt,
     );
     await _commit([WriteOp.put(Coll.monthClosings, c.id, c.toJson())]);
@@ -1466,6 +1580,7 @@ class FinanceController extends ChangeNotifier {
         computedIncome: t.income,
         computedExpenses: t.expenses,
         note: old?.note,
+        decision: old?.decision,
         createdAt: old?.createdAt,
       );
       ops.add(WriteOp.put(Coll.monthClosings, c.id, c.toJson()));
@@ -1487,6 +1602,181 @@ class FinanceController extends ChangeNotifier {
       for (final k in keys) WriteOp.delete(Coll.monthClosings, k),
     ]);
     return keys.length;
+  }
+
+  // ---------------------------------------------------------------------------
+  // "O que fazer agora?" (passo final do fechamento)
+
+  /// Analisa o fim de [month] com a reserva mínima, as metas e as dívidas
+  /// cadastradas (Dívidas e contratos) do usuário.
+  MonthEndAnalysis monthEndAnalysis(
+    YearMonth month, {
+    List<DebtContract>? debts,
+    List<RenegotiationOffer> offers = const [],
+    Money? amount,
+    int cutPercent = 10,
+  }) => MonthEndPlanner(engine).analyze(
+    month,
+    minimumReserve: minimumReserve,
+    goals: goals,
+    debts: debts ?? activeDebts,
+    offers: offers,
+    amount: amount,
+    cutPercent: cutPercent,
+  );
+
+  /// Salva a opção como cenário (Projeção › Cenário), sem mudar o
+  /// orçamento base: cada mudança mensal vira um fluxo estimado.
+  Future<PlanScenario> saveMonthEndScenario(
+    MonthEndAnalysis a,
+    MonthEndOption o,
+  ) async {
+    if (o.deltas.isEmpty) {
+      throw ArgumentError('Esta opção não muda o caixa dos próximos meses');
+    }
+    final first = MonthEndPlanner(engine).firstOpenDate();
+    final flows = [
+      for (final MapEntry(key: m, value: v) in o.deltas.entries)
+        if (!v.isZero)
+          ScenarioFlow(
+            id: newId('sf_'),
+            date: m == YearMonth.of(first) ? first : m.firstDay,
+            amount: v,
+            description: o.title,
+            source: ScenarioSource.monthEnd,
+            refId: a.closedMonth.key,
+            purpose: o.kind.label,
+            notes: o.assumptions.join(' '),
+          ),
+    ]..sort((x, y) => x.date.compareTo(y.date));
+    final sc = PlanScenario(
+      id: newId('sc_'),
+      name: '${o.title} (fechamento de ${a.closedMonth.shortLabel})',
+      kind: ScenarioSource.monthEnd,
+      flows: flows,
+      notes: o.why,
+    );
+    await saveScenario(sc);
+    return sc;
+  }
+
+  /// Data em que as saídas planejadas caem (hoje ou o 1º mês aberto).
+  DateTime monthEndPlanDate() => MonthEndPlanner(engine).firstOpenDate();
+
+  /// Aplica a opção escolhida **só no planejamento futuro** e registra a
+  /// decisão no fechamento de [a.closedMonth]. Nunca grava nada em mês
+  /// fechado: saídas planejadas caem hoje ou no primeiro mês aberto. Não faz
+  /// pagamentos nem altera contratos.
+  Future<MonthEndDecision> applyMonthEndOption(
+    MonthEndAnalysis a,
+    MonthEndOption o, {
+    String? accountId,
+  }) async {
+    final closing = closingOf(a.closedMonth);
+    if (closing == null) {
+      throw ArgumentError('Feche ${a.closedMonth.longLabel} antes de planejar');
+    }
+    if (!o.isComplete) {
+      throw ArgumentError('Faltam dados: ${o.missingFields.join(', ')}');
+    }
+    final planner = MonthEndPlanner(engine);
+    final date = planner.firstOpenDate();
+    final note = 'Planejado no fechamento de ${a.closedMonth.longLabel}';
+    final changes = <String>[];
+    switch (o.kind) {
+      case MonthEndOptionKind.reserve || MonthEndOptionKind.goal:
+        if (!o.upfront.isPositive)
+          throw ArgumentError('Sem valor para guardar');
+        var g = goals.where((x) => x.id == o.targetId).firstOrNull;
+        if (g == null) {
+          g = SavingsGoal(
+            id: newId('goal_'),
+            name: 'Reserva de emergência',
+            target: minimumReserve > o.upfront ? minimumReserve : o.upfront,
+          );
+          changes.add('Meta “${g.name}” criada');
+        }
+        await addGoalContribution(
+          g,
+          GoalContribution(
+            id: newId('gc_'),
+            date: date,
+            amount: o.upfront,
+            note: note,
+          ),
+        );
+        changes.add(
+          'Aporte de ${o.upfront.formatVisible()} em “${g.name}” em ${Dates.format(date)}',
+        );
+      case MonthEndOptionKind.debtPrepay:
+        final acc = accountId ?? otherAccount?.id;
+        if (acc == null) throw ArgumentError('Cadastre uma conta');
+        final name = o.debtEstimate?.debt.name ?? o.title;
+        await saveTransaction(
+          FinTransaction(
+            id: newId('tx_'),
+            type: TransactionType.expense,
+            amount: o.upfront,
+            description: 'Amortização extra – $name',
+            date: date,
+            accountId: acc,
+            status: TransactionStatus.pending,
+            notes:
+                '$note. Só planejamento: o app não faz o pagamento nem altera '
+                'o contrato.',
+          ),
+        );
+        changes.add(
+          'Saída prevista de ${o.upfront.formatVisible()} em ${Dates.format(date)} (amortização de $name)',
+        );
+      case MonthEndOptionKind.postpone:
+        for (var i = 0; i < o.postponed.length; i++) {
+          final t = o.postponed[i];
+          final to = o.postponedTo[i];
+          if (planner.isClosed(YearMonth.of(t.date)) ||
+              planner.isClosed(YearMonth.of(to))) {
+            throw ArgumentError(
+              'Não é possível mudar lançamentos de mês fechado',
+            );
+          }
+          await saveTransaction(
+            t.copyWith(date: to, dueDate: t.dueDate == null ? null : to),
+          );
+          changes.add(
+            '“${t.description}” passou de ${Dates.format(t.date)} para ${Dates.format(to)}',
+          );
+        }
+      case MonthEndOptionKind.keepCash ||
+          MonthEndOptionKind.cutDiscretionary ||
+          MonthEndOptionKind.renegotiate:
+        changes.add('Só registro: nenhum lançamento foi alterado');
+    }
+    final d = MonthEndDecision(
+      kind: o.kind.name,
+      title: o.title,
+      amount: o.upfront,
+      scenario: a.scenario.name,
+      changes: changes,
+    );
+    final c = closingOf(a.closedMonth)!;
+    await _commit([
+      WriteOp.put(
+        Coll.monthClosings,
+        c.id,
+        MonthClosing(
+          month: c.month,
+          income: c.income,
+          expenses: c.expenses,
+          computedIncome: c.computedIncome,
+          computedExpenses: c.computedExpenses,
+          note: c.note,
+          decision: d,
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+        ).toJson(),
+      ),
+    ]);
+    return d;
   }
 
   // ---------------------------------------------------------------------------
@@ -2187,70 +2477,233 @@ class FinanceController extends ChangeNotifier {
     ]);
     connections = await repo.loadConnections();
     notifyListeners();
+    // Recém-vinculada: já traz os lançamentos, sem esperar o próximo ciclo.
+    if (!openFinance.isSandbox &&
+        autoSyncOnLoad &&
+        (accountId != null || cardId != null)) {
+      unawaited(autoSync());
+    }
   }
 
-  /// Sincroniza transações da conexão. Itens já recebidos (mesmo
-  /// `externalId`) são ignorados; os novos passam pela detecção de
-  /// duplicidade contra lançamentos manuais.
-  Future<({int added, int matched})> syncConnection(
-    OpenFinanceConnection c,
-  ) async {
+  // Sincronização automática ------------------------------------------------
+
+  /// Situação de cada conexão no provedor (pelo ID do item).
+  Map<String, OFItemStatus> itemStatuses = {};
+
+  /// O servidor recebe os avisos do provedor e atualiza sozinho.
+  bool autoSyncEnabled = false;
+
+  /// Última vez que a sincronização automática rodou neste aparelho.
+  DateTime? lastAutoSyncAt;
+  bool autoSyncing = false;
+  Timer? _autoSyncTimer;
+
+  static const autoSyncInterval = Duration(minutes: 15);
+
+  void _startAutoSync() {
+    if (openFinance.isSandbox || !autoSyncOnLoad) return;
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = Timer.periodic(autoSyncInterval, (_) => autoSync());
+    unawaited(autoSync());
+  }
+
+  OFItemStatus? itemStatusOf(OpenFinanceConnection c) =>
+      c.providerItemId == null ? null : itemStatuses[c.providerItemId];
+
+  /// Traz o que o banco mandou desde a última leitura, para todas as contas
+  /// conectadas, sem o usuário precisar tocar em nada. Falhas ficam
+  /// registradas na conexão; nada é lançado duas vezes.
+  Future<void> autoSync() async {
+    if (autoSyncing || _disposed) return;
+    final active = [
+      for (final c in connections)
+        if (c.consentStatus == ConsentStatus.active &&
+            c.providerAccountId != null)
+          c,
+    ];
+    if (active.isEmpty) return;
+    autoSyncing = true;
+    notifyListeners();
+    try {
+      try {
+        autoSyncEnabled = await openFinance.autoSyncs();
+        itemStatuses = {
+          for (final s in await openFinance.itemStatuses()) s.id: s,
+        };
+      } catch (_) {
+        // Sem conexão com o servidor: tenta de novo no próximo ciclo.
+        return;
+      }
+      for (final c in active) {
+        final fresh = connections.where((x) => x.id == c.id).firstOrNull;
+        if (fresh == null || fresh.consentStatus != ConsentStatus.active) {
+          continue;
+        }
+        try {
+          await syncConnection(fresh);
+        } catch (_) {
+          // Registrado em lastError; as demais contas seguem.
+        }
+      }
+      lastAutoSyncAt = DateTime.now();
+    } finally {
+      autoSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  /// "Sincronizar agora": pede ao banco uma atualização e traz o que já
+  /// chegou. Contas da mesma conexão são sincronizadas juntas.
+  Future<BankSyncResult> syncNow(OpenFinanceConnection c) async {
+    final item = c.providerItemId;
+    if (item != null) {
+      final st = await openFinance.syncNow(item);
+      if (st != null) {
+        itemStatuses = {...itemStatuses, item: st};
+      }
+    }
+    BankSyncResult? total;
+    for (final x in _sameItem(c).toList()) {
+      final fresh = connections.where((y) => y.id == x.id).firstOrNull ?? x;
+      if (fresh.consentStatus != ConsentStatus.active) continue;
+      final r = await syncConnection(fresh);
+      total = total == null ? r : _sum(total, r);
+    }
+    return total ??
+        const BankSyncResult(
+          externals: [],
+          transactions: [],
+          deletedTransactionIds: [],
+          added: 0,
+          matched: 0,
+          imported: 0,
+          scheduled: 0,
+          confirmed: 0,
+          removed: 0,
+        );
+  }
+
+  static BankSyncResult _sum(BankSyncResult a, BankSyncResult b) =>
+      BankSyncResult(
+        externals: [...a.externals, ...b.externals],
+        transactions: [...a.transactions, ...b.transactions],
+        deletedTransactionIds: [
+          ...a.deletedTransactionIds,
+          ...b.deletedTransactionIds,
+        ],
+        added: a.added + b.added,
+        matched: a.matched + b.matched,
+        imported: a.imported + b.imported,
+        scheduled: a.scheduled + b.scheduled,
+        confirmed: a.confirmed + b.confirmed,
+        removed: a.removed + b.removed,
+      );
+
+  /// Abre a renovação do consentimento: devolve o token da janela do
+  /// provedor para a conexão [c].
+  Future<String> renewConsentToken(OpenFinanceConnection c) {
+    final item = c.providerItemId;
+    if (item == null) throw StateError('Conexão sem item no provedor');
+    return openFinance.renewToken(item);
+  }
+
+  /// Depois de renovar no banco: reativa as contas da conexão e sincroniza.
+  Future<void> afterConsentRenewed(OpenFinanceConnection c) async {
+    final ops = [
+      for (final x in _sameItem(c))
+        () {
+          final u = x.copyWith(
+            consentStatus: ConsentStatus.active,
+            lastError: null,
+          );
+          return WriteOp.put(Coll.openFinanceConnections, u.id, u.toJson());
+        }(),
+    ];
+    await repo.write(ops);
+    connections = await repo.loadConnections();
+    notifyListeners();
+    await syncNow(connections.firstWhere((x) => x.id == c.id));
+  }
+
+  Future<void> setAutoImport(OpenFinanceConnection c, bool value) async {
+    final u = c.copyWith(autoImport: value);
+    await repo.write([
+      WriteOp.put(Coll.openFinanceConnections, u.id, u.toJson()),
+    ]);
+    connections = await repo.loadConnections();
+    notifyListeners();
+  }
+
+  /// Sincroniza a conexão: lê o que mudou no banco desde a última leitura
+  /// e concilia ([BankSync]): itens já recebidos só se atualizam (previsto
+  /// → confirmado), novos procuram par entre os lançamentos, agendados sem
+  /// par entram na projeção como previstos. Repetir não duplica nada.
+  Future<BankSyncResult> syncConnection(OpenFinanceConnection c) async {
+    // Uma de cada vez por conta (automática e manual não se atropelam).
+    final prev = _syncing[c.id];
+    if (prev != null) {
+      try {
+        await prev;
+      } catch (_) {}
+      c = connections.where((x) => x.id == c.id).firstOrNull ?? c;
+    }
+    final job = _syncOnce(c);
+    _syncing[c.id] = job;
+    try {
+      return await job;
+    } finally {
+      if (identical(_syncing[c.id], job)) _syncing.remove(c.id);
+    }
+  }
+
+  final _syncing = <String, Future<BankSyncResult>>{};
+
+  Future<BankSyncResult> _syncOnce(OpenFinanceConnection c) async {
     if (c.consentStatus != ConsentStatus.active) {
       throw StateError('Consentimento não está ativo');
     }
     try {
-      // Revisita alguns dias antes da última sincronização (lançamentos
-      // que o banco confirma com atraso); repetidos são ignorados abaixo.
-      final fetched = await openFinance.fetchTransactions(
+      final changes = await openFinance.fetchChanges(
         c,
+        cursor: c.syncCursor,
+        // Sem cursor (sandbox / primeira vez): revisita alguns dias antes
+        // da última sincronização; repetidos são ignorados.
         since: c.lastSyncAt?.subtract(const Duration(days: 10)),
       );
-      final known = externalTransactions
-          .where((e) => e.connectionId == c.id)
-          .map((e) => e.externalId)
-          .toSet();
-      final usedMatches = externalTransactions
-          .map((e) => e.matchedTransactionId)
-          .whereType<String>()
-          .toSet();
-      final ops = <WriteOp>[];
-      var added = 0, matched = 0;
-      for (final e in fetched) {
-        if (known.contains(e.externalId)) continue;
-        final scope = data.transactions.where(
-          (t) =>
-              (c.linkedAccountId == null || t.accountId == c.linkedAccountId) &&
-              (c.linkedCardId == null || t.cardId == c.linkedCardId),
-        );
-        final match = DuplicateDetector.findMatch(
-          e,
-          scope,
-          alreadyMatched: usedMatches,
-        );
-        var ext = e;
-        if (match != null) {
-          usedMatches.add(match.id);
-          ext = e.copyWith(
-            status: ExternalTxStatus.matched,
-            matchedTransactionId: match.id,
-          );
-          ops.add(_putTx(match.copyWith(externalId: e.externalId)));
-          matched++;
-        }
-        added++;
-        ops.add(WriteOp.put(Coll.externalTransactions, ext.id, ext.toJson()));
+      var horizon = Dates.addDays(Dates.today(), BankSync.toleranceDays + 1);
+      for (final f in changes.transactions) {
+        final h = Dates.addDays(f.date, BankSync.toleranceDays + 1);
+        if (h.isAfter(horizon)) horizon = h;
       }
-      final updated = c.copyWith(lastSyncAt: DateTime.now(), lastError: null);
-      ops.add(
-        WriteOp.put(Coll.openFinanceConnections, updated.id, updated.toJson()),
+      final plan = BankSync.plan(
+        connection: c,
+        fetched: changes.transactions,
+        existing: externalTransactions,
+        candidates: engine.transactionsUntil(horizon),
+        categoryFor: (d, income) => ruleCategoryFor(
+          d,
+          income ? CategoryKind.income : CategoryKind.expense,
+        ),
       );
-      await _commit(ops);
+      final updated = c.copyWith(
+        lastSyncAt: DateTime.now(),
+        lastError: null,
+        syncCursor: changes.cursor ?? c.syncCursor,
+      );
+      await _commit([
+        ...plan.transactions.map(_putTx),
+        for (final id in plan.deletedTransactionIds)
+          WriteOp.delete(Coll.transactions, id),
+        for (final e in plan.externals)
+          WriteOp.put(Coll.externalTransactions, e.id, e.toJson()),
+        WriteOp.put(Coll.openFinanceConnections, updated.id, updated.toJson()),
+      ]);
       connections = await repo.loadConnections();
       externalTransactions = await repo.loadExternalTransactions();
       notifyListeners();
-      return (added: added, matched: matched);
+      return plan;
     } catch (e) {
-      final failed = c.copyWith(lastError: e.toString());
+      final failed = c.copyWith(lastError: _syncErrorText(e));
       await repo.write([
         WriteOp.put(Coll.openFinanceConnections, failed.id, failed.toJson()),
       ]);
@@ -2258,6 +2711,13 @@ class FinanceController extends ChangeNotifier {
       notifyListeners();
       rethrow;
     }
+  }
+
+  static String _syncErrorText(Object e) {
+    final s = e.toString();
+    return s
+        .replaceFirst(RegExp(r'^(Bad state|Exception|ApiException[^:]*): '), '')
+        .trim();
   }
 
   /// Importa uma transação externa como lançamento manual.
@@ -2276,7 +2736,8 @@ class FinanceController extends ChangeNotifier {
       throw StateError('Cadastre ou vincule uma conta antes de importar');
     }
     final tx = FinTransaction(
-      id: newId('tx_'),
+      // Mesmo ID em qualquer aparelho: importar duas vezes não duplica.
+      id: BankSync.transactionDocId(e.externalId),
       type: isIncome ? TransactionType.income : TransactionType.expense,
       amount: e.signedAmount.abs(),
       description: e.description,
@@ -2290,7 +2751,11 @@ class FinanceController extends ChangeNotifier {
       date: e.date,
       accountId: cardId == null ? accountId : null,
       cardId: cardId,
-      status: TransactionStatus.completed,
+      // Ainda agendado no banco: entra como previsto; vira concluído quando
+      // o banco confirmar.
+      status: e.providerPending
+          ? TransactionStatus.planned
+          : TransactionStatus.completed,
       externalId: e.externalId,
       notes: 'Importado via Open Finance (${c.institutionName})',
     );

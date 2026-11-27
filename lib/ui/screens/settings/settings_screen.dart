@@ -15,6 +15,7 @@ import 'cloud_import.dart';
 import 'lock_screen.dart';
 import 'menu_editor_screen.dart';
 import '../subscription/subscription_screen.dart';
+import 'email_reminders_screen.dart';
 import 'whatsapp_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -204,6 +205,18 @@ class SettingsScreen extends StatelessWidget {
               onTap: () => Navigator.of(
                 context,
               ).push(MaterialPageRoute(builder: (_) => const WhatsAppScreen())),
+            ),
+            ListTile(
+              key: const ValueKey('email-reminders'),
+              leading: const Icon(Icons.mark_email_unread_outlined),
+              title: const Text('Lembretes por e-mail'),
+              subtitle: const Text(
+                'Aviso das faturas de cartão em aberto antes do vencimento.',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const EmailRemindersScreen()),
+              ),
             ),
           ],
           _h(context, 'Privacidade e dados (LGPD)'),

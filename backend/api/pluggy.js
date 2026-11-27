@@ -63,9 +63,15 @@ function createPluggy({ clientId, clientSecret, baseUrl = DEFAULT_BASE, fetch: f
 
   return {
     /** Token de 30 min para abrir a janela Pluggy Connect no app. */
-    async createConnectToken(clientUserId) {
+    /// Com `itemId`, a janela abre no modo de atualização (renovar o
+    /// consentimento ou refazer o login daquela conexão). `webhookUrl` faz a
+    /// Pluggy avisar o servidor quando a conexão tiver dados novos.
+    async createConnectToken(clientUserId, { itemId, webhookUrl } = {}) {
       const r = await request('POST', '/connect_token', {
-        body: { options: { clientUserId } },
+        body: {
+          ...(itemId ? { itemId } : {}),
+          options: { clientUserId, ...(webhookUrl ? { webhookUrl } : {}) },
+        },
       });
       if (!r.accessToken) throw new PluggyError(502, 'Pluggy não devolveu o token de conexão');
       return r.accessToken;
@@ -89,22 +95,40 @@ function createPluggy({ clientId, clientSecret, baseUrl = DEFAULT_BASE, fetch: f
       }),
     getPaymentRequest: (id) => request('GET', `/payments/requests/${encodeURIComponent(id)}`),
     getItem: (id) => request('GET', `/items/${encodeURIComponent(id)}`),
+    /// Pede à Pluggy uma atualização da conexão agora (corpo vazio usa o
+    /// consentimento já dado). Também grava o endereço do webhook.
+    updateItem: (id, { webhookUrl } = {}) =>
+      request('PATCH', `/items/${encodeURIComponent(id)}`, {
+        body: webhookUrl ? { webhookUrl } : {},
+      }),
     getAccount: (id) => request('GET', `/accounts/${encodeURIComponent(id)}`),
     async listAccounts(itemId) {
       const r = await request('GET', '/accounts', { query: { itemId } });
       return r.results ?? [];
     },
-    /** Todas as transações da conta desde `dateFrom` (AAAA-MM-DD). */
-    async listTransactions(accountId, dateFrom) {
+    /** Todas as transações da conta desde `dateFrom` (AAAA-MM-DD); com
+     * `dateTo`, inclui as futuras (agendadas, parcelas a vencer). */
+    async listTransactions(accountId, dateFrom, dateTo) {
       const out = [];
       let after = null;
       for (let i = 0; i < MAX_PAGES; i++) {
         const r = await request('GET', '/v2/transactions', {
-          query: { accountId, dateFrom, after },
+          query: { accountId, dateFrom, dateTo, after },
         });
         out.push(...(r.results ?? []));
         after = r.next ? new URL(r.next, baseUrl).searchParams.get('after') : null;
         if (!after) break;
+      }
+      return out;
+    },
+    /** Transações pelo ID (até 500 por chamada, limite da Pluggy). */
+    async listTransactionsByIds(accountId, ids) {
+      const out = [];
+      for (let i = 0; i < ids.length; i += 500) {
+        const r = await request('GET', '/v2/transactions', {
+          query: { accountId, ids: ids.slice(i, i + 500).join(',') },
+        });
+        out.push(...(r.results ?? []));
       }
       return out;
     },

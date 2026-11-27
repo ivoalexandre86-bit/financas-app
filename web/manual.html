@@ -28,7 +28,7 @@
 </head>
 <body>
   <h1>Manual do Usuário</h1>
-  <p class="muted">App Finanças · atualizado em 25 de novembro de 2026</p>
+  <p class="muted">App Finanças · atualizado em 27 de novembro de 2026</p>
 
   <p>Este manual mostra, passo a passo, como fazer cada coisa no app. Use o índice para ir direto ao que precisa. O app abre em <a href="https://ivoalexandre86-bit.github.io/financas-app/">ivoalexandre86-bit.github.io/financas-app</a>, no computador ou no celular.</p>
 
@@ -47,12 +47,12 @@
       <li><a href="#cartoes">Cartões de crédito</a></li>
       <li><a href="#lancamentos">Lançar despesas, receitas e transferências</a></li>
       <li><a href="#movimentacoes">Movimentações: ver, filtrar e editar</a></li>
-      <li><a href="#faturas">Faturas do cartão</a></li>
+      <li><a href="#faturas">Faturas do cartão</a> (e <a href="#lembrete-email">lembretes por e-mail</a>)</li>
       <li><a href="#parcelamentos">Compras parceladas</a></li>
       <li><a href="#recorrencias">Recorrências (salário, aluguel, assinaturas)</a></li>
       <li><a href="#boletos">Boletos e contas a vencer</a></li>
-      <li><a href="#projecao">Projeção dos próximos meses</a></li>
-      <li><a href="#fechar-mes">Fechar mês, ajustar e reverter</a></li>
+      <li><a href="#projecao">Projeção dos próximos meses</a> (e <a href="#cenarios">cenários</a>, <a href="#fgts">FGTS</a>)</li>
+      <li><a href="#fechar-mes">Fechar mês, ajustar e reverter</a> (e <a href="#o-que-fazer-agora">O que fazer agora?</a>)</li>
       <li><a href="#orcamentos">Orçamentos e metas</a></li>
       <li><a href="#whatsapp">Lançar pelo WhatsApp</a></li>
       <li><a href="#open-finance">Open Finance (trazer lançamentos do banco)</a></li>
@@ -290,6 +290,24 @@
   </ol>
   <p>Dentro da fatura você também pode <strong>Adicionar compra</strong> ou <strong>Adicionar recorrência</strong> (assinatura no cartão). As compras do cartão contam no mês em que a fatura é paga (ou no vencimento, enquanto não for paga).</p>
 
+  <h3 id="lembrete-email">Lembretes de fatura por e-mail</h3>
+  <p>O app pode mandar um e-mail quando uma fatura de cartão estiver para vencer e ainda tiver saldo em aberto.</p>
+  <ol>
+    <li>Abra <span class="path">Configurações › Preferências › Lembretes por e-mail</span>.</li>
+    <li>Toque em <strong>Enviar e-mail de confirmação</strong>, abra o e-mail que chegou e toque em <strong>Confirmar e-mail</strong>. Volte ao app e atualize: aparece <strong>E-mail confirmado</strong>.</li>
+    <li>Ligue <strong>Lembrete de fatura em aberto</strong> e escolha quantos dias antes do vencimento quer o aviso (no dia, 1, 2, 3, 5, 7, 10 ou 15 dias antes).</li>
+    <li>Se quiser, deixe ligado <strong>Avisar também se vencer sem pagar</strong>: vem um aviso depois do vencimento (até 5 dias), com o que falta.</li>
+    <li>Confira o <strong>horário do envio</strong> e o <strong>fuso horário</strong> (vem o do aparelho). O e-mail sai a partir desse horário, no seu fuso.</li>
+  </ol>
+  <p>O e-mail traz o apelido do cartão com os 4 últimos dígitos (ex.: Nubank •••• 1234), o vencimento, o valor em aberto e o botão <strong>Abrir a fatura no app</strong> (se não estiver logado, o app pede para entrar e depois abre a fatura).</p>
+  <ul>
+    <li>Pagou uma parte? O aviso mostra só o restante.</li>
+    <li>Pagou tudo antes do envio? O aviso não é enviado.</li>
+    <li>Cada aviso chega uma vez só (um antes do vencimento e, se ligado, um de atraso por fatura).</li>
+    <li>Quem entrou na sua conta liga os próprios lembretes, com o próprio e-mail. Quem tem acesso limitado só recebe aviso das faturas dos cartões liberados para ela.</li>
+    <li>Trocou o e-mail da conta? Confirme o novo endereço para voltar a receber.</li>
+  </ul>
+
   <!-- ================================================================ -->
   <h2 id="parcelamentos">12. Compras parceladas</h2>
   <ol>
@@ -335,6 +353,27 @@
   </ul>
   <p class="muted">No plano Grátis a projeção mostra 3 meses; assinando, 12.</p>
 
+  <h3 id="cenarios">Cenários: ver a projeção com uma simulação</h3>
+  <p>Um <strong>cenário</strong> é um conjunto de entradas e saídas previstas que <strong>não mexe no seu orçamento</strong>. Exemplo: um saque do FGTS. Quando existe algum cenário, aparece o campo <strong>Cenário</strong> no topo da Projeção.</p>
+  <ul>
+    <li><strong>Orçamento base:</strong> a projeção normal, só com o que você lançou.</li>
+    <li><strong>Escolher um cenário:</strong> a projeção soma os valores dele e mostra cada item com o mês, e o <strong>acumulado no fim do período: base → cenário</strong>.</li>
+    <li>Valores marcados como <strong>(estimado)</strong> ainda não foram confirmados.</li>
+    <li>Meses passados e meses fechados não mudam: um item com data passada entra no mês atual (ou no próximo mês aberto).</li>
+    <li>Os cenários valem só na visão completa. Com filtros, limpe-os para ver o cenário.</li>
+  </ul>
+
+  <h3 id="fgts">FGTS: saldo e saques simulados</h3>
+  <p><span class="path">Contas e cartões › FGTS</span> (também pelo cartão <strong>FGTS</strong> em <span class="path">Patrimônio</span>).</p>
+  <ol>
+    <li>Toque em <strong>Registrar saldo do FGTS</strong>. Informe o <strong>saldo total</strong>, a <strong>data do saldo</strong> e deixe <strong>Saldo conferido no extrato</strong> ligado se você copiou o valor do app FGTS (fica <em>Confirmado</em>); desligue se for uma estimativa (fica <em>Estimado</em>).</li>
+    <li>Opcional: o <strong>depósito mensal</strong> (ou o salário bruto e <strong>Calcular 8%</strong>) e o rendimento ao ano (3% por lei). Com eles o app mostra o <strong>saldo previsto</strong> em 1, 2 e 5 anos.</li>
+    <li>O FGTS entra no <strong>Patrimônio</strong> como um <strong>ativo à parte</strong>, fora do caixa: ele não aparece no saldo das contas nem na Projeção.</li>
+  </ol>
+  <p><strong>Simular um saque:</strong> toque em <strong>Simular saque</strong>, escolha um cenário (ou <em>Novo cenário</em>), a <strong>finalidade</strong> (saque-aniversário, demissão, compra da casa própria, financiamento habitacional, aposentadoria, doença grave, calamidade ou outro), o <strong>valor</strong> e a <strong>data prevista</strong>. Marque <strong>Valor confirmado</strong> e <strong>Data confirmada</strong> quando tiver certeza. Atalhos: <em>Usar limite do saque-aniversário</em> e <em>Todo o saldo previsto</em>. A tela mostra o caixa projetado com e sem o saque. O dinheiro só entra na Projeção quando você escolhe esse cenário.</p>
+  <p><strong>Quando o dinheiro cair:</strong> toque em <strong>Registrar recebimento</strong>, informe valor, data e conta. O app lança a receita, baixa o saldo do FGTS e tira o saque do cenário, para não contar duas vezes.</p>
+  <div class="tip"><strong>Por que não atualiza sozinho?</strong> Não existe hoje uma fonte oficial ou autorizada que entregue o saldo do FGTS a um app de finanças pessoais. O FGTS não faz parte do Open Finance, e a consulta autorizada pela Caixa (desde novembro de 2026) é só para instituições financeiras habilitadas e não mostra o saldo total. Confira o saldo no app FGTS e atualize aqui.</div>
+
   <!-- ================================================================ -->
   <h2 id="fechar-mes">16. Fechar mês, ajustar e reverter</h2>
   <p class="muted">Quer corrigir o <strong>saldo de uma conta</strong> (o que o banco mostra)? Isso é outra coisa: veja <a href="#contas">Ajustar saldo</a> em Contas.</p>
@@ -343,8 +382,25 @@
   <ol>
     <li>Abra <span class="path">Planejamento › Projeção</span>.</li>
     <li>Logo abaixo dos indicadores, toque em <strong>Fechar ou reabrir mês</strong> e escolha o mês. (Atalho: tocar no <strong>nome do mês</strong> no cabeçalho da tabela.)</li>
-    <li>Toque em <strong>Fechar mês</strong>. O mês fica fechado com os valores calculados agora.</li>
+    <li>Toque em <strong>Fechar mês</strong>. O mês fica fechado com os valores calculados agora e abre o passo <a href="#o-que-fazer-agora">O que fazer agora?</a>.</li>
   </ol>
+  <h3 id="o-que-fazer-agora">O que fazer agora? (sobra ou falta de caixa)</h3>
+  <p>Último passo do fechamento. Também abre depois: toque no mês fechado em <strong>Fechar ou reabrir mês</strong> e escolha <strong>O que fazer agora?</strong>.</p>
+  <ol>
+    <li><strong>Quanto está livre de verdade:</strong> o app parte do saldo em contas hoje, tira tudo o que vence até o fim do mês seguinte (contas pendentes, inclusive atrasadas, e o que falta pagar das faturas) e a sua <strong>reserva mínima</strong> (toque no lápis para definir). Receitas ainda a receber não entram nessa conta.</li>
+    <li>O app mostra uma das três situações:
+      <ul>
+        <li><strong>Sobra disponível:</strong> compare manter o dinheiro em conta, reforçar a reserva, guardar para uma meta ou amortizar uma dívida. Em <em>Quanto usar</em> você escolhe o valor (vazio = tudo o que está livre).</li>
+        <li><strong>Resultado positivo, caixa comprometido:</strong> mostra quanto separar e a data de cada conta. Amortizar só aparece com o que sobrar depois disso.</li>
+        <li><strong>Déficit ou falta de caixa prevista:</strong> mostra os meses que ficam abaixo da reserva e os maiores gastos de cada um. Compare cortar 5%, 10% ou 20% dos gastos variáveis, passar uma conta pendente para o mês seguinte (combine antes com quem recebe) ou digitar uma <strong>proposta de renegociação</strong>, que compara a parcela e o custo total.</li>
+      </ul>
+    </li>
+    <li>Cada opção diz por que aparece e mostra a saída de caixa agora, a economia estimada, a redução da parcela, o caixa no fim do mês seguinte e, em <strong>Projeção antes e depois</strong>, o saldo mês a mês com as premissas. Valores marcados como <strong>Estimativa do app</strong> são cálculos; <strong>Cotação do credor</strong> vem do que você informou.</li>
+    <li>As dívidas vêm de <strong>Dívidas e contratos</strong>. Se faltar algum dado (taxa, parcelas restantes, sistema), a opção mostra quais campos completar antes de estimar. Com mais de uma dívida, ordene por <strong>maior economia total</strong> ou <strong>maior redução da parcela</strong>.</li>
+    <li>Escolha uma opção e toque em <strong>Aplicar ao planejamento</strong>. O app confirma o que vai mudar: aporte na meta, saída prevista (pendente) da amortização ou nova data da conta. Corte de gastos, renegociação e manter em caixa só ficam registrados.</li>
+    <li>Para comparar com calma, toque em <strong>Salvar como cenário</strong>: os fluxos da opção viram um <a href="#cenarios">cenário</a> e aparecem no seletor <strong>Cenário</strong> da Projeção, sem mudar o orçamento base.</li>
+  </ol>
+  <p class="muted">O mês fechado nunca muda: tudo cai hoje ou no primeiro mês ainda aberto. O app não faz pagamentos nem altera contratos.</p>
   <h3>Ajustar o resultado mês a mês</h3>
   <ol>
     <li>Na Projeção, toque em <strong>Ajustar mês a mês</strong>. Abre uma grade igual à da Projeção, com os meses nas colunas: receitas, despesas e resultado calculados, e a linha <strong>Ajuste (digite)</strong>.</li>
@@ -399,9 +455,25 @@
   <ol>
     <li>Abra <span class="path">Configurações › Open Finance</span> e toque em <strong>Conectar seus bancos</strong>.</li>
     <li>Na janela que abre, escolha <strong>MeuPluggy</strong> e marque as contas e cartões. (Se ainda não tem, crie a conta no Meu Pluggy e autorize seus bancos lá; é gratuito.)</li>
-    <li>De volta ao app, em cada conta ou cartão do banco, escolha qual conta do app é ela e toque em <strong>Sincronizar</strong>.</li>
-    <li>Os lançamentos chegam em <strong>Transações para revisar</strong>. Em cada um, toque em ⋮ e escolha <strong>Importar como novo</strong>, <strong>Conciliar com lançamento</strong> (se você já tinha lançado à mão) ou <strong>Ignorar</strong>.</li>
+    <li>De volta ao app, em cada conta ou cartão do banco, escolha em <strong>Vincular a conta/cartão</strong> qual conta do app é ela.</li>
+    <li>Pronto: a partir daí a <strong>sincronização é automática</strong>. O banco atualiza os dados (em geral uma vez por dia) e o app traz o que mudou ao abrir e a cada 15 minutos, sem você tocar em nada.</li>
   </ol>
+  <h3>O que acontece com cada lançamento do banco</h3>
+  <ul>
+    <li><strong>Já lançado por você:</strong> se você tinha lançado à mão (ou é uma conta recorrente cadastrada) com o mesmo valor e data até 3 dias de diferença, o app reconhece e só liga os dois. Nada é somado de novo.</li>
+    <li><strong>Agendado no banco</strong> (Pix ou boleto agendado, compra ainda em processamento): entra na <strong>Projeção</strong> como <em>previsto</em>. Quando o banco confirma, o mesmo lançamento vira <em>concluído</em>; ele conta uma vez só. Se o agendamento for cancelado no banco, o previsto sai da projeção.</li>
+    <li><strong>Novo, sem par:</strong> fica em <strong>Transações para revisar</strong> (toque em ⋮ para <strong>Importar como novo</strong>, <strong>Conciliar com lançamento</strong> ou <strong>Ignorar</strong>). Se preferir, ligue <strong>Lançar sozinho o que não tiver par</strong> no cartão da conta e ele entra direto como concluído.</li>
+    <li>Sincronizar de novo nunca duplica: cada lançamento do banco é reconhecido pelo código que o banco dá a ele.</li>
+    <li>Se o banco só manda o histórico (sem agendamentos), a projeção continua usando as contas fixas e parcelas que você cadastrou no app.</li>
+  </ul>
+  <h3>Acompanhar a conexão</h3>
+  <ul>
+    <li>No cartão de cada conta aparecem a data dos <strong>dados do banco</strong>, a <strong>última sincronização</strong> e a <strong>próxima atualização automática</strong>.</li>
+    <li><strong>Sincronizar agora</strong> pede ao banco uma atualização na hora e traz o que já chegou.</li>
+    <li>Se algo falhar, o motivo aparece em vermelho e uma nova tentativa é feita sozinha.</li>
+    <li>Quando o consentimento vence (ou está para vencer em 7 dias) ou o banco deixa de aceitar o acesso, aparece <strong>Renovar consentimento</strong>: toque, autorize de novo no banco e a sincronização volta. (A renovação abre na versão web do app; se conectou pelo Meu Pluggy, também dá para renovar em meu.pluggy.ai.)</li>
+    <li>Quem entrou na conta com <strong>acesso limitado</strong> não vê nem usa as conexões do Open Finance; só quem tem acesso total.</li>
+  </ul>
   <p>Para parar de compartilhar, use <strong>Revogar consentimento</strong> ou <strong>Remover conexão</strong>. O que já foi importado continua.</p>
 
   <!-- ================================================================ -->
