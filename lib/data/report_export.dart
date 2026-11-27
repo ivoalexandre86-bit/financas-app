@@ -91,14 +91,24 @@ class ReportExport {
     return out;
   }();
 
-  /// Totais por mês: receitas, despesas (positivas) e resultado.
-  List<({YearMonth month, Money income, Money expenses})> get monthly => [
+  /// Totais por mês: receitas, despesas (positivas), ajuste manual do
+  /// fechamento (linha própria) e resultado.
+  List<({YearMonth month, Money income, Money expenses, Money adjustment})>
+  get monthly => [
     for (final m in months)
       () {
         final t = engine.monthTotals(ProjectionFilter.none, m);
-        return (month: m, income: t.income, expenses: t.expenses);
+        return (
+          month: m,
+          income: t.income,
+          expenses: t.expenses,
+          adjustment: t.adjustment,
+        );
       }(),
   ];
+
+  /// Algum mês do período tem ajuste manual?
+  bool get hasAdjustments => monthly.any((m) => !m.adjustment.isZero);
 
   /// Despesas por categoria raiz e mês, das que mais gastaram para as que
   /// menos.
@@ -231,24 +241,27 @@ class ReportExport {
     final sum = book['Resumo mensal'];
     _headerRow(
       sum,
-      ['Mês', 'Receitas', 'Despesas', 'Resultado'],
-      [16, 14, 14, 14],
+      ['Mês', 'Receitas', 'Despesas', 'Ajuste', 'Resultado'],
+      [16, 14, 14, 14, 14],
     );
     var row = 1;
-    var inc = Money.zero, exp = Money.zero;
+    var inc = Money.zero, exp = Money.zero, adj = Money.zero;
     for (final m in monthly) {
       _put(sum, 0, row, m.month.shortLabel);
       _put(sum, 1, row, m.income);
       _put(sum, 2, row, m.expenses);
-      _put(sum, 3, row, m.income - m.expenses);
+      _put(sum, 3, row, m.adjustment);
+      _put(sum, 4, row, m.income - m.expenses + m.adjustment);
       inc += m.income;
       exp += m.expenses;
+      adj += m.adjustment;
       row++;
     }
     _put(sum, 0, row, 'Total', _bold);
     _put(sum, 1, row, inc, _moneyBold);
     _put(sum, 2, row, exp, _moneyBold);
-    _put(sum, 3, row, inc - exp, _moneyBold);
+    _put(sum, 3, row, adj, _moneyBold);
+    _put(sum, 4, row, inc - exp + adj, _moneyBold);
 
     book.setDefaultSheet('Lançamentos');
     return Uint8List.fromList(book.encode()!);
@@ -337,11 +350,13 @@ class ReportExport {
     );
 
     final totals = monthly;
-    var inc = Money.zero, exp = Money.zero;
+    var inc = Money.zero, exp = Money.zero, adj = Money.zero;
     for (final m in totals) {
       inc += m.income;
       exp += m.expenses;
+      adj += m.adjustment;
     }
+    final showAdj = !adj.isZero || hasAdjustments;
     final byCat = expensesByCategory;
 
     doc.addPage(
@@ -378,7 +393,8 @@ class ReportExport {
               for (final kv in [
                 ('Receitas', brl(inc)),
                 ('Despesas', brl(exp)),
-                ('Resultado', brl(inc - exp)),
+                if (showAdj) ('Ajuste', brl(adj)),
+                ('Resultado', brl(inc - exp + adj)),
               ])
                 pw.Expanded(
                   child: pw.Container(
@@ -413,14 +429,21 @@ class ReportExport {
             pw.Text('Resumo por mês', style: pw.TextStyle(fontSize: 13)),
             pw.SizedBox(height: 6),
             table(
-              ['Mês', 'Receitas', 'Despesas', 'Resultado'],
+              [
+                'Mês',
+                'Receitas',
+                'Despesas',
+                if (showAdj) 'Ajuste',
+                'Resultado',
+              ],
               [
                 for (final m in totals)
                   [
                     m.month.shortLabel,
                     brl(m.income),
                     brl(m.expenses),
-                    brl(m.income - m.expenses),
+                    if (showAdj) brl(m.adjustment),
+                    brl(m.income - m.expenses + m.adjustment),
                   ],
               ],
             ),

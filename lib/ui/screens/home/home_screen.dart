@@ -19,7 +19,9 @@ import '../budgets/budgets_screen.dart';
 import '../dashboards/dashboards_screen.dart';
 import '../goals/goals_screen.dart';
 import '../installments/installments_screen.dart';
+import '../accounts/accounts_screen.dart' show showAdjustBalancePicker;
 import '../projection/drilldown_screen.dart';
+import '../projection/month_closing_ui.dart' show showMonthClosingActions;
 import '../recurring/recurring_screen.dart';
 import '../transactions/transaction_details_screen.dart';
 import '../transactions/transaction_form_screen.dart';
@@ -85,6 +87,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 available: e.availableBalance,
                 projected: projected,
                 month: month,
+                onAdjust: hasData
+                    ? () => showAdjustBalancePicker(context)
+                    : null,
               ),
               const SizedBox(height: 12),
               _PendingKpis(engine: e, month: month),
@@ -118,6 +123,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
+              if (!totals.adjustment.isZero) ...[
+                const SizedBox(height: 8),
+                _StatTile(
+                  key: const ValueKey('home-month-adjustment'),
+                  label: 'Ajuste manual (mês fechado)',
+                  value: totals.adjustment,
+                  colorize: true,
+                  icon: Icons.tune,
+                  onTap: () => showMonthClosingActions(context, month),
+                ),
+              ],
               const SizedBox(height: 8),
               _StatTile(
                 label: 'Resultado do mês',
@@ -251,11 +267,13 @@ class _BalanceHero extends StatelessWidget {
   final Money available;
   final Money projected;
   final YearMonth month;
+  final VoidCallback? onAdjust;
   const _BalanceHero({
     required this.current,
     required this.available,
     required this.projected,
     required this.month,
+    this.onAdjust,
   });
 
   @override
@@ -275,9 +293,26 @@ class _BalanceHero extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Saldo atual',
-            style: context.text.labelLarge?.copyWith(color: muted),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Saldo atual',
+                  style: context.text.labelLarge?.copyWith(color: muted),
+                ),
+              ),
+              if (onAdjust != null)
+                TextButton.icon(
+                  key: const ValueKey('home-adjust-balance'),
+                  onPressed: onAdjust,
+                  style: TextButton.styleFrom(
+                    foregroundColor: onHero,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('Ajustar saldo'),
+                ),
+            ],
           ),
           const SizedBox(height: 4),
           MoneyText(
@@ -527,6 +562,7 @@ class _StatTile extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onTap;
   const _StatTile({
+    super.key,
     required this.label,
     required this.value,
     this.color,

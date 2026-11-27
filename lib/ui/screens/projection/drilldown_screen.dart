@@ -138,8 +138,8 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
     final closedValue = closing == null
         ? null
         : switch (widget.row) {
-            DrillRow.income => closing.income,
-            DrillRow.expenses => closing.expenses,
+            DrillRow.income => closing.computedIncome,
+            DrillRow.expenses => closing.computedExpenses,
             DrillRow.net => closing.net,
           };
 
@@ -201,7 +201,9 @@ class _DrilldownScreenState extends State<DrilldownScreen> {
                   ),
                   subtitle: Text(
                     'Vale ${closedValue!.format()} (lançamentos abaixo: '
-                    '${total.format()}). Toque para ajustar ou reabrir.',
+                    '${total.format()})'
+                    '${closing.adjustment.isZero ? '' : '. Ajuste manual à parte: ${closing.adjustment.format()}'}'
+                    '. Toque para ajustar ou reabrir.',
                   ),
                   onTap: () => showMonthClosingActions(context, widget.month),
                 ),
