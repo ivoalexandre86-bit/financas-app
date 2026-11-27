@@ -36,6 +36,15 @@ class FakeAi implements AiService {
     String? mimeType,
     String? text,
   }) async => throw UnimplementedError();
+
+  Map<String, Object?>? contract;
+
+  @override
+  Future<Map<String, Object?>> readContract({
+    Uint8List? bytes,
+    String? mimeType,
+    String? text,
+  }) async => contract ?? (throw UnimplementedError());
 }
 
 void main() {

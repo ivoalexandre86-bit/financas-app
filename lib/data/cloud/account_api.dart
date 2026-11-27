@@ -142,13 +142,12 @@ class HttpAccountApi implements AccountApi {
   @override
   Future<AccountState> state() async => _s(await api.get('account'));
   @override
-  Future<AccountState> invite(String email, {AccessScope? scope}) async =>
-      _s(
-        await api.post('account/members', {
-          'email': email,
-          if (scope != null) 'scope': scope.toJson(),
-        }),
-      );
+  Future<AccountState> invite(String email, {AccessScope? scope}) async => _s(
+    await api.post('account/members', {
+      'email': email,
+      if (scope != null) 'scope': scope.toJson(),
+    }),
+  );
   @override
   Future<AccountState> setScope(String memberId, AccessScope? scope) async =>
       _s(

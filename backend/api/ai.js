@@ -29,6 +29,107 @@ Responda apenas com base no retrato das finanças do usuário que vem na mensage
 
 Seja direto e curto: no máximo uns 200 palavras, em parágrafos curtos ou listas, valores no formato R$ 1.234,56. Pode fazer contas, comparar meses, apontar gastos que cresceram e sugerir cortes ou metas realistas. Não invente lançamentos, não dê recomendação de investimento específico (produto, ação, fundo) e não fale de assuntos fora das finanças do usuário.`;
 
+const CONTRACT_MODEL = 'claude-sonnet-5-5';
+
+// Campos de um contrato de empréstimo/financiamento lidos do arquivo. Tudo
+// opcional (null quando não aparece); o app mostra para o usuário revisar.
+const CONTRACT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'name', 'lender', 'kind', 'system', 'monthlyRatePercent',
+    'annualRatePercent', 'originalPrincipal', 'contractDate', 'termMonths',
+    'outstanding', 'balanceDate', 'remainingMonths', 'nextDueDate',
+    'currentPayment', 'monthlyFees', 'index', 'notes',
+  ],
+  properties: {
+    name: { type: ['string', 'null'] },
+    lender: { type: ['string', 'null'] },
+    kind: {
+      type: ['string', 'null'],
+      enum: ['personalLoan', 'payroll', 'vehicle', 'realEstate', 'student', 'other', null],
+    },
+    system: { type: ['string', 'null'], enum: ['price', 'sac', null] },
+    monthlyRatePercent: { type: ['number', 'null'] },
+    annualRatePercent: { type: ['number', 'null'] },
+    originalPrincipal: { type: ['number', 'null'] },
+    contractDate: { type: ['string', 'null'] },
+    termMonths: { type: ['integer', 'null'] },
+    outstanding: { type: ['number', 'null'] },
+    balanceDate: { type: ['string', 'null'] },
+    remainingMonths: { type: ['integer', 'null'] },
+    nextDueDate: { type: ['string', 'null'] },
+    currentPayment: { type: ['number', 'null'] },
+    monthlyFees: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'amount'],
+        properties: { name: { type: 'string' }, amount: { type: 'number' } },
+      },
+    },
+    index: {
+      type: ['string', 'null'],
+      enum: ['none', 'tr', 'ipca', 'igpm', 'incc', 'cdi', 'other', null],
+    },
+    notes: { type: ['string', 'null'] },
+  },
+};
+
+const CONTRACT_SYSTEM = `Você lê contratos e extratos de empréstimos e financiamentos brasileiros (CCB, financiamento de veículo ou imóvel, consignado) e devolve só os dados que aparecem no documento, no JSON pedido.
+
+Regras: valores em reais com ponto decimal (1234.56). Datas no formato AAAA-MM-DD. Taxas em porcentagem (1.5 = 1,5%). "system": "price" para parcelas fixas (Tabela Price) e "sac" para amortização constante. "outstanding" é o saldo devedor atual, "currentPayment" a parcela sem seguros e taxas, que vão em "monthlyFees". Não invente: use null para o que não estiver escrito. Em "notes", diga em uma frase o que não ficou claro (ex.: regras de amortização antecipada, CET).`;
+
+/** Centavos a partir de reais (número), ou null. */
+const cents = (v) =>
+  typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v * 100) : null;
+const isoDate = (v) =>
+  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+const posInt = (v) => (Number.isInteger(v) && v > 0 && v <= 600 ? v : null);
+
+/**
+ * Converte a leitura da IA nos campos do DebtContract do app: centavos,
+ * taxa mensal como fração. Taxa anual vira mensal equivalente quando a
+ * mensal não vem. `fields` lista o que foi preenchido.
+ */
+function normalizeContract(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  let monthly =
+    typeof raw.monthlyRatePercent === 'number' && raw.monthlyRatePercent >= 0 && raw.monthlyRatePercent < 50
+      ? raw.monthlyRatePercent / 100
+      : null;
+  if (monthly == null && typeof raw.annualRatePercent === 'number' &&
+      raw.annualRatePercent >= 0 && raw.annualRatePercent < 1000) {
+    monthly = Math.pow(1 + raw.annualRatePercent / 100, 1 / 12) - 1;
+  }
+  const out = {
+    name: typeof raw.name === 'string' ? raw.name.slice(0, 80) : null,
+    lender: typeof raw.lender === 'string' ? raw.lender.slice(0, 80) : null,
+    kind: raw.kind ?? null,
+    system: raw.system ?? null,
+    monthlyRate: monthly == null ? null : Math.round(monthly * 1e8) / 1e8,
+    originalPrincipal: cents(raw.originalPrincipal),
+    contractDate: isoDate(raw.contractDate),
+    termMonths: posInt(raw.termMonths),
+    outstanding: cents(raw.outstanding),
+    balanceDate: isoDate(raw.balanceDate),
+    remainingMonths: posInt(raw.remainingMonths),
+    nextDueDate: isoDate(raw.nextDueDate),
+    currentPayment: cents(raw.currentPayment),
+    fees: (Array.isArray(raw.monthlyFees) ? raw.monthlyFees : [])
+      .map((f) => ({ name: String(f?.name ?? 'Encargo').slice(0, 60), monthly: cents(f?.amount) }))
+      .filter((f) => f.monthly != null && f.monthly > 0)
+      .slice(0, 6),
+    index: raw.index ?? null,
+    notes: typeof raw.notes === 'string' ? raw.notes.slice(0, 500) : '',
+  };
+  out.fields = Object.entries(out)
+    .filter(([k, v]) => k !== 'notes' && v != null && !(Array.isArray(v) && !v.length))
+    .map(([k]) => k);
+  return out.fields.length ? out : null;
+}
+
 /**
  * @param {{apiKey: string, model?: string, extract: Function,
  *   log?: (line: string) => void}} opts
@@ -77,7 +178,37 @@ function createAi({ apiKey, model = ASSISTANT_MODEL, extract, log = console.log 
       .trim() + cut;
   }
 
-  return { extract, ask };
+  async function readContract({ media, text }) {
+    const content = [];
+    if (media) {
+      const data = media.data.toString('base64');
+      content.push(
+        media.mimeType === 'application/pdf'
+          ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } }
+          : { type: 'image', source: { type: 'base64', media_type: media.mimeType, data } },
+      );
+    }
+    content.push({
+      type: 'text',
+      text: text ? `Texto do contrato ou extrato:\n${text}` : 'Leia o documento acima.',
+    });
+    const res = await client.messages.create({
+      model: CONTRACT_MODEL,
+      max_tokens: 4000,
+      output_config: { format: { type: 'json_schema', schema: CONTRACT_SCHEMA } },
+      system: CONTRACT_SYSTEM,
+      messages: [{ role: 'user', content }],
+    });
+    log(
+      `Contrato IA: ${res.model ?? CONTRACT_MODEL} in=${res.usage?.input_tokens ?? 0} ` +
+        `out=${res.usage?.output_tokens ?? 0}`,
+    );
+    if (res.stop_reason === 'refusal' || res.stop_reason === 'max_tokens') return null;
+    const out = res.content.find((b) => b.type === 'text');
+    return out ? JSON.parse(out.text) : null;
+  }
+
+  return { extract, ask, readContract };
 }
 
 /**
@@ -154,6 +285,36 @@ function mountAi(app, { pool, authed, wrap, HttpError, ai }) {
     }),
   );
 
+  // Lê um contrato ou extrato de empréstimo/financiamento e devolve os
+  // campos encontrados para o usuário revisar antes de salvar.
+  app.post(
+    '/ai/contract',
+    authed,
+    wrap(async (req, res) => {
+      needAi();
+      const { text, media, mimeType } = req.body ?? {};
+      if (!text && !media) throw new HttpError(400, 'Envie o PDF, uma foto ou o texto do contrato.');
+      if (media && !MEDIA_TYPES.has(mimeType)) {
+        throw new HttpError(400, 'Formato não suportado. Use PDF ou foto (JPG/PNG).');
+      }
+      const data = media ? Buffer.from(String(media), 'base64') : null;
+      if (data && data.length > 8 * 1024 * 1024) {
+        throw new HttpError(413, 'Arquivo grande demais (máximo 8 MB).');
+      }
+      await count(req.user);
+      const contract = normalizeContract(
+        await ai.readContract({
+          text: text ? String(text).slice(0, 20000) : undefined,
+          media: data ? { data, mimeType } : undefined,
+        }),
+      );
+      if (!contract) {
+        throw new HttpError(422, 'Não encontrei dados de contrato nesse arquivo.');
+      }
+      res.json({ contract });
+    }),
+  );
+
   app.post(
     '/ai/ask',
     authed,
@@ -174,4 +335,4 @@ function mountAi(app, { pool, authed, wrap, HttpError, ai }) {
   );
 }
 
-module.exports = { createAi, mountAi, ASSISTANT_MODEL };
+module.exports = { createAi, mountAi, ASSISTANT_MODEL, normalizeContract, CONTRACT_SCHEMA };
