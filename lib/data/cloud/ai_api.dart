@@ -71,6 +71,14 @@ abstract class AiService {
     String? text,
   });
   Future<String> ask(String question, String snapshot, List<AiTurn> history);
+
+  /// Lê um contrato/extrato de empréstimo e devolve os campos encontrados
+  /// (formato JSON do DebtContract, mais `fields` com o que foi lido).
+  Future<Map<String, Object?>> readContract({
+    Uint8List? bytes,
+    String? mimeType,
+    String? text,
+  });
 }
 
 class HttpAiService implements AiService {
@@ -91,6 +99,20 @@ class HttpAiService implements AiService {
       if (text != null && text.trim().isNotEmpty) 'text': text.trim(),
     }, _slow);
     return AiReceipt.fromJson(Map<String, Object?>.from(r['draft'] as Map));
+  }
+
+  @override
+  Future<Map<String, Object?>> readContract({
+    Uint8List? bytes,
+    String? mimeType,
+    String? text,
+  }) async {
+    final r = await api.post('ai/contract', {
+      if (bytes != null) 'media': base64Encode(bytes),
+      if (bytes != null) 'mimeType': mimeType,
+      if (text != null && text.trim().isNotEmpty) 'text': text.trim(),
+    }, _slow);
+    return Map<String, Object?>.from(r['contract'] as Map);
   }
 
   @override

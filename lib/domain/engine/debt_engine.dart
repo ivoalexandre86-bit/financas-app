@@ -390,17 +390,8 @@ enum EstimateSource {
 }
 
 /// Próxima parcela do contrato (ou um mês depois do saldo/hoje).
-DateTime nextDueOf(DebtContract d, DateTime asOf) {
-  var next = d.nextDueDate;
-  if (next != null) {
-    // Parcelas vencidas desde o cadastro: avança até a próxima a vencer.
-    while (next!.isBefore(Dates.dateOnly(asOf))) {
-      next = Dates.addMonths(next, 1, anchorDay: d.nextDueDate!.day);
-    }
-    return next;
-  }
-  return Dates.addMonths(d.balanceDate ?? asOf, 1);
-}
+DateTime nextDueOf(DebtContract d, DateTime asOf) =>
+    d.nextDueDate ?? Dates.addMonths(d.balanceDate ?? asOf, 1);
 
 /// Campos que faltam para a estimativa do app.
 List<DebtField> missingForEstimate(DebtContract d) => [

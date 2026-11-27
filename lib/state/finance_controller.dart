@@ -17,6 +17,8 @@ import '../data/sample_data.dart';
 import '../domain/engine/billing_cycle.dart';
 import '../domain/engine/budget_engine.dart';
 import '../domain/engine/dashboard_engine.dart';
+import '../domain/engine/debt_engine.dart';
+import '../domain/engine/debt_sync.dart';
 import '../domain/engine/financial_engine.dart';
 import '../domain/engine/installments.dart';
 import '../domain/engine/networth_engine.dart';
@@ -1193,15 +1195,195 @@ class FinanceController extends ChangeNotifier {
       throw ArgumentError('Saldo devedor negativo');
     }
     if ((d.monthlyRate ?? 0) < 0) throw ArgumentError('Taxa negativa');
-    debts = [...debts.where((x) => x.id != d.id), d]..sort(_byDebtName);
-    notifyListeners();
-    await repo.write([WriteOp.put(Coll.debts, d.id, d.toJson())]);
+    if (d.installments == DebtInstallments.generated && d.accountId == null) {
+      throw ArgumentError('Escolha a conta que paga as parcelas');
+    }
+    if (d.installments == DebtInstallments.linked &&
+        d.linkedRuleId == null &&
+        d.linkedGroupId == null) {
+      throw ArgumentError('Escolha o lançamento que representa as parcelas');
+    }
+    await _commitDebts([d]);
   }
 
-  Future<void> deleteDebt(DebtContract d) async {
-    debts = debts.where((x) => x.id != d.id).toList();
-    notifyListeners();
-    await repo.write([WriteOp.delete(Coll.debts, d.id)]);
+  /// Grava contratos e realinha as parcelas geradas na Projeção.
+  Future<void> _commitDebts(
+    List<DebtContract> changed, {
+    Set<String> removed = const {},
+    List<WriteOp> extra = const [],
+  }) async {
+    final byId = {for (final d in debts) d.id: d};
+    for (final d in changed) {
+      byId[d.id] = d;
+    }
+    removed.forEach(byId.remove);
+    debts = byId.values.toList()..sort(_byDebtName);
+    final (puts, deletes) = DebtSync.diff(
+      existing: data.transactions,
+      debts: [...changed],
+      asOf: today,
+      removedDebtIds: removed,
+    );
+    await _commit([
+      for (final d in changed) WriteOp.put(Coll.debts, d.id, d.toJson()),
+      for (final id in removed) WriteOp.delete(Coll.debts, id),
+      ...extra,
+      ...puts.map(_putTx),
+      ...deletes.map((id) => WriteOp.delete(Coll.transactions, id)),
+    ]);
+  }
+
+  /// Exclui o contrato e as parcelas planejadas geradas por ele (as pagas
+  /// ficam no histórico).
+  Future<void> deleteDebt(DebtContract d) => _commitDebts(
+    const [],
+    removed: {d.id},
+    extra: [
+      for (final t in data.transactions)
+        if (DebtSync.debtIdOf(t.id, [d]) != null &&
+            t.id.contains('_pre_') &&
+            t.status != TransactionStatus.completed)
+          WriteOp.delete(Coll.transactions, t.id),
+    ],
+  );
+
+  /// Pagamentos registrados que pertencem ao contrato.
+  List<FinTransaction> debtPayments(DebtContract d) =>
+      DebtSync.payments(d, data.transactions);
+
+  /// Lançamentos de despesa que podem ser vinculados ao contrato à mão.
+  List<FinTransaction> linkableDebtPayments(DebtContract d) =>
+      data.transactions
+          .where(
+            (t) =>
+                t.type == TransactionType.expense &&
+                t.status == TransactionStatus.completed &&
+                !DebtSync.isDerived(t.id),
+          )
+          .toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+
+  /// Atualiza saldo, parcelas restantes e próximo vencimento a partir das
+  /// parcelas pagas desde o último cadastro. Devolve quantas avançou.
+  Future<int> advanceDebtByPayments(DebtContract d) async {
+    final k = DebtSync.paidSinceNextDue(d, debtPayments(d), today);
+    if (k == 0) return 0;
+    await _commitDebts([DebtSync.advance(d, k, today)]);
+    return k;
+  }
+
+  /// Leva uma opção simulada para o planejamento, depois da confirmação do
+  /// usuário: lança a saída de caixa planejada na data do cálculo, atualiza
+  /// o contrato com o cronograma novo e passa a gerar as parcelas a partir
+  /// dele (encerrando, a partir da próxima parcela, o compromisso que as
+  /// representava). Meses já fechados não mudam e nada é pago de verdade.
+  Future<DebtScenario> applyDebtPlan(
+    PrepayResult r, {
+    required String accountId,
+    String? categoryId,
+    DebtScenario? scenario,
+  }) async {
+    final d = debtById(r.debt.id) ?? r.debt;
+    final now = today;
+    final sc =
+        (scenario ??
+                DebtScenario(
+                  id: newId('dsc_'),
+                  name: '${r.option.label} – ${d.name}',
+                  kind: ScenarioKind.prepayment,
+                  calculatedAt: r.calculatedAt,
+                  inputs: {
+                    'debtId': d.id,
+                    'option': r.option.name,
+                    'amount': r.outflow.cents,
+                  },
+                  summary: [r.toSummary()],
+                ))
+            .copyWith(appliedAt: DateTime.now());
+    final cut = r.before.rows.isEmpty ? now : r.before.rows.first.dueDate;
+    final ops = <WriteOp>[
+      WriteOp.put(Coll.debtScenarios, sc.id, sc.toJson()),
+      if (r.outflow.isPositive)
+        _putTx(
+          FinTransaction(
+            id: DebtSync.prepaymentId(d.id, sc.id),
+            type: TransactionType.expense,
+            amount: r.outflow,
+            description: '${d.name} – ${r.option.label.toLowerCase()}',
+            categoryId: categoryId ?? d.categoryId,
+            date: Dates.dateOnly(r.calculatedAt).isBefore(now)
+                ? now
+                : Dates.dateOnly(r.calculatedAt),
+            dueDate: now,
+            accountId: accountId,
+            notes:
+                '${r.source.label}. Planejamento: confirme o valor com o '
+                'credor antes de pagar.',
+            status: TransactionStatus.planned,
+          ),
+        ),
+    ];
+    // Encerra o compromisso vinculado a partir da próxima parcela.
+    if (d.installments == DebtInstallments.linked) {
+      final rule = data.ruleById[d.linkedRuleId];
+      if (rule != null) {
+        final end = Dates.addDays(cut, -1);
+        ops.add(
+          WriteOp.put(
+            Coll.recurringTransactions,
+            rule.id,
+            rule
+                .copyWith(
+                  endDate: end.isBefore(rule.startDate) ? rule.startDate : end,
+                )
+                .toJson(),
+          ),
+        );
+        for (final t in data.transactions) {
+          if (t.recurringId == rule.id &&
+              !t.date.isBefore(cut) &&
+              t.status != TransactionStatus.completed) {
+            ops.add(_putTx(t.copyWith(status: TransactionStatus.cancelled)));
+          }
+        }
+      }
+      if (d.linkedGroupId != null) {
+        for (final t in installmentsOf(d.linkedGroupId!)) {
+          if (!t.date.isBefore(cut) &&
+              t.status != TransactionStatus.completed &&
+              t.status != TransactionStatus.cancelled) {
+            ops.add(_putTx(t.copyWith(status: TransactionStatus.cancelled)));
+          }
+        }
+      }
+    }
+    final after = r.after;
+    final payoff = after.isEmpty;
+    final updated = d.copyWith(
+      outstanding: payoff
+          ? Money.zero
+          : after.interestKnown
+          ? after.principal
+          : d.outstanding,
+      balanceDate: now,
+      remainingMonths: payoff ? 0 : after.months,
+      nextDueDate: payoff ? d.nextDueDate : after.rows.first.dueDate,
+      currentPayment: payoff ? Money.zero : after.rows.first.payment,
+      installments: DebtInstallments.generated,
+      accountId: d.accountId ?? accountId,
+      categoryId: d.categoryId ?? categoryId,
+      archived: payoff ? true : null,
+      notes: [
+        if (d.notes.isNotEmpty) d.notes,
+        'Plano de ${Dates.format(now)}: ${r.option.label.toLowerCase()} '
+            '(${r.outflow.formatVisible()}).',
+      ].join('\n'),
+    );
+    debtScenarios = [sc, ...debtScenarios.where((x) => x.id != sc.id)];
+    // Quitado (arquivado), o contrato deixa de gerar parcelas: as planejadas
+    // restantes saem da Projeção; as pagas ficam.
+    await _commitDebts([updated], extra: ops);
+    return sc;
   }
 
   Future<void> saveDebtScenario(DebtScenario s) async {

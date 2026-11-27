@@ -133,13 +133,10 @@ class HttpInviteApi implements InviteApi {
   @override
   Future<InvitesState> list() async {
     final r = await api.get('invites');
-    return InvitesState(
-      [
-        for (final i in (r['invites'] as List? ?? const []))
-          WhatsAppInvite.fromJson((i as Map).cast<String, Object?>()),
-      ],
-      InviteTemplate.fromJson(r['template']),
-    );
+    return InvitesState([
+      for (final i in (r['invites'] as List? ?? const []))
+        WhatsAppInvite.fromJson((i as Map).cast<String, Object?>()),
+    ], InviteTemplate.fromJson(r['template']));
   }
 
   @override
