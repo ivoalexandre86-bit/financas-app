@@ -21,15 +21,18 @@ import '../domain/engine/financial_engine.dart';
 import '../domain/engine/installments.dart';
 import '../domain/engine/networth_engine.dart';
 import '../domain/engine/other_entries_engine.dart';
+import '../domain/engine/scenario_engine.dart';
 import '../domain/engine/shared_engine.dart';
 import '../domain/engine/simulation_engine.dart';
 import '../domain/import/expense_import.dart';
 import '../domain/models/asset.dart';
 import '../domain/models/dashboard.dart';
 import '../domain/models/entities.dart';
+import '../domain/models/fgts.dart';
 import '../domain/models/month_closing.dart';
 import '../domain/models/other_entry.dart';
 import '../domain/models/planning.dart';
+import '../domain/models/scenario.dart';
 import '../domain/models/shared.dart';
 import '../domain/models/simulation.dart';
 
@@ -88,6 +91,21 @@ class FinanceController extends ChangeNotifier {
 
   /// Bens e dívidas registrados para o patrimônio líquido.
   List<Asset> assets = [];
+
+  /// Cenários de planejamento (FGTS, dívidas, fechamento do mês). Só mudam
+  /// a Projeção quando escolhidos; o orçamento base fica intacto.
+  List<PlanScenario> scenarios = [];
+
+  /// Cenário escolhido na Projeção (`null` = orçamento base).
+  String? selectedScenarioId;
+
+  PlanScenario? get selectedScenario =>
+      scenarios.where((s) => s.id == selectedScenarioId).firstOrNull;
+
+  /// Saldo do FGTS (o primeiro registrado), se houver.
+  Asset? get fgts => assets.where((a) => a.isFgts).firstOrNull;
+
+  ScenarioEngine get scenarioEngine => ScenarioEngine(engine);
 
   /// Patrimônio líquido, sempre sobre o [engine] atual.
   NetWorthEngine get netWorthEngine => NetWorthEngine(engine);
@@ -221,6 +239,11 @@ class FinanceController extends ChangeNotifier {
     assets = [
       for (final j in await repo.loadRaw(Coll.assets)) Asset.fromJson(j),
     ]..sort(_byAssetName);
+    scenarios = [
+      for (final j in await repo.loadRaw(Coll.scenarios))
+        PlanScenario.fromJson(j),
+    ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    if (selectedScenario == null) selectedScenarioId = null;
   }
 
   static int _byAssetName(Asset a, Asset b) =>
@@ -1153,6 +1176,87 @@ class FinanceController extends ChangeNotifier {
     assets = [...assets.where((x) => x.id != a.id), next]..sort(_byAssetName);
     notifyListeners();
     await repo.write([WriteOp.put(Coll.assets, next.id, next.toJson())]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cenários de planejamento
+
+  /// Cria ou altera um cenário.
+  Future<void> saveScenario(PlanScenario s) async {
+    if (s.name.trim().isEmpty) throw ArgumentError('Informe um nome');
+    scenarios = [...scenarios.where((x) => x.id != s.id), s]
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    notifyListeners();
+    await repo.write([WriteOp.put(Coll.scenarios, s.id, s.toJson())]);
+  }
+
+  Future<void> deleteScenario(PlanScenario s) async {
+    scenarios = scenarios.where((x) => x.id != s.id).toList();
+    if (selectedScenarioId == s.id) selectedScenarioId = null;
+    notifyListeners();
+    await repo.write([WriteOp.delete(Coll.scenarios, s.id)]);
+  }
+
+  /// Escolhe o cenário mostrado na Projeção (`null` = orçamento base).
+  void selectScenario(String? id) {
+    selectedScenarioId = scenarios.any((s) => s.id == id) ? id : null;
+    notifyListeners();
+  }
+
+  // ---------------------------------------------------------------------------
+  // FGTS
+
+  /// Registra o saque [flow] do cenário [s] como recebido: lança a receita
+  /// (concluída) na conta [accountId], baixa o saldo do FGTS e marca o fluxo
+  /// como realizado, para que a Projeção não conte o valor duas vezes.
+  Future<void> receiveFgtsWithdrawal(
+    PlanScenario s,
+    ScenarioFlow flow, {
+    required String accountId,
+    required Money amount,
+    required DateTime date,
+    String? categoryId,
+  }) async {
+    if (amount.cents <= 0) throw ArgumentError('Informe o valor recebido');
+    final asset = assets.where((a) => a.id == flow.refId).firstOrNull;
+    if (asset == null) throw ArgumentError('FGTS não encontrado');
+    final tx = FinTransaction(
+      id: newId('tx_'),
+      type: TransactionType.income,
+      amount: amount,
+      description: 'Saque do FGTS · ${FgtsPurpose.parse(flow.purpose).label}',
+      categoryId: categoryId,
+      date: date,
+      accountId: accountId,
+      tags: const ['FGTS'],
+    );
+    final err = validateTransaction(tx);
+    if (err != null) throw ArgumentError(err);
+    final left = asset.value - amount;
+    final nextAsset = asset
+        .withValue(left.isNegative ? Money.zero : left, date)
+        .copyWith(
+          fgts: (asset.fgts ?? FgtsDetails()).copyWith(balanceDate: date),
+        );
+    final nextScenario = s.withFlow(
+      flow.copyWith(
+        amount: amount,
+        date: date,
+        amountConfirmed: true,
+        dateConfirmed: true,
+        realized: true,
+        transactionId: tx.id,
+      ),
+    );
+    assets = [...assets.where((x) => x.id != asset.id), nextAsset]
+      ..sort(_byAssetName);
+    scenarios = [...scenarios.where((x) => x.id != s.id), nextScenario]
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    await _commit([
+      _putTx(tx),
+      WriteOp.put(Coll.assets, nextAsset.id, nextAsset.toJson()),
+      WriteOp.put(Coll.scenarios, nextScenario.id, nextScenario.toJson()),
+    ]);
   }
 
   // ---------------------------------------------------------------------------

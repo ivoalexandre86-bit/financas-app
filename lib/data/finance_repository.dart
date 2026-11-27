@@ -30,6 +30,7 @@ enum Coll {
   categoryRules,
   assets,
   monthClosings,
+  scenarios,
 }
 
 /// Nome da "coleção" das configurações do app na nuvem (registro `app`).

@@ -16,6 +16,7 @@ import '../../widgets/remembered_filters.dart';
 import '../../widgets/sort_grid.dart';
 import '../../widgets/tx_grid.dart';
 import '../../widgets/view_mode.dart';
+import '../fgts/fgts_screen.dart';
 
 /// Bens e dívidas que o plano Grátis permite.
 const gratisAssetLimit = 2;
@@ -25,10 +26,50 @@ IconData assetIcon(AssetKind k) => switch (k) {
   AssetKind.vehicle => Icons.directions_car_outlined,
   AssetKind.investment => Icons.trending_up,
   AssetKind.other => Icons.category_outlined,
+  AssetKind.fgts => Icons.savings_outlined,
   AssetKind.financing => Icons.account_balance_outlined,
   AssetKind.loan => Icons.request_quote_outlined,
   AssetKind.otherDebt => Icons.money_off_outlined,
 };
+
+/// Abre o detalhe do bem; o FGTS tem tela própria.
+void openAsset(BuildContext context, Asset a) => a.isFgts
+    ? push(context, const FgtsScreen())
+    : push(context, AssetDetailsScreen(assetId: a.id));
+
+/// FGTS no patrimônio: ativo à parte, com atalho para a tela própria.
+class FgtsNetWorthCard extends StatelessWidget {
+  final Asset? fgts;
+  const FgtsNetWorthCard({super.key, required this.fgts});
+
+  @override
+  Widget build(BuildContext context) {
+    final a = fgts;
+    return Card(
+      child: ListTile(
+        key: const ValueKey('networth-fgts'),
+        leading: const CircleAvatar(child: Icon(Icons.savings_outlined)),
+        title: const Text('FGTS'),
+        subtitle: Text(
+          a == null
+              ? 'Registre o saldo e simule saques em cenários'
+              : '${(a.fgts?.balanceConfirmed ?? false) ? 'Confirmado' : 'Estimado'}'
+                    ' em ${Dates.format(a.fgts?.balanceDate ?? a.updatedAt)}'
+                    ' · ativo à parte, fora do caixa',
+        ),
+        trailing: a == null
+            ? const Icon(Icons.chevron_right)
+            : MoneyText(
+                a.value,
+                style: context.text.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+        onTap: () => push(context, const FgtsScreen()),
+      ),
+    );
+  }
+}
 
 /// Patrimônio líquido: contas + bens − dívidas − cartões − parcelas.
 class NetWorthScreen extends StatefulWidget {
@@ -54,7 +95,7 @@ class _NetWorthScreenState extends State<NetWorthScreen>
   void _new(BuildContext context, {bool liability = false}) {
     final fc = context.read<FinanceController>();
     if (isGratisPlan(context, listen: false) &&
-        fc.assets.length >= gratisAssetLimit) {
+        fc.assets.where((a) => !a.isFgts).length >= gratisAssetLimit) {
       showPlanUpsell(
         context,
         feature:
@@ -72,7 +113,7 @@ class _NetWorthScreenState extends State<NetWorthScreen>
     final nwe = fc.netWorthEngine;
     final nw = nwe.compute(fc.assets);
     final points = nwe.history(fc.assets);
-    final goods = fc.assets.where((a) => !a.isLiability).toList();
+    final goods = fc.assets.where((a) => !a.isLiability && !a.isFgts).toList();
     final debts = fc.assets.where((a) => a.isLiability).toList();
     return Scaffold(
       appBar: AppBar(
@@ -115,7 +156,9 @@ class _NetWorthScreenState extends State<NetWorthScreen>
             ),
           ),
           const SizedBox(height: 12),
-          if (fc.assets.isEmpty)
+          FgtsNetWorthCard(fgts: fc.fgts),
+          const SizedBox(height: 12),
+          if (goods.isEmpty && debts.isEmpty)
             SectionCard(
               title: 'Bens e dívidas',
               child: Column(
@@ -147,7 +190,7 @@ class _NetWorthScreenState extends State<NetWorthScreen>
               ),
             )
           else if (view == ViewMode.grid)
-            AssetsGrid(assets: fc.assets)
+            AssetsGrid(assets: [...goods, ...debts])
           else ...[
             _Group(
               title: 'Bens',
@@ -214,6 +257,7 @@ class NetWorthSummary extends StatelessWidget {
           const SizedBox(height: 12),
           line('accounts', 'Saldo das contas ativas', nw.accounts),
           line('assets', 'Bens', nw.assets),
+          if (!nw.fgts.isZero) line('fgts', 'FGTS', nw.fgts),
           line(
             'liabilities',
             'Dívidas registradas',
@@ -420,7 +464,7 @@ class AssetTile extends StatelessWidget {
         colorize: true,
         style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
       ),
-      onTap: () => push(context, AssetDetailsScreen(assetId: a.id)),
+      onTap: () => openAsset(context, a),
     );
   }
 }
@@ -446,7 +490,7 @@ class AssetsGrid extends StatelessWidget {
       rowId: (a) => a.id,
       accent: (context, a) =>
           a.isLiability ? context.fin.negative : context.fin.positive,
-      onOpen: (a) => push(context, AssetDetailsScreen(assetId: a.id)),
+      onOpen: (a) => openAsset(context, a),
       initialSort: 'name',
       tieBreak: (a, b) => text(a.name, b.name),
       columns: [

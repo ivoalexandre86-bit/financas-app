@@ -23,6 +23,7 @@ import 'screens/export/export_screen.dart';
 import 'screens/goals/goals_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/import/expense_import_screen.dart';
+import 'screens/fgts/fgts_screen.dart';
 import 'screens/networth/networth_screen.dart';
 import 'screens/installments/installments_screen.dart';
 import 'screens/open_finance/open_finance_screen.dart';
@@ -288,6 +289,7 @@ const menuGroups = <MenuGroup>[
         'Patrimônio',
         NetWorthScreen(),
       ),
+      MenuDest('fgts', Icons.savings_outlined, 'FGTS', FgtsScreen()),
     ],
   ),
   MenuGroup('planning', Icons.insights_outlined, 'Planejamento', [

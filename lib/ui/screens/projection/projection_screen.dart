@@ -5,6 +5,7 @@ import '../../../core/dates.dart';
 import '../../../core/money.dart';
 import '../../../domain/engine/financial_engine.dart';
 import '../../../domain/models/entities.dart';
+import '../../../domain/models/scenario.dart';
 import '../../../state/finance_controller.dart';
 import '../../nav.dart';
 import '../../theme.dart';
@@ -267,11 +268,17 @@ class _ProjectionScreenState extends State<ProjectionScreen>
         : shown.length == ProjectionScreen.freeMonths
         ? ProjectionScreen.freeMonths
         : null;
-    final result = e.projection(
+    final baseResult = e.projection(
       shown,
       filter: filter,
       openingOverride: openingOverride,
     );
+    // Cenário escolhido: soma os fluxos dele só na visão completa.
+    final scenario = fc.selectedScenario;
+    final scenarioOn = scenario != null && filter.isEmpty;
+    final result = scenarioOn
+        ? fc.scenarioEngine.apply(baseResult, scenario.pendingFlows)
+        : baseResult;
     final cols = result.columns;
 
     return Scaffold(
@@ -377,6 +384,15 @@ class _ProjectionScreenState extends State<ProjectionScreen>
               padding: EdgeInsets.fromLTRB(16, 4, 16, 4),
               child: PlanBanner(
                 'No plano Grátis a projeção mostra 3 meses. Assine para ver 12.',
+              ),
+            ),
+          if (fc.scenarios.any((x) => !x.archived) || scenario != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: ScenarioBar(
+                base: baseResult,
+                result: result,
+                applies: filter.isEmpty,
               ),
             ),
           Padding(
@@ -817,6 +833,134 @@ class _ProjectionScreenState extends State<ProjectionScreen>
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Escolha do cenário e o antes e depois do caixa.
+class ScenarioBar extends StatelessWidget {
+  final ProjectionResult base;
+  final ProjectionResult result;
+
+  /// O cenário só vale na visão completa (sem filtros).
+  final bool applies;
+  const ScenarioBar({
+    super.key,
+    required this.base,
+    required this.result,
+    required this.applies,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fc = context.watch<FinanceController>();
+    final s = fc.selectedScenario;
+    final subtle = context.text.bodySmall?.copyWith(color: context.fin.subtle);
+    final options = [
+      for (final x in fc.scenarios)
+        if (!x.archived || x.id == s?.id) x,
+    ];
+    final flows = s == null
+        ? const <ScenarioFlow>[]
+        : [
+            for (final f in s.pendingFlows)
+              if (fc.scenarioEngine.monthOf(f) <= base.columns.last.month) f,
+          ];
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            DropdownButtonFormField<String?>(
+              key: const ValueKey('proj-scenario'),
+              initialValue: s?.id,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Cenário',
+                prefixIcon: Icon(Icons.alt_route),
+                border: InputBorder.none,
+              ),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Orçamento base'),
+                ),
+                for (final x in options)
+                  DropdownMenuItem<String?>(value: x.id, child: Text(x.name)),
+              ],
+              onChanged: fc.selectScenario,
+            ),
+            if (s != null && !applies)
+              Text(
+                'Os cenários aparecem só na visão completa. Limpe os filtros '
+                'para ver "${s.name}".',
+                style: subtle,
+              )
+            else if (s != null) ...[
+              for (final f in flows)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${fc.scenarioEngine.monthOf(f).shortLabel} · '
+                          '${f.description}'
+                          '${f.isEstimate ? ' (estimado)' : ''}',
+                          style: context.text.bodySmall,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      MoneyText(
+                        f.amount,
+                        colorize: true,
+                        style: context.text.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              if (flows.isEmpty)
+                Text(
+                  'Nenhum fluxo do cenário cai neste período.',
+                  style: subtle,
+                ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Acumulado em ${base.columns.last.month.shortLabel}',
+                      style: context.text.bodySmall,
+                    ),
+                  ),
+                  Text('base ', style: subtle),
+                  MoneyText(
+                    base.columns.last.accumulated,
+                    key: const ValueKey('proj-scenario-base'),
+                    colorize: true,
+                    style: context.text.bodySmall,
+                  ),
+                  Text('  →  cenário ', style: subtle),
+                  MoneyText(
+                    result.columns.last.accumulated,
+                    key: const ValueKey('proj-scenario-result'),
+                    colorize: true,
+                    style: context.text.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                'Simulação: o orçamento base e os meses fechados não mudam.',
+                style: subtle,
+              ),
+            ],
+          ],
         ),
       ),
     );
