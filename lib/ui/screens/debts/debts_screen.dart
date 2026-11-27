@@ -273,7 +273,7 @@ class _NewFinancingTabState extends State<NewFinancingTab> {
                   decimal: true,
                 ),
                 decoration: const InputDecoration(
-                  labelText: 'Seguros e taxas por mês (opcional)',
+                  labelText: 'Seguros e taxas por mês',
                   prefixText: 'R\$ ',
                 ),
               ),
@@ -284,7 +284,7 @@ class _NewFinancingTabState extends State<NewFinancingTab> {
                   decimal: true,
                 ),
                 decoration: const InputDecoration(
-                  labelText: 'Custos na contratação: IOF, tarifas (opcional)',
+                  labelText: 'IOF e tarifas na contratação',
                   prefixText: 'R\$ ',
                 ),
               ),
@@ -491,14 +491,17 @@ class _CompareTable extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Text(r.$1),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(r.$2, textAlign: TextAlign.right),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(r.$3, textAlign: TextAlign.right),
-              ),
+              for (final v in [r.$2, r.$3])
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(v, textAlign: TextAlign.right),
+                    ),
+                  ),
+                ),
             ],
           ),
       ],

@@ -128,5 +128,12 @@ void main() {
       );
       expect(tester.takeException(), isNull, reason: 'aba $tab');
     }
+    await setup(
+      tester,
+      const DebtDetailScreen('carro'),
+      size: const Size(360, 740),
+      debts: [carro(today)],
+    );
+    expect(tester.takeException(), isNull, reason: 'detalhe');
   });
 }
