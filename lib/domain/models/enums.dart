@@ -103,7 +103,14 @@ enum ExternalTxStatus {
   pending('Novo'),
   imported('Importado'),
   matched('Conciliado'),
-  ignored('Ignorado');
+  ignored('Ignorado'),
+
+  /// Lançamento previsto pelo banco que foi confirmado com outro ID e já
+  /// está representado pela transação confirmada.
+  superseded('Substituído'),
+
+  /// Removido pelo banco (agendamento cancelado, estorno do provedor).
+  removed('Removido no banco');
 
   final String label;
   const ExternalTxStatus(this.label);

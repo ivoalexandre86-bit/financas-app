@@ -45,6 +45,42 @@ create table if not exists of_items (
 );
 create index if not exists of_items_user_idx on of_items (user_id);
 
+-- Estado da conexão na Pluggy (atualizado pelo webhook, pela varredura
+-- periódica e pelo "Sincronizar agora") e quando o servidor buscou as
+-- transações pela última vez.
+alter table of_items add column if not exists institution text;
+alter table of_items add column if not exists status text;
+alter table of_items add column if not exists execution_status text;
+alter table of_items add column if not exists error_code text;
+alter table of_items add column if not exists error_message text;
+alter table of_items add column if not exists provider_updated_at timestamptz;
+alter table of_items add column if not exists consent_expires_at timestamptz;
+alter table of_items add column if not exists next_auto_sync_at timestamptz;
+alter table of_items add column if not exists fetched_at timestamptz;
+alter table of_items add column if not exists fetch_error text;
+
+-- Transações recebidas da Pluggy, uma linha por ID do provedor (repetir a
+-- importação ou o webhook só atualiza a mesma linha). As removidas no banco
+-- ficam marcadas (deleted) para o app desfazer o lançamento previsto.
+create table if not exists of_transactions (
+  tx_id      text primary key,
+  item_id    text not null references of_items (item_id) on delete cascade,
+  account_id text not null,
+  date       date not null,
+  data       jsonb not null,
+  pending    boolean not null default false,
+  deleted    boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+create index if not exists of_transactions_account_idx
+  on of_transactions (account_id, updated_at);
+
+-- Eventos de webhook já recebidos (a Pluggy reenvia em caso de falha).
+create table if not exists of_webhook_events (
+  event_id    text primary key,
+  received_at timestamptz not null default now()
+);
+
 -- Quem pediu aviso do lançamento do Open Finance (viu a demonstração).
 create table if not exists openfinance_interest (
   user_id    uuid primary key references users (id) on delete cascade,

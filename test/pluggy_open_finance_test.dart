@@ -96,15 +96,17 @@ void main() {
     expect(fc.connections, hasLength(2));
   });
 
-  test('sincroniza só lançamentos confirmados e não repete', () async {
+  test('sincroniza confirmados e previstos, sem repetir', () async {
     await fc.connectItem(item);
     final conta = fc.connections.firstWhere(
       (c) => c.providerAccountId == 'acc1',
     );
     final r = await fc.syncConnection(conta);
-    expect(r.added, 1);
-    expect(fc.externalTransactions.single.externalId, 'pluggy:t1');
-    expect(fc.externalTransactions.single.signedAmount.cents, -1234);
+    expect(r.added, 2);
+    final byId = {for (final e in fc.externalTransactions) e.externalId: e};
+    expect(byId['pluggy:t1']!.signedAmount.cents, -1234);
+    expect(byId['pluggy:t1']!.providerPending, isFalse);
+    expect(byId['pluggy:t2']!.providerPending, isTrue);
     expect(calls.last, 'GET /openfinance/accounts/acc1/transactions?');
 
     final again = fc.connections.firstWhere((c) => c.id == conta.id);

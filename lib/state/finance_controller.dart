@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -37,6 +38,7 @@ import '../domain/models/planning.dart';
 import '../domain/models/scenario.dart';
 import '../domain/models/shared.dart';
 import '../domain/models/simulation.dart';
+import '../domain/open_finance/bank_sync.dart';
 
 /// Escopo de alteração de uma regra recorrente.
 enum RuleEditScope {
@@ -59,10 +61,14 @@ class FinanceController extends ChangeNotifier {
   final bool isDemo;
   final OpenFinanceProvider openFinance;
 
+  /// Sincroniza o Open Finance sozinho ao abrir e periodicamente.
+  final bool autoSyncOnLoad;
+
   FinanceController(
     this.repo, {
     this.isDemo = false,
     OpenFinanceProvider? openFinance,
+    this.autoSyncOnLoad = true,
   }) : openFinance = openFinance ?? SandboxOpenFinanceProvider();
 
   FinanceData data = FinanceData();
@@ -200,6 +206,7 @@ class FinanceController extends ChangeNotifier {
         // Falha na nuvem: segue com a cópia local.
       }
     }
+    if (!_disposed) _startAutoSync();
   }
 
   /// Corrige no orçamento as linhas geradas por "Outras despesas" que não
@@ -272,6 +279,7 @@ class FinanceController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _autoSyncTimer?.cancel();
     super.dispose();
   }
 
@@ -2287,70 +2295,233 @@ class FinanceController extends ChangeNotifier {
     ]);
     connections = await repo.loadConnections();
     notifyListeners();
+    // Recém-vinculada: já traz os lançamentos, sem esperar o próximo ciclo.
+    if (!openFinance.isSandbox &&
+        autoSyncOnLoad &&
+        (accountId != null || cardId != null)) {
+      unawaited(autoSync());
+    }
   }
 
-  /// Sincroniza transações da conexão. Itens já recebidos (mesmo
-  /// `externalId`) são ignorados; os novos passam pela detecção de
-  /// duplicidade contra lançamentos manuais.
-  Future<({int added, int matched})> syncConnection(
-    OpenFinanceConnection c,
-  ) async {
+  // Sincronização automática ------------------------------------------------
+
+  /// Situação de cada conexão no provedor (pelo ID do item).
+  Map<String, OFItemStatus> itemStatuses = {};
+
+  /// O servidor recebe os avisos do provedor e atualiza sozinho.
+  bool autoSyncEnabled = false;
+
+  /// Última vez que a sincronização automática rodou neste aparelho.
+  DateTime? lastAutoSyncAt;
+  bool autoSyncing = false;
+  Timer? _autoSyncTimer;
+
+  static const autoSyncInterval = Duration(minutes: 15);
+
+  void _startAutoSync() {
+    if (openFinance.isSandbox || !autoSyncOnLoad) return;
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = Timer.periodic(autoSyncInterval, (_) => autoSync());
+    unawaited(autoSync());
+  }
+
+  OFItemStatus? itemStatusOf(OpenFinanceConnection c) =>
+      c.providerItemId == null ? null : itemStatuses[c.providerItemId];
+
+  /// Traz o que o banco mandou desde a última leitura, para todas as contas
+  /// conectadas, sem o usuário precisar tocar em nada. Falhas ficam
+  /// registradas na conexão; nada é lançado duas vezes.
+  Future<void> autoSync() async {
+    if (autoSyncing || _disposed) return;
+    final active = [
+      for (final c in connections)
+        if (c.consentStatus == ConsentStatus.active &&
+            c.providerAccountId != null)
+          c,
+    ];
+    if (active.isEmpty) return;
+    autoSyncing = true;
+    notifyListeners();
+    try {
+      try {
+        autoSyncEnabled = await openFinance.autoSyncs();
+        itemStatuses = {
+          for (final s in await openFinance.itemStatuses()) s.id: s,
+        };
+      } catch (_) {
+        // Sem conexão com o servidor: tenta de novo no próximo ciclo.
+        return;
+      }
+      for (final c in active) {
+        final fresh = connections.where((x) => x.id == c.id).firstOrNull;
+        if (fresh == null || fresh.consentStatus != ConsentStatus.active) {
+          continue;
+        }
+        try {
+          await syncConnection(fresh);
+        } catch (_) {
+          // Registrado em lastError; as demais contas seguem.
+        }
+      }
+      lastAutoSyncAt = DateTime.now();
+    } finally {
+      autoSyncing = false;
+      notifyListeners();
+    }
+  }
+
+  /// "Sincronizar agora": pede ao banco uma atualização e traz o que já
+  /// chegou. Contas da mesma conexão são sincronizadas juntas.
+  Future<BankSyncResult> syncNow(OpenFinanceConnection c) async {
+    final item = c.providerItemId;
+    if (item != null) {
+      final st = await openFinance.syncNow(item);
+      if (st != null) {
+        itemStatuses = {...itemStatuses, item: st};
+      }
+    }
+    BankSyncResult? total;
+    for (final x in _sameItem(c).toList()) {
+      final fresh = connections.where((y) => y.id == x.id).firstOrNull ?? x;
+      if (fresh.consentStatus != ConsentStatus.active) continue;
+      final r = await syncConnection(fresh);
+      total = total == null ? r : _sum(total, r);
+    }
+    return total ??
+        const BankSyncResult(
+          externals: [],
+          transactions: [],
+          deletedTransactionIds: [],
+          added: 0,
+          matched: 0,
+          imported: 0,
+          scheduled: 0,
+          confirmed: 0,
+          removed: 0,
+        );
+  }
+
+  static BankSyncResult _sum(BankSyncResult a, BankSyncResult b) =>
+      BankSyncResult(
+        externals: [...a.externals, ...b.externals],
+        transactions: [...a.transactions, ...b.transactions],
+        deletedTransactionIds: [
+          ...a.deletedTransactionIds,
+          ...b.deletedTransactionIds,
+        ],
+        added: a.added + b.added,
+        matched: a.matched + b.matched,
+        imported: a.imported + b.imported,
+        scheduled: a.scheduled + b.scheduled,
+        confirmed: a.confirmed + b.confirmed,
+        removed: a.removed + b.removed,
+      );
+
+  /// Abre a renovação do consentimento: devolve o token da janela do
+  /// provedor para a conexão [c].
+  Future<String> renewConsentToken(OpenFinanceConnection c) {
+    final item = c.providerItemId;
+    if (item == null) throw StateError('Conexão sem item no provedor');
+    return openFinance.renewToken(item);
+  }
+
+  /// Depois de renovar no banco: reativa as contas da conexão e sincroniza.
+  Future<void> afterConsentRenewed(OpenFinanceConnection c) async {
+    final ops = [
+      for (final x in _sameItem(c))
+        () {
+          final u = x.copyWith(
+            consentStatus: ConsentStatus.active,
+            lastError: null,
+          );
+          return WriteOp.put(Coll.openFinanceConnections, u.id, u.toJson());
+        }(),
+    ];
+    await repo.write(ops);
+    connections = await repo.loadConnections();
+    notifyListeners();
+    await syncNow(connections.firstWhere((x) => x.id == c.id));
+  }
+
+  Future<void> setAutoImport(OpenFinanceConnection c, bool value) async {
+    final u = c.copyWith(autoImport: value);
+    await repo.write([
+      WriteOp.put(Coll.openFinanceConnections, u.id, u.toJson()),
+    ]);
+    connections = await repo.loadConnections();
+    notifyListeners();
+  }
+
+  /// Sincroniza a conexão: lê o que mudou no banco desde a última leitura
+  /// e concilia ([BankSync]): itens já recebidos só se atualizam (previsto
+  /// → confirmado), novos procuram par entre os lançamentos, agendados sem
+  /// par entram na projeção como previstos. Repetir não duplica nada.
+  Future<BankSyncResult> syncConnection(OpenFinanceConnection c) async {
+    // Uma de cada vez por conta (automática e manual não se atropelam).
+    final prev = _syncing[c.id];
+    if (prev != null) {
+      try {
+        await prev;
+      } catch (_) {}
+      c = connections.where((x) => x.id == c.id).firstOrNull ?? c;
+    }
+    final job = _syncOnce(c);
+    _syncing[c.id] = job;
+    try {
+      return await job;
+    } finally {
+      if (identical(_syncing[c.id], job)) _syncing.remove(c.id);
+    }
+  }
+
+  final _syncing = <String, Future<BankSyncResult>>{};
+
+  Future<BankSyncResult> _syncOnce(OpenFinanceConnection c) async {
     if (c.consentStatus != ConsentStatus.active) {
       throw StateError('Consentimento não está ativo');
     }
     try {
-      // Revisita alguns dias antes da última sincronização (lançamentos
-      // que o banco confirma com atraso); repetidos são ignorados abaixo.
-      final fetched = await openFinance.fetchTransactions(
+      final changes = await openFinance.fetchChanges(
         c,
+        cursor: c.syncCursor,
+        // Sem cursor (sandbox / primeira vez): revisita alguns dias antes
+        // da última sincronização; repetidos são ignorados.
         since: c.lastSyncAt?.subtract(const Duration(days: 10)),
       );
-      final known = externalTransactions
-          .where((e) => e.connectionId == c.id)
-          .map((e) => e.externalId)
-          .toSet();
-      final usedMatches = externalTransactions
-          .map((e) => e.matchedTransactionId)
-          .whereType<String>()
-          .toSet();
-      final ops = <WriteOp>[];
-      var added = 0, matched = 0;
-      for (final e in fetched) {
-        if (known.contains(e.externalId)) continue;
-        final scope = data.transactions.where(
-          (t) =>
-              (c.linkedAccountId == null || t.accountId == c.linkedAccountId) &&
-              (c.linkedCardId == null || t.cardId == c.linkedCardId),
-        );
-        final match = DuplicateDetector.findMatch(
-          e,
-          scope,
-          alreadyMatched: usedMatches,
-        );
-        var ext = e;
-        if (match != null) {
-          usedMatches.add(match.id);
-          ext = e.copyWith(
-            status: ExternalTxStatus.matched,
-            matchedTransactionId: match.id,
-          );
-          ops.add(_putTx(match.copyWith(externalId: e.externalId)));
-          matched++;
-        }
-        added++;
-        ops.add(WriteOp.put(Coll.externalTransactions, ext.id, ext.toJson()));
+      var horizon = Dates.addDays(Dates.today(), BankSync.toleranceDays + 1);
+      for (final f in changes.transactions) {
+        final h = Dates.addDays(f.date, BankSync.toleranceDays + 1);
+        if (h.isAfter(horizon)) horizon = h;
       }
-      final updated = c.copyWith(lastSyncAt: DateTime.now(), lastError: null);
-      ops.add(
-        WriteOp.put(Coll.openFinanceConnections, updated.id, updated.toJson()),
+      final plan = BankSync.plan(
+        connection: c,
+        fetched: changes.transactions,
+        existing: externalTransactions,
+        candidates: engine.transactionsUntil(horizon),
+        categoryFor: (d, income) => ruleCategoryFor(
+          d,
+          income ? CategoryKind.income : CategoryKind.expense,
+        ),
       );
-      await _commit(ops);
+      final updated = c.copyWith(
+        lastSyncAt: DateTime.now(),
+        lastError: null,
+        syncCursor: changes.cursor ?? c.syncCursor,
+      );
+      await _commit([
+        ...plan.transactions.map(_putTx),
+        for (final id in plan.deletedTransactionIds)
+          WriteOp.delete(Coll.transactions, id),
+        for (final e in plan.externals)
+          WriteOp.put(Coll.externalTransactions, e.id, e.toJson()),
+        WriteOp.put(Coll.openFinanceConnections, updated.id, updated.toJson()),
+      ]);
       connections = await repo.loadConnections();
       externalTransactions = await repo.loadExternalTransactions();
       notifyListeners();
-      return (added: added, matched: matched);
+      return plan;
     } catch (e) {
-      final failed = c.copyWith(lastError: e.toString());
+      final failed = c.copyWith(lastError: _syncErrorText(e));
       await repo.write([
         WriteOp.put(Coll.openFinanceConnections, failed.id, failed.toJson()),
       ]);
@@ -2358,6 +2529,13 @@ class FinanceController extends ChangeNotifier {
       notifyListeners();
       rethrow;
     }
+  }
+
+  static String _syncErrorText(Object e) {
+    final s = e.toString();
+    return s
+        .replaceFirst(RegExp(r'^(Bad state|Exception|ApiException[^:]*): '), '')
+        .trim();
   }
 
   /// Importa uma transação externa como lançamento manual.
@@ -2376,7 +2554,8 @@ class FinanceController extends ChangeNotifier {
       throw StateError('Cadastre ou vincule uma conta antes de importar');
     }
     final tx = FinTransaction(
-      id: newId('tx_'),
+      // Mesmo ID em qualquer aparelho: importar duas vezes não duplica.
+      id: BankSync.transactionDocId(e.externalId),
       type: isIncome ? TransactionType.income : TransactionType.expense,
       amount: e.signedAmount.abs(),
       description: e.description,
@@ -2390,7 +2569,11 @@ class FinanceController extends ChangeNotifier {
       date: e.date,
       accountId: cardId == null ? accountId : null,
       cardId: cardId,
-      status: TransactionStatus.completed,
+      // Ainda agendado no banco: entra como previsto; vira concluído quando
+      // o banco confirmar.
+      status: e.providerPending
+          ? TransactionStatus.planned
+          : TransactionStatus.completed,
       externalId: e.externalId,
       notes: 'Importado via Open Finance (${c.institutionName})',
     );

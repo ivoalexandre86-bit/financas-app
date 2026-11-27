@@ -4,6 +4,7 @@ import '../core/dates.dart';
 import '../core/ids.dart';
 import '../core/money.dart';
 import '../domain/models/entities.dart';
+import '../domain/open_finance/bank_sync.dart';
 
 /// Instituição disponível no provedor.
 class OFInstitution {
@@ -45,6 +46,59 @@ class OFLinkedItem {
   });
 }
 
+/// Situação de uma conexão (item) no provedor, vinda do servidor.
+class OFItemStatus {
+  final String id;
+  final String? institution;
+
+  /// ok, updating, error, expiring, renew ou action.
+  final String health;
+  final String? message;
+  final bool needsRenewal;
+
+  /// Quando o banco mandou dados pela última vez.
+  final DateTime? providerUpdatedAt;
+  final DateTime? consentExpiresAt;
+
+  /// Próxima atualização automática prevista pelo provedor.
+  final DateTime? nextAutoSyncAt;
+
+  const OFItemStatus({
+    required this.id,
+    this.institution,
+    this.health = 'ok',
+    this.message,
+    this.needsRenewal = false,
+    this.providerUpdatedAt,
+    this.consentExpiresAt,
+    this.nextAutoSyncAt,
+  });
+
+  bool get hasProblem =>
+      needsRenewal || health == 'error' || health == 'expiring';
+
+  static DateTime? _dt(Object? v) =>
+      v is String ? DateTime.tryParse(v)?.toLocal() : null;
+
+  factory OFItemStatus.fromJson(Map<String, Object?> j) => OFItemStatus(
+    id: j['id'] as String,
+    institution: j['institution'] as String?,
+    health: (j['health'] as String?) ?? 'ok',
+    message: j['message'] as String?,
+    needsRenewal: j['needsRenewal'] == true,
+    providerUpdatedAt: _dt(j['providerUpdatedAt']),
+    consentExpiresAt: _dt(j['consentExpiresAt']),
+    nextAutoSyncAt: _dt(j['nextAutoSyncAt']),
+  );
+}
+
+/// Mudanças de uma conta desde o último cursor.
+class OFChanges {
+  final List<ProviderTransaction> transactions;
+  final String? cursor;
+  const OFChanges(this.transactions, [this.cursor]);
+}
+
 /// Contrato de um provedor Open Finance autorizado (ex.: agregadores
 /// regulados pelo Banco Central). O núcleo financeiro depende apenas desta
 /// interface, então trocar de provedor não exige mudanças no restante do app.
@@ -69,6 +123,35 @@ abstract class OpenFinanceProvider {
   /// Token para abrir a janela de conexão do provedor (Pluggy Connect).
   Future<String> connectToken() =>
       throw UnsupportedError('Provedor sem janela de conexão');
+
+  /// O servidor atualiza as conexões sozinho (webhook e varredura)?
+  Future<bool> autoSyncs() async => false;
+
+  /// Situação de cada conexão (última atualização, falha, renovação).
+  Future<List<OFItemStatus>> itemStatuses() async => const [];
+
+  /// "Sincronizar agora": pede ao provedor uma atualização da conexão.
+  Future<OFItemStatus?> syncNow(String itemId) async => null;
+
+  /// Token para renovar o consentimento da conexão [itemId].
+  Future<String> renewToken(String itemId) =>
+      throw UnsupportedError('Provedor sem renovação de consentimento');
+
+  /// O que mudou na conta desde [cursor] (todas as transações quando nulo),
+  /// incluindo previstas e removidas no banco.
+  Future<OFChanges> fetchChanges(
+    OpenFinanceConnection connection, {
+    String? cursor,
+    DateTime? since,
+  }) async => OFChanges([
+    for (final e in await fetchTransactions(connection, since: since))
+      ProviderTransaction(
+        externalId: e.externalId,
+        date: e.date,
+        signedAmount: e.signedAmount,
+        description: e.description,
+      ),
+  ]);
 
   /// Registra a conexão [itemId] para o usuário e devolve as contas dela.
   Future<OFLinkedItem> linkItem(String itemId) =>
@@ -140,6 +223,26 @@ class SandboxOpenFinanceProvider extends OpenFinanceProvider {
           description: samples[i].$1,
         ),
     ];
+  }
+
+  /// Inclui um Pix agendado (previsto) para demonstrar a projeção.
+  @override
+  Future<OFChanges> fetchChanges(
+    OpenFinanceConnection connection, {
+    String? cursor,
+    DateTime? since,
+  }) async {
+    final base = await super.fetchChanges(connection, since: since);
+    return OFChanges([
+      ...base.transactions,
+      ProviderTransaction(
+        externalId: '${connection.id}-agendado',
+        date: Dates.today().add(const Duration(days: 5)),
+        signedAmount: const Money(-150000),
+        description: 'PIX AGENDADO - ALUGUEL',
+        pending: true,
+      ),
+    ]);
   }
 
   @override

@@ -29,10 +29,12 @@ Future<void> _loadSdk() => _loading ??= () {
 }();
 
 /// Abre a janela e devolve o ID da conexão criada, ou nulo se o usuário
-/// fechar sem conectar.
+/// fechar sem conectar. Com [updateItem], abre a renovação do
+/// consentimento (ou novo login) dessa conexão.
 Future<String?> openPluggyConnect(
   String connectToken, {
   bool dark = false,
+  String? updateItem,
 }) async {
   await _loadSdk();
   final result = Completer<String?>();
@@ -41,6 +43,7 @@ Future<String?> openPluggyConnect(
     ..['includeSandbox'] = false.toJS
     ..['language'] = 'pt'.toJS
     ..['theme'] = (dark ? 'dark' : 'light').toJS
+    ..['updateItem'] = updateItem?.toJS
     ..['onSuccess'] = ((JSObject data) {
       final item = data['item'] as JSObject?;
       final id = (item?['id'] as JSString?)?.toDart;
