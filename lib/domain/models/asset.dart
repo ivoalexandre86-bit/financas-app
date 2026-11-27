@@ -1,5 +1,6 @@
 import '../../core/dates.dart';
 import '../../core/money.dart';
+import 'fgts.dart';
 
 // Bens e dívidas registrados à mão para o patrimônio líquido.
 
@@ -8,16 +9,20 @@ enum AssetKind {
   vehicle('Veículo'),
   investment('Investimento'),
   other('Outro bem'),
+  fgts('FGTS', separate: true),
   financing('Financiamento', liability: true),
   loan('Empréstimo', liability: true),
   otherDebt('Outra dívida', liability: true);
 
   final String label;
   final bool liability;
-  const AssetKind(this.label, {this.liability = false});
+
+  /// Tem tela própria (ex.: FGTS) e não aparece no formulário genérico.
+  final bool separate;
+  const AssetKind(this.label, {this.liability = false, this.separate = false});
 
   static List<AssetKind> of({required bool liability}) =>
-      values.where((k) => k.liability == liability).toList();
+      values.where((k) => k.liability == liability && !k.separate).toList();
 }
 
 /// Valor de um bem (ou dívida) em uma data.
@@ -47,6 +52,9 @@ class Asset {
   final String notes;
   final DateTime updatedAt;
 
+  /// Dados do FGTS (só quando [kind] é [AssetKind.fgts]).
+  final FgtsDetails? fgts;
+
   /// Valores anteriores, em ordem de data (um por dia).
   final List<AssetValue> history;
 
@@ -57,10 +65,12 @@ class Asset {
     required this.value,
     this.notes = '',
     this.history = const [],
+    this.fgts,
     DateTime? updatedAt,
   }) : updatedAt = updatedAt ?? DateTime.now();
 
   bool get isLiability => kind.liability;
+  bool get isFgts => kind == AssetKind.fgts;
 
   /// Valor com sinal: negativo para dívidas.
   Money get signed => isLiability ? -value : value;
@@ -92,6 +102,7 @@ class Asset {
     Money? value,
     String? notes,
     List<AssetValue>? history,
+    FgtsDetails? fgts,
   }) => Asset(
     id: id,
     name: name ?? this.name,
@@ -99,6 +110,7 @@ class Asset {
     value: value ?? this.value,
     notes: notes ?? this.notes,
     history: history ?? this.history,
+    fgts: fgts ?? this.fgts,
   );
 
   Map<String, Object?> toJson() => {
@@ -109,6 +121,7 @@ class Asset {
     'isLiability': isLiability,
     'notes': notes,
     'history': [for (final h in history) h.toJson()],
+    if (fgts != null) 'fgts': fgts!.toJson(),
     'updatedAt': updatedAt.toIso8601String(),
   };
 
@@ -128,6 +141,9 @@ class Asset {
         for (final h in (j['history'] as List?) ?? const [])
           AssetValue.fromJson(Map<String, Object?>.from(h as Map)),
       ]..sort((a, b) => a.date.compareTo(b.date)),
+      fgts: j['fgts'] is Map
+          ? FgtsDetails.fromJson(Map<String, Object?>.from(j['fgts'] as Map))
+          : null,
       updatedAt: j['updatedAt'] == null
           ? null
           : DateTime.parse(j['updatedAt'] as String),

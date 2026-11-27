@@ -13,6 +13,9 @@ class NetWorth {
   /// Bens registrados (imóveis, veículos, investimentos…).
   final Money assets;
 
+  /// Saldo do FGTS (ativo à parte: só vira caixa num saque).
+  final Money fgts;
+
   /// Dívidas registradas à mão (financiamentos, empréstimos…).
   final Money liabilities;
 
@@ -30,6 +33,7 @@ class NetWorth {
   const NetWorth({
     required this.accounts,
     required this.assets,
+    this.fgts = Money.zero,
     required this.liabilities,
     required this.cardInvoices,
     required this.installments,
@@ -38,7 +42,8 @@ class NetWorth {
 
   Money get total =>
       accounts +
-      assets -
+      assets +
+      fgts -
       liabilities -
       cardInvoices -
       installments +
@@ -59,9 +64,11 @@ class NetWorthEngine {
   FinanceData get data => engine.data;
 
   NetWorth compute(List<Asset> items) {
-    var assets = Money.zero, liabilities = Money.zero;
+    var assets = Money.zero, liabilities = Money.zero, fgts = Money.zero;
     for (final a in items) {
-      if (a.isLiability) {
+      if (a.isFgts) {
+        fgts += a.value;
+      } else if (a.isLiability) {
         liabilities += a.value;
       } else {
         assets += a.value;
@@ -70,6 +77,7 @@ class NetWorthEngine {
     return NetWorth(
       accounts: engine.currentBalance,
       assets: assets,
+      fgts: fgts,
       liabilities: liabilities,
       cardInvoices: openInvoices,
       installments: remainingInstallments,
