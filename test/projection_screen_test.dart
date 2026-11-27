@@ -4,6 +4,7 @@ import 'package:financas_app/core/dates.dart';
 import 'package:financas_app/state/finance_controller.dart';
 import 'package:financas_app/ui/screens/projection/drilldown_screen.dart';
 import 'package:financas_app/ui/screens/projection/projection_screen.dart';
+import 'package:financas_app/ui/screens/transactions/transaction_form_screen.dart';
 import 'package:financas_app/ui/theme.dart';
 import 'package:financas_app/ui/widgets/tx_grid.dart';
 import 'package:flutter/material.dart';
@@ -164,4 +165,43 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('botão Lançar abre o formulário de despesa ou receita', (
+    tester,
+  ) async {
+    Intl.defaultLocale = 'pt_BR';
+    await initializeDateFormatting('pt_BR');
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final fc = FinanceController(MemoryRepo());
+    await tester.runAsync(() async {
+      await fc.load();
+      await fc.saveAccount(Account(id: 'a', name: 'Conta'));
+    });
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: fc,
+        child: MaterialApp(
+          theme: AppTheme.dark(),
+          home: const ProjectionScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('proj-new-entry')));
+    await tester.pumpAndSettle();
+    expect(find.text('Despesa'), findsOneWidget);
+    expect(find.text('Receita'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('proj-new-income')));
+    await tester.pumpAndSettle();
+    expect(find.byType(TransactionFormScreen), findsOneWidget);
+    final form = tester.widget<TransactionFormScreen>(
+      find.byType(TransactionFormScreen),
+    );
+    expect(form.initialType, TransactionType.income);
+    expect(YearMonth.of(form.initialDate!), YearMonth.now());
+    expect(tester.takeException(), isNull);
+  });
 }
