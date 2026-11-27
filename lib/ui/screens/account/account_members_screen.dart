@@ -429,8 +429,7 @@ class _AccountMembersScreenState extends State<AccountMembersScreen> {
                               _limited = v;
                               _scopeError = null;
                             }),
-                            onChanged: () =>
-                                setState(() => _scopeError = null),
+                            onChanged: () => setState(() => _scopeError = null),
                           ),
                           const SizedBox(height: 12),
                           FilledButton.icon(

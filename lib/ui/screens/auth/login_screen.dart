@@ -70,9 +70,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         key: const ValueKey('invite-banner'),
                         child: ListTile(
                           leading: const Icon(Icons.mark_email_unread_outlined),
-                          title: Text(
-                            '${invite!.inviterName} convidou você',
-                          ),
+                          title: Text('${invite!.inviterName} convidou você'),
                           subtitle: const Text(
                             'Crie a sua conta para participar.',
                           ),

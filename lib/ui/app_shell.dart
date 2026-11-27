@@ -14,6 +14,7 @@ import 'screens/admin/business_screen.dart';
 import 'screens/assistant/assistant_screen.dart';
 import 'screens/budgets/budgets_screen.dart';
 import 'screens/calculators/calculators_screen.dart';
+import 'screens/debts/debts_screen.dart';
 import 'screens/calendar/calendar_screen.dart';
 import 'screens/cards/cards_screen.dart';
 import 'screens/cards/invoices_screen.dart';
@@ -310,6 +311,12 @@ const menuGroups = <MenuGroup>[
       Icons.subscriptions_outlined,
       'Assinaturas',
       SubscriptionsScreen(),
+    ),
+    MenuDest(
+      'debts',
+      Icons.request_quote_outlined,
+      'Dívidas e contratos',
+      DebtsScreen(),
     ),
     MenuDest(
       'calculators',

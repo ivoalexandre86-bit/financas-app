@@ -88,7 +88,10 @@ void main() {
   ) async {
     final api = _FakeApi();
     final opened = await _pump(tester, api);
-    expect(find.byKey(const ValueKey('invite-template-banner')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('invite-template-banner')),
+      findsOneWidget,
+    );
     expect(find.text('Nenhum convite ainda'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('new-invite')));
@@ -128,7 +131,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(opened.single.host, 'wa.me');
     expect(find.text('Não enviado'), findsOneWidget);
-    expect(find.textContaining('acesso: Cartão Nubank, Conta Itaú'), findsOneWidget);
+    expect(
+      find.textContaining('acesso: Cartão Nubank, Conta Itaú'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('modelo aprovado: o bot envia', (tester) async {
@@ -173,7 +179,5 @@ void main() {
 
 class _OldServerApi extends _FakeApi {
   @override
-  Future<InvitesState> list() async =>
-      throw Exception('Erro 404 no servidor');
+  Future<InvitesState> list() async => throw Exception('Erro 404 no servidor');
 }
-
