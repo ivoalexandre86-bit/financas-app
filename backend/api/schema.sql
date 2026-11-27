@@ -379,3 +379,51 @@ create table if not exists user_invites (
 );
 create index if not exists user_invites_phone on user_invites (phone);
 create index if not exists user_invites_message on user_invites (wa_message_id);
+
+-- Acesso limitado na conta compartilhada ------------------------------------
+-- scope nulo = acesso a todo o orçamento do dono. Com scope
+-- {"cards": [ids], "accounts": [ids]}, a pessoa só enxerga esses cartões e
+-- contas, os lançamentos deles (transações, recorrências, parcelamentos,
+-- pagamentos de fatura) e as categorias; e só grava lançamentos neles.
+-- Vale para o app (/docs), o bot do WhatsApp e o assistente.
+alter table account_members add column if not exists scope jsonb;
+alter table user_invites add column if not exists scope jsonb;
+
+create or replace function member_scope(u uuid) returns jsonb
+language sql stable as $$
+  select scope from account_members
+   where user_id = u and status = 'active' and scope is not null
+   limit 1
+$$;
+
+-- O usuário u enxerga este documento do orçamento em que está?
+create or replace function doc_visible(u uuid, c text, i text, d jsonb) returns boolean
+language sql stable as $$
+  select case
+    when s is null then true
+    when c = 'accounts' then coalesce(s->'accounts' ? i, false)
+    when c = 'cards' then coalesce(s->'cards' ? i, false)
+    when c = 'categories' then true
+    when c in ('transactions', 'recurringTransactions', 'installmentGroups') then
+      coalesce(s->'cards' ? (d->>'cardId'), false)
+      or coalesce(s->'accounts' ? (d->>'accountId'), false)
+      or coalesce(s->'accounts' ? (d->>'destinationAccountId'), false)
+    when c = 'invoicePayments' then coalesce(s->'cards' ? (d->>'cardId'), false)
+    else false
+  end
+  from (select member_scope(u) as s) x
+$$;
+
+-- Pode gravar (criar/alterar) este documento? Com acesso limitado, só
+-- lançamentos que continuem dentro dos cartões e contas liberados.
+-- Exclusão (d nulo): só nas coleções de lançamentos; o documento atual
+-- também precisa estar visível (conferido no "on conflict").
+create or replace function doc_writable(u uuid, c text, i text, d jsonb) returns boolean
+language sql stable as $$
+  select case
+    when member_scope(u) is null then true
+    when c not in ('transactions', 'recurringTransactions', 'installmentGroups', 'invoicePayments') then false
+    when d is null then true
+    else doc_visible(u, c, i, d)
+  end
+$$;

@@ -220,6 +220,7 @@ function createReminderJob({
       `select l.wa_id, l.user_id, l.last_inbound_at, d.data as settings
          from whatsapp_links l
          join app_docs d on d.user_id = data_owner(l.user_id) and d.coll = 'settings'
+                        and doc_visible(l.user_id, d.coll, d.id, d.data)
                         and d.id = 'app' and not d.deleted
         where coalesce((d.data->>'whatsappReminders')::boolean, false)
            or coalesce((d.data->>'whatsappBudgetAlerts')::boolean, false)`,
@@ -238,7 +239,7 @@ function createReminderJob({
   async function remindUser(meta, link, today) {
     const { rows } = await pool.query(
       `select coll, data from app_docs
-        where user_id = data_owner($1) and not deleted
+        where user_id = data_owner($1) and not deleted and doc_visible($1, coll, id, data)
           and coll in ('transactions', 'recurringTransactions', 'cards',
                        'categories', 'invoicePayments', 'budgets', 'accounts',
                       'monthClosings')`,

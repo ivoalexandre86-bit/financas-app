@@ -498,7 +498,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
   async function budgetDocs(userId) {
     const { rows } = await pool.query(
       `select coll, data from app_docs
-       where user_id = data_owner($1) and not deleted
+       where user_id = data_owner($1) and not deleted and doc_visible($1, coll, id, data)
          and coll in ('transactions', 'recurringTransactions', 'cards',
                       'categories', 'invoicePayments', 'budgets', 'accounts',
                       'monthClosings')`,
@@ -536,7 +536,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
   async function loadContext(userId, dependentPhone) {
     const { rows } = await pool.query(
       `select coll, data from app_docs
-       where user_id = data_owner($1) and not deleted
+       where user_id = data_owner($1) and not deleted and doc_visible($1, coll, id, data)
          and coll in ('accounts', 'cards', 'categories')`,
       [userId],
     );
@@ -672,7 +672,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
     const dates = [...new Set(drafts.map((d) => d.date))];
     const { rows } = await pool.query(
       `select coll, data from app_docs
-       where user_id = data_owner($1) and not deleted
+       where user_id = data_owner($1) and not deleted and doc_visible($1, coll, id, data)
          and ((coll = 'transactions' and data->>'installmentGroupId' is null
                and data->>'date' = any($2))
            or (coll = 'installmentGroups' and data->>'purchaseDate' = any($2)))`,
@@ -747,7 +747,7 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
   async function dueDateOf(userId, tx) {
     if (!tx.cardId) return tx.date;
     const { rows } = await pool.query(
-      `select data from app_docs where user_id = data_owner($1) and coll = 'cards' and id = $2`,
+      `select data from app_docs where user_id = data_owner($1) and coll = 'cards' and id = $2 and doc_visible($1, coll, id, data)`,
       [userId, tx.cardId],
     );
     const card = rows[0]?.data;
@@ -811,10 +811,26 @@ function mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, j
         const items = d.draft.items ?? [d.draft];
         const docs = items.flatMap((item) => buildDocs(item, ctx.today));
         for (const doc of docs) {
-          await client.query(
-            `insert into app_docs (user_id, coll, id, data) values (data_owner($1), $2, $3, $4)`,
+          // Acesso limitado: só grava nos cartões e contas liberados.
+          const ins = await client.query(
+            `insert into app_docs (user_id, coll, id, data)
+             select data_owner($1), $2, $3, $4::jsonb
+              where doc_writable($1, $2, $3, $4::jsonb)`,
             [user.id, doc.coll, doc.id, JSON.stringify(doc.data)],
           );
+          if (!ins.rowCount) {
+            await client.query('rollback');
+            const places = [
+              ...ctx.cards.map((c) => `cartão ${c.name}`),
+              ...ctx.accounts.map((a) => `conta ${a.name}`),
+            ];
+            return meta.sendText(
+              from,
+              places.length
+                ? `Você só pode lançar em: ${places.join(', ')}. Mande de novo dizendo onde, ex.: "mercado 45 no ${places[0]}".`
+                : 'Você ainda não tem cartão ou conta liberado para lançar. Peça a quem convidou você.',
+            );
+          }
         }
         await client.query(
           `update whatsapp_drafts set state = 'saved', updated_at = now() where id = $1`,

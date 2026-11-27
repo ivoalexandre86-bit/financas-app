@@ -14,7 +14,7 @@
 
 const crypto = require('crypto');
 const { phoneKey } = require('./ledger');
-const { MAX_MEMBERS } = require('../account');
+const { MAX_MEMBERS, normScope } = require('../account');
 
 const INVITE_DAYS = 7;
 const DAILY_LIMIT = 30;
@@ -143,6 +143,10 @@ function mountInvites(app, { pool, authed, wrap, HttpError, getMeta, template, a
       phone: r.phone,
       phoneLabel: formatPhone(r.phone),
       joinAccount: r.join_account,
+      // Acesso limitado ao orçamento (null = tudo) e o vínculo atual na
+      // conta, para editar depois.
+      scope: r.member_id ? r.member_scope ?? null : r.scope ?? null,
+      memberId: r.member_id ?? null,
       status: expired ? 'expired' : r.status,
       sendStatus: r.send_status,
       sendError: r.send_error,
@@ -162,10 +166,13 @@ function mountInvites(app, { pool, authed, wrap, HttpError, getMeta, template, a
 
   async function load(id) {
     const { rows } = await pool.query(
-      `select i.*, u.name as inviter_name, n.name as user_name
+      `select i.*, u.name as inviter_name, n.name as user_name,
+              m.id as member_id, m.scope as member_scope
          from user_invites i
          join users u on u.id = i.invited_by
          left join users n on n.id = i.user_id
+         left join account_members m
+           on m.account_id = i.invited_by and m.user_id = i.user_id and m.status = 'active'
         where i.id = $1`,
       [id],
     );
@@ -228,10 +235,13 @@ function mountInvites(app, { pool, authed, wrap, HttpError, getMeta, template, a
   app.get('/invites', authed, wrap(async (req, res) => {
     requireAdmin(req);
     const { rows } = await pool.query(
-      `select i.*, u.name as inviter_name, n.name as user_name
+      `select i.*, u.name as inviter_name, n.name as user_name,
+              m.id as member_id, m.scope as member_scope
          from user_invites i
          join users u on u.id = i.invited_by
          left join users n on n.id = i.user_id
+         left join account_members m
+           on m.account_id = i.invited_by and m.user_id = i.user_id and m.status = 'active'
         order by i.created_at desc
         limit 200`,
     );
@@ -245,6 +255,12 @@ function mountInvites(app, { pool, authed, wrap, HttpError, getMeta, template, a
     const phone = normalizePhone(req.body?.phone);
     if (!phone) throw bad('Número inválido. Use DDD + número, ex.: (47) 99999-1234');
     const joinAccount = req.body?.joinAccount === true;
+    let scope = null;
+    try {
+      if (joinAccount) scope = normScope(req.body?.scope);
+    } catch (e) {
+      throw bad(e.message);
+    }
     const key = phoneKey(phone);
 
     const linked = await pool.query('select wa_id from whatsapp_links');
@@ -266,9 +282,9 @@ function mountInvites(app, { pool, authed, wrap, HttpError, getMeta, template, a
 
     const token = crypto.randomBytes(12).toString('base64url');
     const { rows } = await pool.query(
-      `insert into user_invites (token, phone, name, invited_by, join_account, expires_at)
-       values ($1, $2, $3, $4, $5, now() + interval '${INVITE_DAYS} days') returning id`,
-      [token, phone, name, req.user.id, joinAccount],
+      `insert into user_invites (token, phone, name, invited_by, join_account, scope, expires_at)
+       values ($1, $2, $3, $4, $5, $6, now() + interval '${INVITE_DAYS} days') returning id`,
+      [token, phone, name, req.user.id, joinAccount, scope ? JSON.stringify(scope) : null],
     );
     const inv = await load(rows[0].id);
     await send(inv);
@@ -304,7 +320,7 @@ function mountInvites(app, { pool, authed, wrap, HttpError, getMeta, template, a
   /// Dados do convite para a tela de cadastro (sem login).
   app.get('/auth/invites/:token', wrap(async (req, res) => {
     const { rows } = await pool.query(
-      `select i.name, i.join_account, i.expires_at, u.name as inviter_name
+      `select i.name, i.join_account, i.scope, i.expires_at, u.name as inviter_name
          from user_invites i join users u on u.id = i.invited_by
         where i.token = $1 and i.status = 'pending' and i.expires_at > now()`,
       [String(req.params.token ?? '')],
@@ -315,6 +331,7 @@ function mountInvites(app, { pool, authed, wrap, HttpError, getMeta, template, a
       name: r.name,
       inviterName: r.inviter_name,
       joinAccount: r.join_account,
+      limited: !!r.scope,
       expiresAt: r.expires_at,
     });
   }));
@@ -352,11 +369,12 @@ function mountInvites(app, { pool, authed, wrap, HttpError, getMeta, template, a
       const { members, elsewhere } = ok.rows[0];
       if (!elsewhere && members < MAX_MEMBERS) {
         await c.query(
-          `insert into account_members (account_id, email, user_id, status, invited_by, accepted_at)
-           values ($1, $2, $3, 'active', $1, now())
+          `insert into account_members (account_id, email, user_id, status, invited_by, accepted_at, scope)
+           values ($1, $2, $3, 'active', $1, now(), $4)
            on conflict (account_id, email) do update
-             set user_id = excluded.user_id, status = 'active', accepted_at = now()`,
-          [inv.invited_by, user.email, user.id],
+             set user_id = excluded.user_id, status = 'active', accepted_at = now(),
+                 scope = excluded.scope`,
+          [inv.invited_by, user.email, user.id, inv.scope ? JSON.stringify(inv.scope) : null],
         );
       }
     }

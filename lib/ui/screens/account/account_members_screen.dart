@@ -7,6 +7,7 @@ import '../../../data/cloud/cloud_auth_service.dart';
 import '../../../data/cloud/cloud_finance_repository.dart';
 import '../../../state/auth_controller.dart';
 import '../../../state/finance_controller.dart';
+import '../../widgets/access_scope_picker.dart';
 import '../../widgets/common.dart';
 
 const _appLink = 'https://ivoalexandre86-bit.github.io/financas-app/';
@@ -54,6 +55,13 @@ class _AccountMembersScreenState extends State<AccountMembersScreen> {
   final _email = TextEditingController();
   final _form = GlobalKey<FormState>();
   bool _busy = false;
+  // Acesso de quem eu convidar pelo e-mail (padrão: todo o orçamento,
+  // como antes).
+  bool _limited = false;
+  final _cards = <String>{};
+  final _accounts = <String>{};
+  String? _scopeError;
+  late final ScopeOptions _options = ScopeOptions.of(context);
 
   @override
   void initState() {
@@ -98,11 +106,32 @@ class _AccountMembersScreenState extends State<AccountMembersScreen> {
   Future<void> _invite() async {
     if (!_form.currentState!.validate()) return;
     final email = _email.text.trim();
+    if (_limited && _cards.isEmpty && _accounts.isEmpty) {
+      setState(() => _scopeError = 'Marque ao menos um cartão ou conta.');
+      return;
+    }
+    final scope = _limited
+        ? AccessScope(cards: _cards.toList(), accounts: _accounts.toList())
+        : null;
     await _run(
-      () => _api!.invite(email),
+      () => _api!.invite(email, scope: scope),
       success: 'Convite enviado para $email',
     );
     if (mounted) _email.clear();
+  }
+
+  Future<void> _editScope(AccountMember m) async {
+    final r = await pickAccessScope(
+      context,
+      who: m.label,
+      initial: m.scope,
+      options: _options,
+    );
+    if (r == null || !mounted) return;
+    await _run(
+      () => _api!.setScope(m.id!, r.$1),
+      success: 'Acesso de ${m.label} atualizado',
+    );
   }
 
   Future<void> _remove(AccountMember m) async {
@@ -265,6 +294,11 @@ class _AccountMembersScreenState extends State<AccountMembersScreen> {
                             'entra com o próprio e-mail e senha, e todos veem e '
                             'lançam nas mesmas contas, cartões e transações, em '
                             'qualquer aparelho.'
+                      : s.myScope != null
+                      ? 'Você vê e lança só no que ${s.ownerName} liberou: '
+                            '${_options.label(s.myScope)}. Os seus próprios '
+                            'dados estão guardados e voltam se você sair desta '
+                            'conta.'
                       : 'Você vê e lança no orçamento de ${s.ownerName}. Os '
                             'seus próprios dados estão guardados e voltam se '
                             'você sair desta conta.',
@@ -303,14 +337,21 @@ class _AccountMembersScreenState extends State<AccountMembersScreen> {
                   ),
                   subtitle: Text(switch (m.status) {
                     'owner' => 'Dono da conta · ${m.email}',
-                    'invited' => 'Convite pendente · ${m.email}',
-                    _ => m.email,
+                    'invited' =>
+                      'Convite pendente · ${m.email} · acesso: ${_options.label(m.scope)}',
+                    _ => '${m.email} · acesso: ${_options.label(m.scope)}',
                   }),
                   trailing: !s.isOwner || m.isOwner
                       ? null
                       : Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            IconButton(
+                              key: ValueKey('scope-${m.email}'),
+                              tooltip: 'Editar acesso',
+                              icon: const Icon(Icons.tune),
+                              onPressed: () => _editScope(m),
+                            ),
                             if (m.isInvited)
                               IconButton(
                                 tooltip: 'Copiar mensagem de convite',
@@ -372,6 +413,24 @@ class _AccountMembersScreenState extends State<AccountMembersScreen> {
                             'conta com ele) e aceita o convite, que aparece ao '
                             'abrir o app e em Configurações › Pessoas na conta.',
                             style: theme.textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'O que a pessoa pode ver e usar',
+                            style: theme.textTheme.titleSmall,
+                          ),
+                          AccessScopeFields(
+                            options: _options,
+                            limited: _limited,
+                            cards: _cards,
+                            accounts: _accounts,
+                            error: _scopeError,
+                            onLimited: (v) => setState(() {
+                              _limited = v;
+                              _scopeError = null;
+                            }),
+                            onChanged: () =>
+                                setState(() => _scopeError = null),
                           ),
                           const SizedBox(height: 12),
                           FilledButton.icon(

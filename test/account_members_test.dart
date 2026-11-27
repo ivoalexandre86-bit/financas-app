@@ -34,8 +34,8 @@ class FakeAccountApi implements AccountApi {
   Future<AccountState> state() async => _s;
 
   @override
-  Future<AccountState> invite(String email) async {
-    calls.add('invite $email');
+  Future<AccountState> invite(String email, {AccessScope? scope}) async {
+    calls.add('invite $email${scope == null ? '' : ' ${scope.cards}'}');
     members.add(
       AccountMember(
         id: 'm${members.length}',
@@ -52,6 +52,22 @@ class FakeAccountApi implements AccountApi {
   Future<AccountState> remove(String memberId) async {
     calls.add('remove $memberId');
     members.removeWhere((m) => m.id == memberId);
+    return _s;
+  }
+
+  @override
+  Future<AccountState> setScope(String memberId, AccessScope? scope) async {
+    calls.add('scope $memberId ${scope?.cards ?? 'all'}');
+    final i = members.indexWhere((m) => m.id == memberId);
+    final m = members[i];
+    members[i] = AccountMember(
+      id: m.id,
+      userId: m.userId,
+      name: m.name,
+      email: m.email,
+      status: m.status,
+      scope: scope,
+    );
     return _s;
   }
 
@@ -78,6 +94,39 @@ Future<void> _open(WidgetTester tester, AccountApi api) async {
 }
 
 void main() {
+  testWidgets('dono limita o acesso de quem entrou', (tester) async {
+    final api = FakeAccountApi()
+      ..members.add(
+        const AccountMember(
+          id: 'm0',
+          userId: 'ana',
+          name: 'Ana',
+          email: 'ana@x.com',
+          status: 'active',
+        ),
+      );
+    await _open(tester, api);
+    expect(find.textContaining('acesso: Todo o orçamento'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const ValueKey('scope-ana@x.com')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scope-ana@x.com')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scope-limited')).last);
+    await tester.pumpAndSettle();
+    // Nada marcado: não salva.
+    await tester.ensureVisible(find.byKey(const ValueKey('scope-save')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scope-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('Marque ao menos um cartão ou conta.'), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('scope-all')).last);
+    await tester.ensureVisible(find.byKey(const ValueKey('scope-save')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scope-save')));
+    await tester.pumpAndSettle();
+    expect(api.calls.last, 'scope m0 all');
+  });
+
   testWidgets('dono convida pelo e-mail e cancela o convite', (tester) async {
     final api = FakeAccountApi();
     await _open(tester, api);
@@ -85,6 +134,8 @@ void main() {
     expect(find.textContaining('Dono da conta'), findsOneWidget);
 
     await tester.enterText(find.byKey(const ValueKey('invite-email')), 'x');
+    await tester.ensureVisible(find.byKey(const ValueKey('send-invite')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('send-invite')));
     await tester.pumpAndSettle();
     expect(find.text('Informe um e-mail válido'), findsOneWidget);
@@ -94,17 +145,19 @@ void main() {
       find.byKey(const ValueKey('invite-email')),
       'ana@x.com',
     );
+    await tester.ensureVisible(find.byKey(const ValueKey('send-invite')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('send-invite')));
     await tester.pumpAndSettle();
     expect(api.calls, ['invite ana@x.com']);
-    expect(find.text('Convite pendente · ana@x.com'), findsOneWidget);
+    expect(find.textContaining('Convite pendente · ana@x.com'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('remove-ana@x.com')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cancelar convite').last);
     await tester.pumpAndSettle();
     expect(api.calls.last, 'remove m0');
-    expect(find.text('Convite pendente · ana@x.com'), findsNothing);
+    expect(find.textContaining('Convite pendente · ana@x.com'), findsNothing);
   });
 
   testWidgets('quem entrou na conta vê o dono e pode sair', (tester) async {

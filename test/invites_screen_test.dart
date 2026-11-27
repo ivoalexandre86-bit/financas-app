@@ -1,4 +1,6 @@
+import 'package:financas_app/data/cloud/account_api.dart';
 import 'package:financas_app/data/cloud/invite_api.dart';
+import 'package:financas_app/ui/widgets/access_scope_picker.dart';
 import 'package:financas_app/ui/screens/users/invites_screen.dart';
 import 'package:financas_app/ui/theme.dart';
 import 'package:flutter/material.dart';
@@ -8,12 +10,14 @@ WhatsAppInvite _invite({
   String name = 'Ana',
   String sendStatus = 'not_sent',
   String status = 'pending',
+  AccessScope? scope,
 }) => WhatsAppInvite(
   id: 'i-$name',
   name: name,
   phone: '5547991892931',
   phoneLabel: '+55 (47) 99189-2931',
   joinAccount: true,
+  scope: scope,
   status: status,
   sendStatus: sendStatus,
   sendError: 'O modelo da mensagem está em análise na Meta.',
@@ -27,6 +31,7 @@ class _FakeApi implements InviteApi {
   final invites = <WhatsAppInvite>[];
   InviteTemplate template = const InviteTemplate('PENDING');
   final created = <(String, String, bool)>[];
+  AccessScope? lastScope;
 
   @override
   Future<InvitesState> list() async => InvitesState([...invites], template);
@@ -36,11 +41,14 @@ class _FakeApi implements InviteApi {
     required String name,
     required String phone,
     required bool joinAccount,
+    AccessScope? scope,
   }) async {
     created.add((name, phone, joinAccount));
+    lastScope = scope;
     final i = _invite(
       name: name,
       sendStatus: template.approved ? 'sent' : 'not_sent',
+      scope: scope,
     );
     invites.insert(0, i);
     return (i, template);
@@ -60,7 +68,14 @@ Future<List<Uri>> _pump(WidgetTester tester, _FakeApi api) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: AppTheme.light(),
-      home: InvitesScreen(api: api, openUrl: (u) async => opened.add(u)),
+      home: InvitesScreen(
+        api: api,
+        openUrl: (u) async => opened.add(u),
+        scopeOptions: const ScopeOptions(
+          cards: [('nubank', 'Nubank'), ('xp', 'XP')],
+          accounts: [('itau', 'Itaú')],
+        ),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -83,17 +98,37 @@ void main() {
       find.byKey(const ValueKey('invite-phone')),
       '(47) 99189-2931',
     );
+    await tester.ensureVisible(find.byKey(const ValueKey('invite-join')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('invite-join')));
+    await tester.pumpAndSettle();
+    // Usar o meu orçamento: o padrão é liberar só o que for marcado.
+    await tester.ensureVisible(find.byKey(const ValueKey('invite-submit')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('invite-submit')));
+    await tester.pumpAndSettle();
+    expect(find.text('Marque ao menos um cartão ou conta.'), findsOneWidget);
+    expect(api.created, isEmpty);
+    await tester.ensureVisible(find.byKey(const ValueKey('scope-nubank')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scope-nubank')));
+    await tester.ensureVisible(find.byKey(const ValueKey('scope-itau')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scope-itau')));
+    await tester.ensureVisible(find.byKey(const ValueKey('invite-submit')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('invite-submit')));
     await tester.pumpAndSettle();
     expect(api.created.single, ('Ana', '(47) 99189-2931', true));
+    expect(api.lastScope!.cards, ['nubank']);
+    expect(api.lastScope!.accounts, ['itau']);
 
     expect(find.text('Envie pelo seu WhatsApp'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('invite-send-manual')));
     await tester.pumpAndSettle();
     expect(opened.single.host, 'wa.me');
     expect(find.text('Não enviado'), findsOneWidget);
-    expect(find.textContaining('usa o seu orçamento'), findsOneWidget);
+    expect(find.textContaining('acesso: Cartão Nubank, Conta Itaú'), findsOneWidget);
   });
 
   testWidgets('modelo aprovado: o bot envia', (tester) async {
@@ -107,6 +142,8 @@ void main() {
       find.byKey(const ValueKey('invite-phone')),
       '11988887777',
     );
+    await tester.ensureVisible(find.byKey(const ValueKey('invite-submit')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('invite-submit')));
     await tester.pumpAndSettle();
     expect(find.text('Envie pelo seu WhatsApp'), findsNothing);
@@ -125,6 +162,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('invite-name')), 'Ana');
     await tester.enterText(find.byKey(const ValueKey('invite-phone')), '9999');
+    await tester.ensureVisible(find.byKey(const ValueKey('invite-submit')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('invite-submit')));
     await tester.pumpAndSettle();
     expect(find.text('Informe DDD + número'), findsOneWidget);

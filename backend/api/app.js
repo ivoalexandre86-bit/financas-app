@@ -399,7 +399,8 @@ function createApp({
   app.get('/docs', authed, wrap(async (req, res) => {
     const { rows } = await pool.query(
       `select coll, id, data from app_docs
-       where user_id = data_owner($1) and not deleted order by coll, id`,
+       where user_id = data_owner($1) and not deleted
+         and doc_visible($1, coll, id, data) order by coll, id`,
       [req.user.id],
     );
     res.json({ docs: rows });
@@ -417,16 +418,21 @@ function createApp({
         throw new HttpError(400, 'Documento inválido');
       }
     }
+    let saved = 0;
     if (docs.length) {
       const deleted = docs.map((d) => d.deleted === true || d.data == null);
-      await pool.query(
+      // Acesso limitado (conta compartilhada): o que está fora dos cartões e
+      // contas liberados é ignorado, sem erro (o app não fica travado).
+      const r = await pool.query(
         `insert into app_docs (user_id, coll, id, data, deleted, updated_at)
          select data_owner($1), t.coll, t.id, t.data, t.deleted, now()
          from unnest($2::text[], $3::text[], $4::jsonb[], $5::bool[])
            as t(coll, id, data, deleted)
+         where doc_writable($1, t.coll, t.id, t.data)
          on conflict (user_id, coll, id) do update
            set data = excluded.data, deleted = excluded.deleted,
-               updated_at = now()`,
+               updated_at = now()
+           where doc_visible($1, app_docs.coll, app_docs.id, app_docs.data)`,
         [
           req.user.id,
           docs.map((d) => d.coll),
@@ -435,8 +441,9 @@ function createApp({
           deleted,
         ],
       );
+      saved = r.rowCount;
     }
-    res.json({ saved: docs.length });
+    res.json({ saved, skipped: docs.length - saved });
   }));
 
   // Open Finance (Pluggy) ---------------------------------------------------

@@ -1,3 +1,4 @@
+import 'account_api.dart';
 import 'api_client.dart';
 
 /// Convite pelo WhatsApp feito pelo administrador.
@@ -7,6 +8,12 @@ class WhatsAppInvite {
   final String phone;
   final String phoneLabel;
   final bool joinAccount;
+
+  /// Acesso limitado ao orçamento (null = tudo).
+  final AccessScope? scope;
+
+  /// Vínculo na conta depois do cadastro (para editar o acesso).
+  final String? memberId;
 
   /// pending | accepted | expired.
   final String status;
@@ -27,6 +34,8 @@ class WhatsAppInvite {
     required this.phone,
     required this.phoneLabel,
     required this.joinAccount,
+    this.scope,
+    this.memberId,
     required this.status,
     required this.sendStatus,
     required this.sendError,
@@ -47,6 +56,8 @@ class WhatsAppInvite {
     phone: j['phone'] as String,
     phoneLabel: (j['phoneLabel'] as String?) ?? j['phone'] as String,
     joinAccount: (j['joinAccount'] as bool?) ?? false,
+    scope: AccessScope.fromJson(j['scope']),
+    memberId: j['memberId'] as String?,
     status: j['status'] as String,
     sendStatus: (j['sendStatus'] as String?) ?? 'not_sent',
     sendError: j['sendError'] as String?,
@@ -86,11 +97,15 @@ class InviteInfo {
   final String name;
   final String inviterName;
   final bool joinAccount;
+
+  /// Acesso só a alguns cartões e contas de quem convidou.
+  final bool limited;
   const InviteInfo({
     required this.token,
     required this.name,
     required this.inviterName,
     required this.joinAccount,
+    this.limited = false,
   });
 }
 
@@ -100,6 +115,7 @@ abstract class InviteApi {
     required String name,
     required String phone,
     required bool joinAccount,
+    AccessScope? scope,
   });
   Future<(WhatsAppInvite, InviteTemplate)> resend(String id);
   Future<void> cancel(String id);
@@ -131,11 +147,13 @@ class HttpInviteApi implements InviteApi {
     required String name,
     required String phone,
     required bool joinAccount,
+    AccessScope? scope,
   }) async => _one(
     await api.post('invites', {
       'name': name,
       'phone': phone,
       'joinAccount': joinAccount,
+      if (joinAccount && scope != null) 'scope': scope.toJson(),
     }),
   );
 
@@ -154,6 +172,7 @@ class HttpInviteApi implements InviteApi {
       name: (r['name'] as String?) ?? '',
       inviterName: (r['inviterName'] as String?) ?? '',
       joinAccount: (r['joinAccount'] as bool?) ?? false,
+      limited: (r['limited'] as bool?) ?? false,
     );
   }
 }

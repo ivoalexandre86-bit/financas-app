@@ -99,7 +99,12 @@ test('convite pelo WhatsApp', { skip: !url && 'TEST_DATABASE_URL não definido' 
   await t.test('sem modelo aprovado: cria o modelo e oferece o envio manual', async () => {
     const r = await call('POST', '/invites', {
       token: ivo.token,
-      body: { name: 'Ana Souza', phone: '(47) 99189-2931', joinAccount: true },
+      body: {
+        name: 'Ana Souza',
+        phone: '(47) 99189-2931',
+        joinAccount: true,
+        scope: { cards: ['nubank'], accounts: [] },
+      },
     });
     assert.equal(r.status, 201);
     assert.equal(created.length, 1);
@@ -168,6 +173,7 @@ test('convite pelo WhatsApp', { skip: !url && 'TEST_DATABASE_URL não definido' 
     assert.equal(r.status, 201);
     ana = r.body;
     assert.equal(ana.user.account.ownerName, 'Ivo Alexandre');
+    assert.deepEqual(ana.user.account.scope, { cards: ['nubank'], accounts: [] });
     assert.equal(ana.user.access.status, 'free');
     const link = await pool.query('select wa_id from whatsapp_links where user_id = $1', [ana.user.id]);
     assert.equal(link.rows[0].wa_id, '554791892931');
@@ -180,6 +186,8 @@ test('convite pelo WhatsApp', { skip: !url && 'TEST_DATABASE_URL não definido' 
     const list = (await call('GET', '/invites', { token: ivo.token })).body.invites;
     assert.equal(list[0].status, 'accepted');
     assert.equal(list[0].userName, 'Ana Souza');
+    assert.ok(list[0].memberId);
+    assert.deepEqual(list[0].scope, { cards: ['nubank'], accounts: [] });
     // Número já ligado: não convida de novo.
     assert.equal(
       (await call('POST', '/invites', { token: ivo.token, body: { name: 'Ana', phone: '47 99189-2931' } })).status,
