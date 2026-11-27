@@ -108,6 +108,7 @@ class FinanceController extends ChangeNotifier {
   Asset? get fgts => assets.where((a) => a.isFgts).firstOrNull;
 
   ScenarioEngine get scenarioEngine => ScenarioEngine(engine);
+
   /// Empréstimos e financiamentos (Dívidas e contratos).
   List<DebtContract> debts = [];
 
@@ -1433,6 +1434,41 @@ class FinanceController extends ChangeNotifier {
     amount: amount,
     cutPercent: cutPercent,
   );
+
+  /// Salva a opção como cenário (Projeção › Cenário), sem mudar o
+  /// orçamento base: cada mudança mensal vira um fluxo estimado.
+  Future<PlanScenario> saveMonthEndScenario(
+    MonthEndAnalysis a,
+    MonthEndOption o,
+  ) async {
+    if (o.deltas.isEmpty) {
+      throw ArgumentError('Esta opção não muda o caixa dos próximos meses');
+    }
+    final first = MonthEndPlanner(engine).firstOpenDate();
+    final flows = [
+      for (final MapEntry(key: m, value: v) in o.deltas.entries)
+        if (!v.isZero)
+          ScenarioFlow(
+            id: newId('sf_'),
+            date: m == YearMonth.of(first) ? first : m.firstDay,
+            amount: v,
+            description: o.title,
+            source: ScenarioSource.monthEnd,
+            refId: a.closedMonth.key,
+            purpose: o.kind.label,
+            notes: o.assumptions.join(' '),
+          ),
+    ]..sort((x, y) => x.date.compareTo(y.date));
+    final sc = PlanScenario(
+      id: newId('sc_'),
+      name: '${o.title} (fechamento de ${a.closedMonth.shortLabel})',
+      kind: ScenarioSource.monthEnd,
+      flows: flows,
+      notes: o.why,
+    );
+    await saveScenario(sc);
+    return sc;
+  }
 
   /// Data em que as saídas planejadas caem (hoje ou o 1º mês aberto).
   DateTime monthEndPlanDate() => MonthEndPlanner(engine).firstOpenDate();

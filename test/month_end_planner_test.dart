@@ -198,6 +198,24 @@ void main() {
       expect(YearMonth.of(planned.date), _month);
     });
 
+    test('salvar opção como cenário não muda o orçamento base', () async {
+      final fc = await _ctrl(
+        initial: 10000,
+        prevIncome: 5000,
+        prevExpenses: 2000,
+      );
+      final a = fc.monthEndAnalysis(_prev, debts: [_debtA]);
+      final debt = a.options.firstWhere((o) => o.targetId == 'carro');
+      final before = fc.engine.projection(MonthRange.starting(_month, 3));
+      final sc = await fc.saveMonthEndScenario(a, debt);
+      expect(sc.kind, 'monthEnd');
+      expect(sc.flows.first.amount, -debt.upfront);
+      expect(sc.flows.every((f) => f.refId == _prev.key), isTrue);
+      final after = fc.engine.projection(MonthRange.starting(_month, 3));
+      expect(after.columns.last.accumulated, before.columns.last.accumulated);
+      expect(fc.closingOf(_prev)!.decision, isNull);
+    });
+
     test('ordenar dívidas: maior economia x maior alívio mensal', () async {
       final fc = await _ctrl(
         initial: 10000,

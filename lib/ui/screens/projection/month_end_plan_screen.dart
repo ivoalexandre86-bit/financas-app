@@ -107,17 +107,37 @@ class _MonthEndPlanScreenState extends State<MonthEndPlanScreen> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: FilledButton.icon(
-            key: const ValueKey('month-end-apply'),
-            icon: const Icon(Icons.event_available),
-            label: Text(
-              sel == null
-                  ? 'Escolha uma opção'
-                  : 'Aplicar ao planejamento: ${sel.kind.label}',
-            ),
-            onPressed: sel == null || !sel.isComplete || !a.isClosed
-                ? null
-                : () => _apply(fc, a, sel),
+          child: Row(
+            children: [
+              OutlinedButton.icon(
+                key: const ValueKey('month-end-save-scenario'),
+                icon: const Icon(Icons.alt_route),
+                label: const Text('Salvar como cenário'),
+                onPressed: sel == null || !sel.isComplete || sel.deltas.isEmpty
+                    ? null
+                    : () => runAction(
+                        context,
+                        () => fc.saveMonthEndScenario(a, sel),
+                        success: 'Cenário salvo. Veja em Projeção › Cenário.',
+                      ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.icon(
+                  key: const ValueKey('month-end-apply'),
+                  icon: const Icon(Icons.event_available),
+                  label: Text(
+                    sel == null
+                        ? 'Escolha uma opção'
+                        : 'Aplicar ao planejamento',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onPressed: sel == null || !sel.isComplete || !a.isClosed
+                      ? null
+                      : () => _apply(fc, a, sel),
+                ),
+              ),
+            ],
           ),
         ),
       ),
