@@ -343,6 +343,10 @@ function computeSummary(docs, month, today) {
     s.closing = {
       income: closing.income ?? 0,
       expenses: closing.expenses ?? 0,
+      // Receitas/despesas calculadas ao fechar (o ajuste manual é a diferença
+      // e aparece numa linha própria).
+      frozenIncome: closing.computedIncome ?? closing.income ?? 0,
+      frozenExpenses: closing.computedExpenses ?? closing.expenses ?? 0,
       computedIncome: s.income.done + s.income.open,
       computedExpenses: s.expense.done + s.expense.open,
       note: closing.note ?? null,
@@ -391,20 +395,26 @@ function formatMonthSummary(s, today) {
   const current = s.month === ym(today);
   const computedIncome = s.income.done + s.income.open;
   const computedExpenses = s.expense.done + s.expense.open;
-  const incomes = s.closing ? s.closing.income : computedIncome;
-  const expenses = s.closing ? s.closing.expenses : computedExpenses;
-  const result = incomes - expenses;
+  const incomes = s.closing ? s.closing.frozenIncome : computedIncome;
+  const expenses = s.closing ? s.closing.frozenExpenses : computedExpenses;
+  const adjustment = s.closing
+    ? s.closing.income - s.closing.expenses - (incomes - expenses)
+    : 0;
+  const result = incomes - expenses + adjustment;
   const lines = [`📊 *Resumo de ${MONTHS[m - 1]}/${y}*`, ''];
   if (s.closing) {
     lines.push(
       `🔒 Mês fechado/ajustado no app: valem os valores do fechamento.`,
       `💰 Receitas: *${brl(incomes)}*`,
       `💸 Despesas: *${brl(expenses)}*`,
-      `${result >= 0 ? '🟢' : '🔴'} Resultado: *${brl(result)}*`,
     );
+    if (adjustment !== 0) {
+      lines.push(`✏️ Ajuste manual: *${adjustment > 0 ? '+' : ''}${brl(adjustment)}*`);
+    }
+    lines.push(`${result >= 0 ? '🟢' : '🔴'} Resultado: *${brl(result)}*`);
     if (computedIncome !== incomes || computedExpenses !== expenses) {
       lines.push(
-        `   Pelos lançamentos seria ${brl(computedIncome)} − ${brl(computedExpenses)} = ` +
+        `   Pelos lançamentos de hoje seria ${brl(computedIncome)} − ${brl(computedExpenses)} = ` +
           `${brl(computedIncome - computedExpenses)}`,
       );
     }

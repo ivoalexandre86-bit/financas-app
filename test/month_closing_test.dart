@@ -122,6 +122,16 @@ void main() {
       final after = fc.engine.projection(range);
       expect(after.columns[0].net.cents, 70000);
       expect(after.columns[1].net.cents, 300000);
+      // O ajuste fica numa linha própria: receitas e despesas continuam as
+      // calculadas pelos lançamentos.
+      expect(after.columns[0].income, before.columns[0].income);
+      expect(after.columns[0].expenses, before.columns[0].expenses);
+      expect(after.columns[0].adjustment.cents, -30000);
+      final t = fc.engine.monthTotals(ProjectionFilter.none, prev);
+      expect(t.income, before.columns[0].income);
+      expect(t.expenses, before.columns[0].expenses);
+      expect(t.adjustment.cents, -30000);
+      expect(t.net.cents, 70000);
       expect(
         after.columns.last.accumulated.cents,
         before.columns.last.accumulated.cents - 30000,

@@ -529,6 +529,15 @@ class _ProjectionScreenState extends State<ProjectionScreen>
     final rows = <_MatrixRow>[
       _MatrixRow('Receitas', DrillRow.income, (c) => c.income, fin.income),
       _MatrixRow('Despesas', DrillRow.expenses, (c) => c.expenses, fin.expense),
+      // Ajuste manual dos meses fechados, à parte das receitas e despesas.
+      if (cols.any((c) => !c.adjustment.isZero))
+        _MatrixRow(
+          'Ajuste manual',
+          null,
+          (c) => c.adjustment,
+          p.neon2,
+          signed: true,
+        ),
       _MatrixRow(
         'Resultado',
         DrillRow.net,
@@ -996,7 +1005,8 @@ class _ProjectionKpis extends StatelessWidget {
   Widget build(BuildContext context) {
     final cols = result.columns;
     final n = cols.length;
-    final net = result.totalIncome - result.totalExpenses;
+    final net = result.totalNet;
+    final adj = result.totalAdjustment;
     final negMonths = cols.where((c) => c.net.isNegative).length;
     final finalBalance = cols.last.accumulated;
     final lowest = cols
@@ -1025,9 +1035,11 @@ class _ProjectionKpis extends StatelessWidget {
         label: 'Resultado',
         value: net,
         colorize: true,
-        detail: negMonths == 0
-            ? 'Nenhum mês negativo'
-            : '$negMonths de $n ${n == 1 ? 'mês' : 'meses'} negativos',
+        detail:
+            (negMonths == 0
+                ? 'Nenhum mês negativo'
+                : '$negMonths de $n ${n == 1 ? 'mês' : 'meses'} negativos') +
+            (adj.isZero ? '' : ' · ajuste ${adj.format()}'),
         detailColor: negMonths == 0 ? null : context.fin.negative,
         icon: Icons.balance,
         color: net.isNegative ? context.fin.negative : context.colors.primary,

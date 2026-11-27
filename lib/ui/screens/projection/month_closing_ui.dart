@@ -403,8 +403,13 @@ class ClosingSummary extends StatelessWidget {
             ),
           ],
         ),
-        InfoRow('Receitas', MoneyText(closing.income)),
-        InfoRow('Despesas', MoneyText(closing.expenses)),
+        InfoRow('Receitas', MoneyText(closing.computedIncome)),
+        InfoRow('Despesas', MoneyText(closing.computedExpenses)),
+        if (!closing.adjustment.isZero)
+          InfoRow(
+            'Ajuste manual',
+            MoneyText(closing.adjustment, colorize: true, showPlus: true),
+          ),
         InfoRow(
           'Resultado considerado',
           MoneyText(

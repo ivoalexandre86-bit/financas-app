@@ -656,6 +656,53 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
   }
 }
 
+/// Ajustar saldo a partir da tela Início: com uma só conta ativa, abre o
+/// ajuste direto; com várias, pergunta qual conta (mostrando o saldo de
+/// cada uma).
+Future<void> showAdjustBalancePicker(BuildContext context) async {
+  final fc = context.read<FinanceController>();
+  final accounts = fc.data.accounts.where((a) => a.active).toList();
+  if (accounts.isEmpty) {
+    showMessage(context, 'Cadastre uma conta para ajustar o saldo.');
+    return;
+  }
+  if (accounts.length == 1) {
+    return showAdjustBalanceDialog(context, accounts.single);
+  }
+  final picked = await showModalBottomSheet<Account>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) => SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+            child: Text(
+              'Qual conta você quer ajustar?',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ),
+          for (final a in accounts)
+            ListTile(
+              key: ValueKey('adjust-pick-${a.id}'),
+              leading: const Icon(Icons.account_balance_outlined),
+              title: Text(a.name),
+              subtitle: a.institution.isEmpty ? null : Text(a.institution),
+              trailing: MoneyText(
+                fc.engine.accountBalance(a.id),
+                colorize: true,
+              ),
+              onTap: () => Navigator.pop(ctx, a),
+            ),
+        ],
+      ),
+    ),
+  );
+  if (picked == null || !context.mounted) return;
+  await showAdjustBalanceDialog(context, picked);
+}
+
 /// Ajustar saldo: o usuário informa o saldo que o banco mostra hoje e o app
 /// lança a diferença (receita ou despesa "Ajuste de saldo", concluída, na
 /// data de hoje). Para desfazer, basta excluir esse lançamento.

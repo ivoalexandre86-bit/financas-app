@@ -53,8 +53,8 @@ class SimTotals {
       for (final c in p.columns)
         SimMonth(
           c.month,
-          c.income.cents,
-          c.expenses.cents,
+          c.incomeWithAdjustment.cents,
+          c.expensesWithAdjustment.cents,
           c.accumulated.cents,
         ),
     ], p.openingBalance.cents);
