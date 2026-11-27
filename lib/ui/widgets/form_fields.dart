@@ -21,6 +21,9 @@ class MoneyField extends StatefulWidget {
   final bool allowZero;
   final bool allowNegative;
   final bool autofocus;
+
+  /// Campo opcional: vazio é válido.
+  final bool optional;
   final ValueChanged<String>? onChanged;
   const MoneyField({
     super.key,
@@ -29,6 +32,7 @@ class MoneyField extends StatefulWidget {
     this.allowZero = false,
     this.allowNegative = false,
     this.autofocus = false,
+    this.optional = false,
     this.onChanged,
   });
 
@@ -130,6 +134,7 @@ class _MoneyFieldState extends State<MoneyField> {
         ),
       ),
       validator: (v) {
+        if (widget.optional && (v ?? '').trim().isEmpty) return null;
         final m = Money.tryEval(v ?? '');
         if (m == null) return 'Valor inválido';
         if (!widget.allowNegative && m.isNegative) {

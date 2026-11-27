@@ -26,7 +26,7 @@ IconData assetIcon(AssetKind k) => switch (k) {
   AssetKind.vehicle => Icons.directions_car_outlined,
   AssetKind.investment => Icons.trending_up,
   AssetKind.other => Icons.category_outlined,
-  AssetKind.fgts => Icons.savings_outlined,
+  AssetKind.fgts => Icons.work_history_outlined,
   AssetKind.financing => Icons.account_balance_outlined,
   AssetKind.loan => Icons.request_quote_outlined,
   AssetKind.otherDebt => Icons.money_off_outlined,
@@ -48,7 +48,7 @@ class FgtsNetWorthCard extends StatelessWidget {
     return Card(
       child: ListTile(
         key: const ValueKey('networth-fgts'),
-        leading: const CircleAvatar(child: Icon(Icons.savings_outlined)),
+        leading: const CircleAvatar(child: Icon(Icons.work_history_outlined)),
         title: const Text('FGTS'),
         subtitle: Text(
           a == null
