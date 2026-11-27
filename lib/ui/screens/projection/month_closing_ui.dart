@@ -11,6 +11,7 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/form_fields.dart';
 import 'month_adjust_screen.dart';
+import 'month_end_plan_screen.dart';
 
 // Fechar o mês, ajustar o resultado manualmente e reverter (reabrir).
 
@@ -33,119 +34,141 @@ Future<void> showMonthClosingActions(
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
+    isScrollControlled: true,
     builder: (ctx) {
       final fc = ctx.watch<FinanceController>();
       final closing = fc.closingOf(month);
       final now = fc.engine.computedMonthTotals(ProjectionFilter.none, month);
       return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-              child: Text(
-                'Resultado de ${month.longLabel}',
-                style: ctx.text.titleMedium,
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: closing == null
-                  ? _Totals(
-                      title: 'Calculado pelos lançamentos',
-                      income: now.income,
-                      expenses: now.expenses,
-                    )
-                  : ClosingSummary(closing: closing, computedNow: now),
-            ),
-            const Divider(height: 24),
-            if (closing == null) ...[
-              ListTile(
-                key: const ValueKey('closing-close'),
-                leading: const Icon(Icons.lock_outline),
-                title: const Text('Fechar mês'),
-                subtitle: const Text(
-                  'Congela o resultado atual. Lançamentos feitos ou '
-                  'alterados depois não mudam mais este mês.',
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                child: Text(
+                  'Resultado de ${month.longLabel}',
+                  style: ctx.text.titleMedium,
                 ),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  await runAction(
-                    context,
-                    () => fc.closeMonth(month),
-                    success: '${month.longLabel} fechado',
-                  );
-                },
               ),
-              ListTile(
-                key: const ValueKey('closing-adjust'),
-                leading: const Icon(Icons.tune),
-                title: const Text('Ajustar resultado manualmente'),
-                subtitle: const Text(
-                  'Abre a grade para digitar o ajuste mês a mês.',
-                ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  openGrid();
-                },
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: closing == null
+                    ? _Totals(
+                        title: 'Calculado pelos lançamentos',
+                        income: now.income,
+                        expenses: now.expenses,
+                      )
+                    : ClosingSummary(closing: closing, computedNow: now),
               ),
-            ] else ...[
-              ListTile(
-                key: const ValueKey('closing-adjust'),
-                leading: const Icon(Icons.tune),
-                title: Text(
-                  closing.isAdjusted
-                      ? 'Editar ajuste manual'
-                      : 'Ajustar resultado manualmente',
-                ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  openGrid();
-                },
-              ),
-              if (closing.isAdjusted)
+              const Divider(height: 24),
+              if (closing == null) ...[
                 ListTile(
-                  key: const ValueKey('closing-recalc'),
-                  leading: const Icon(Icons.restart_alt),
-                  title: const Text('Desfazer só o ajuste'),
-                  subtitle: Text(
-                    'Mantém o mês fechado com os valores calculados agora '
-                    '(resultado ${now.net.format()}).',
+                  key: const ValueKey('closing-close'),
+                  leading: const Icon(Icons.lock_outline),
+                  title: const Text('Fechar mês'),
+                  subtitle: const Text(
+                    'Congela o resultado atual. Lançamentos feitos ou '
+                    'alterados depois não mudam mais este mês.',
                   ),
                   onTap: () async {
                     Navigator.pop(ctx);
-                    await runAction(
+                    final ok = await runAction(
                       context,
-                      () => fc.closeMonth(month, note: closing.note),
-                      success: 'Ajuste desfeito',
+                      () => fc.closeMonth(month),
+                      success: '${month.longLabel} fechado',
                     );
+                    // Último passo do fechamento: o que fazer com o dinheiro.
+                    if (ok && context.mounted) {
+                      push(context, MonthEndPlanScreen(month: month));
+                    }
                   },
                 ),
-              ListTile(
-                key: const ValueKey('closing-reopen'),
-                leading: Icon(Icons.lock_open, color: ctx.colors.error),
-                title: const Text('Reabrir mês (reverter)'),
-                subtitle: const Text(
-                  'Remove o fechamento e o ajuste: o mês volta a ser '
-                  'calculado pelos lançamentos.',
+                ListTile(
+                  key: const ValueKey('closing-adjust'),
+                  leading: const Icon(Icons.tune),
+                  title: const Text('Ajustar resultado manualmente'),
+                  subtitle: const Text(
+                    'Abre a grade para digitar o ajuste mês a mês.',
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    openGrid();
+                  },
                 ),
-                onTap: () async {
+              ] else ...[
+                ListTile(
+                  key: const ValueKey('closing-next-steps'),
+                  leading: const Icon(Icons.lightbulb_outline),
+                  title: const Text('O que fazer agora?'),
+                  subtitle: Text(
+                    closing.decision == null
+                        ? 'Quanto está livre de verdade e o que fazer com a sobra '
+                              'ou com a falta de caixa.'
+                        : 'Decisão registrada: ${closing.decision!.title}',
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    push(context, MonthEndPlanScreen(month: month));
+                  },
+                ),
+                ListTile(
+                  key: const ValueKey('closing-adjust'),
+                  leading: const Icon(Icons.tune),
+                  title: Text(
+                    closing.isAdjusted
+                        ? 'Editar ajuste manual'
+                        : 'Ajustar resultado manualmente',
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    openGrid();
+                  },
+                ),
+                if (closing.isAdjusted)
+                  ListTile(
+                    key: const ValueKey('closing-recalc'),
+                    leading: const Icon(Icons.restart_alt),
+                    title: const Text('Desfazer só o ajuste'),
+                    subtitle: Text(
+                      'Mantém o mês fechado com os valores calculados agora '
+                      '(resultado ${now.net.format()}).',
+                    ),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await runAction(
+                        context,
+                        () => fc.closeMonth(month, note: closing.note),
+                        success: 'Ajuste desfeito',
+                      );
+                    },
+                  ),
+                ListTile(
+                  key: const ValueKey('closing-reopen'),
+                  leading: Icon(Icons.lock_open, color: ctx.colors.error),
+                  title: const Text('Reabrir mês (reverter)'),
+                  subtitle: const Text(
+                    'Remove o fechamento e o ajuste: o mês volta a ser '
+                    'calculado pelos lançamentos.',
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await reopenMonthWithConfirm(context, month);
+                  },
+                ),
+              ],
+              ListTile(
+                leading: const Icon(Icons.history),
+                title: const Text('Ver todos os fechamentos e ajustes'),
+                onTap: () {
                   Navigator.pop(ctx);
-                  await reopenMonthWithConfirm(context, month);
+                  push(context, const MonthClosingsScreen());
                 },
               ),
+              const SizedBox(height: 8),
             ],
-            ListTile(
-              leading: const Icon(Icons.history),
-              title: const Text('Ver todos os fechamentos e ajustes'),
-              onTap: () {
-                Navigator.pop(ctx);
-                push(context, const MonthClosingsScreen());
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
+          ),
         ),
       );
     },

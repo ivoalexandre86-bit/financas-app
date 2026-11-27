@@ -21,6 +21,10 @@ class MonthClosing {
   final Money computedIncome;
   final Money computedExpenses;
   final String? note;
+
+  /// Decisão tomada no passo "O que fazer agora?" (só registro: não muda
+  /// o resultado do mês).
+  final MonthEndDecision? decision;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -31,6 +35,7 @@ class MonthClosing {
     required this.computedIncome,
     required this.computedExpenses,
     this.note,
+    this.decision,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : createdAt = createdAt ?? DateTime.now(),
@@ -57,6 +62,7 @@ class MonthClosing {
     'computedIncome': computedIncome.cents,
     'computedExpenses': computedExpenses.cents,
     if (note != null && note!.isNotEmpty) 'note': note,
+    if (decision != null) 'decision': decision!.toJson(),
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -78,8 +84,54 @@ class MonthClosing {
           ? m('computedExpenses')
           : expenses,
       note: j['note'] as String?,
+      decision: j['decision'] is Map
+          ? MonthEndDecision.fromJson(
+              (j['decision'] as Map).cast<String, Object?>(),
+            )
+          : null,
       createdAt: ts('createdAt'),
       updatedAt: ts('updatedAt'),
     );
   }
+}
+
+/// Opção escolhida no passo "O que fazer agora?" de um mês fechado.
+class MonthEndDecision {
+  final String kind; // MonthEndOptionKind.name
+  final String title;
+  final Money amount;
+  final String scenario; // MonthEndScenario.name
+
+  /// O que foi gravado no planejamento futuro, em texto.
+  final List<String> changes;
+  final DateTime decidedAt;
+
+  MonthEndDecision({
+    required this.kind,
+    required this.title,
+    required this.amount,
+    required this.scenario,
+    this.changes = const [],
+    DateTime? decidedAt,
+  }) : decidedAt = decidedAt ?? DateTime.now();
+
+  Map<String, Object?> toJson() => {
+    'kind': kind,
+    'title': title,
+    'amount': amount.cents,
+    'scenario': scenario,
+    'changes': changes,
+    'decidedAt': decidedAt.toIso8601String(),
+  };
+
+  factory MonthEndDecision.fromJson(Map<String, Object?> j) => MonthEndDecision(
+    kind: (j['kind'] as String?) ?? '',
+    title: (j['title'] as String?) ?? '',
+    amount: Money((j['amount'] as num?)?.toInt() ?? 0),
+    scenario: (j['scenario'] as String?) ?? '',
+    changes: [for (final c in (j['changes'] as List?) ?? const []) '$c'],
+    decidedAt: j['decidedAt'] == null
+        ? null
+        : DateTime.tryParse(j['decidedAt'] as String),
+  );
 }
