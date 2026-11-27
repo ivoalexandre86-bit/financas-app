@@ -8,6 +8,7 @@ import '../../../core/ids.dart';
 import '../../../core/money.dart';
 import '../../../data/cloud/ai_api.dart';
 import '../../../domain/models/entities.dart';
+import '../../../domain/engine/recurrence.dart';
 import '../../../domain/models/pay_code.dart';
 import '../../../state/finance_controller.dart';
 import '../../theme.dart';
@@ -70,6 +71,10 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   late final TextEditingController payCode;
   final installmentsCtrl = TextEditingController(text: '2');
   final intervalCtrl = TextEditingController(text: '1');
+
+  /// Quantidade de vezes da recorrência ("Termina após N vezes").
+  final repeatCtrl = TextEditingController(text: '12');
+  RecurrenceEnd endMode = RecurrenceEnd.never;
   String? categoryId;
 
   /// Categoria preenchida por uma regra (não pelo usuário): muda se a
@@ -152,7 +157,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
       installment =
           !recurring &&
           widget.initialInstallment &&
-          type == TransactionType.expense;
+          type != TransactionType.transfer;
     }
     if (t != null) {
       if (t.isTransfer) {
@@ -179,6 +184,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     payCode.dispose();
     installmentsCtrl.dispose();
     intervalCtrl.dispose();
+    repeatCtrl.dispose();
     super.dispose();
   }
 
@@ -279,10 +285,11 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     final ok = await runAction(
       context,
       () async {
-        if (installment && type == TransactionType.expense) {
+        if (installment && type != TransactionType.transfer) {
           final n = int.parse(installmentsCtrl.text);
           final group = InstallmentGroup(
             id: newId('ig_'),
+            type: type,
             description: description.text.trim(),
             totalAmount: value,
             count: n,
@@ -320,7 +327,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             interval: int.tryParse(intervalCtrl.text) ?? 1,
             unit: unit,
             startDate: date,
-            endDate: endDate,
+            endDate: _ruleEnd,
             notes: notes.text.trim(),
             dueOffsetDays: _dueOffset,
           );
@@ -410,7 +417,11 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
         saved = withCodes;
       },
       success: installment
-          ? (isEdit ? 'Compra parcelada' : 'Compra parcelada registrada')
+          ? (type == TransactionType.income
+                ? (isEdit
+                      ? 'Receita parcelada'
+                      : 'Receita parcelada registrada')
+                : (isEdit ? 'Compra parcelada' : 'Compra parcelada registrada'))
           : recurring
           ? 'Recorrência criada'
           : isEdit
@@ -421,6 +432,34 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     setState(() => saving = false);
     if (ok) Navigator.pop(context, widget.sharing ? saved : true);
   }
+
+  /// Regra provisória só para calcular datas de ocorrência no formulário.
+  RecurringRule get _draftRule => RecurringRule(
+    id: '_',
+    type: type,
+    amount: Money.zero,
+    description: '',
+    frequency: frequency,
+    interval: int.tryParse(intervalCtrl.text) ?? 1,
+    unit: unit,
+    startDate: date,
+  );
+
+  /// Vezes informadas em "Termina após N vezes" (nulo se inválido).
+  int? get _repeatCount {
+    final n = int.tryParse(repeatCtrl.text);
+    return n == null || n < 1 ? null : n;
+  }
+
+  /// Data final gravada na regra conforme a opção de término.
+  DateTime? get _ruleEnd => switch (endMode) {
+    RecurrenceEnd.never => null,
+    RecurrenceEnd.date => endDate,
+    RecurrenceEnd.count => Recurrence.nthOccurrence(
+      _draftRule,
+      _repeatCount ?? 1,
+    ),
+  };
 
   /// Dependente válido para a conta/cartão escolhido (some se trocar).
   String? get _holder {
@@ -539,14 +578,20 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 onSelectionChanged: (s) => setState(() {
                   type = s.first;
                   categoryId = null;
-                  if (type != TransactionType.expense) installment = false;
-                  if (type == TransactionType.transfer) recurring = false;
+                  if (type == TransactionType.transfer) {
+                    recurring = false;
+                    installment = false;
+                  }
                 }),
               ),
             const SizedBox(height: 16),
             MoneyField(
               controller: amount,
-              label: installment ? 'Valor total da compra' : 'Valor',
+              label: installment
+                  ? (type == TransactionType.income
+                        ? 'Valor total a receber'
+                        : 'Valor total da compra')
+                  : 'Valor',
               autofocus: t == null,
               onChanged: (_) => setState(() {}),
             ),
@@ -771,15 +816,23 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 }),
               ),
               if (recurring) _recurrenceFields(),
-              if (type == TransactionType.expense && !widget.sharing)
+              if (!widget.sharing)
                 SwitchListTile(
                   key: const ValueKey('switch-installment'),
                   contentPadding: EdgeInsets.zero,
                   title: Text(
-                    converting ? 'Parcelar esta compra' : 'Compra parcelada',
+                    type == TransactionType.income
+                        ? (converting
+                              ? 'Parcelar esta receita'
+                              : 'Receita parcelada')
+                        : (converting
+                              ? 'Parcelar esta compra'
+                              : 'Compra parcelada'),
                   ),
                   subtitle: Text(
-                    funding?.cardId != null
+                    type == TransactionType.income
+                        ? 'Ex.: reembolso em parcelas. Informe o valor total; cada parcela entra num mês'
+                        : funding?.cardId != null
                         ? 'Divide o valor total; cada parcela vai para uma fatura'
                         : 'Divide o valor total em parcelas',
                   ),
@@ -882,18 +935,53 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
             ),
           ],
           const SizedBox(height: 12),
-          DateField(
-            value: endDate,
-            label: 'Data final (opcional)',
-            clearable: true,
-            onChanged: (d) => setState(() => endDate = d),
+          DropdownButtonFormField<RecurrenceEnd>(
+            key: const ValueKey('recurrence-end'),
+            initialValue: endMode,
+            decoration: const InputDecoration(labelText: 'Termina'),
+            items: const [
+              DropdownMenuItem(
+                value: RecurrenceEnd.never,
+                child: Text('Nunca (sem data final)'),
+              ),
+              DropdownMenuItem(
+                value: RecurrenceEnd.count,
+                child: Text('Após uma quantidade de vezes'),
+              ),
+              DropdownMenuItem(
+                value: RecurrenceEnd.date,
+                child: Text('Em uma data'),
+              ),
+            ],
+            onChanged: (m) => setState(() => endMode = m!),
           ),
+          if (endMode == RecurrenceEnd.count) ...[
+            const SizedBox(height: 12),
+            IntField(
+              key: const ValueKey('recurrence-count'),
+              controller: repeatCtrl,
+              label: 'Quantidade de vezes',
+              min: 1,
+              max: 600,
+              onChanged: (_) => setState(() {}),
+            ),
+          ],
+          if (endMode == RecurrenceEnd.date) ...[
+            const SizedBox(height: 12),
+            DateField(
+              value: endDate,
+              label: 'Data final',
+              clearable: true,
+              onChanged: (d) => setState(() => endDate = d),
+            ),
+          ],
           Padding(
             padding: const EdgeInsets.only(top: 6, left: 4),
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Repete a partir de ${Dates.format(date)}, no mesmo dia.',
+                _recurrenceSummary(),
+                key: const ValueKey('recurrence-summary'),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -901,6 +989,31 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
         ],
       ),
     );
+  }
+}
+
+/// Como a recorrência termina: nunca, após N vezes ou numa data.
+enum RecurrenceEnd { never, count, date }
+
+extension on _TransactionFormScreenState {
+  /// Resumo da recorrência: início e, se houver, quantas vezes e até quando.
+  String _recurrenceSummary() {
+    final start = 'Repete a partir de ${Dates.format(date)}';
+    final n = _repeatCount;
+    if (endMode == RecurrenceEnd.count && n != null) {
+      final last = Recurrence.nthOccurrence(_draftRule, n);
+      final value = Money.tryEval(amount.text);
+      final total = value == null || value.cents == 0
+          ? ''
+          : ' · total ${(value * n).format()}';
+      return n == 1
+          ? '$start (uma vez só).'
+          : '$start, $n vezes: a última em ${Dates.format(last)}$total.';
+    }
+    if (endMode == RecurrenceEnd.date && endDate != null) {
+      return '$start até ${Dates.format(endDate!)}.';
+    }
+    return '$start, no mesmo dia, sem data final.';
   }
 }
 

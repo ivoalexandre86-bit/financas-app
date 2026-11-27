@@ -182,7 +182,8 @@ class _InstallmentsScreenState extends State<InstallmentsScreen>
   Widget build(BuildContext context) {
     final fc = context.watch<FinanceController>();
     final all = [
-      for (final g in fc.data.installmentGroups) InstallmentSummary.of(fc, g),
+      for (final g in fc.data.installmentGroups)
+        if (!g.isIncome) InstallmentSummary.of(fc, g),
     ];
     final q = query.trim().toLowerCase();
     final list = all.where((s) {

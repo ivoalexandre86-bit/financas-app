@@ -70,7 +70,9 @@ class InstallmentDetailsScreen extends StatelessWidget {
               } else if (v == 'delete') {
                 final ok = await confirmDialog(
                   context,
-                  title: 'Excluir compra parcelada?',
+                  title: g.isIncome
+                      ? 'Excluir receita parcelada?'
+                      : 'Excluir compra parcelada?',
                   message:
                       'Todas as ${parts.length} parcelas serão excluídas, inclusive as passadas. Prefira “Cancelar parcelas futuras” para preservar o histórico.',
                   confirm: 'Excluir tudo',
@@ -80,7 +82,9 @@ class InstallmentDetailsScreen extends StatelessWidget {
                   final done = await runAction(
                     context,
                     () => fc.deleteInstallmentGroup(g.id),
-                    success: 'Compra excluída',
+                    success: g.isIncome
+                        ? 'Receita excluída'
+                        : 'Compra excluída',
                   );
                   if (done && context.mounted) Navigator.pop(context);
                 }
@@ -101,9 +105,9 @@ class InstallmentDetailsScreen extends StatelessWidget {
                 enabled: future.isNotEmpty,
                 child: const Text('Cancelar parcelas futuras'),
               ),
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'delete',
-                child: Text('Excluir compra'),
+                child: Text(g.isIncome ? 'Excluir receita' : 'Excluir compra'),
               ),
             ],
           ),
@@ -143,7 +147,10 @@ class InstallmentDetailsScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  InfoRow.text('Data da compra', Dates.format(g.purchaseDate)),
+                  InfoRow.text(
+                    g.isIncome ? 'Data da 1ª parcela' : 'Data da compra',
+                    Dates.format(g.purchaseDate),
+                  ),
                   InfoRow.text(
                     card != null ? 'Cartão' : 'Conta',
                     card?.name ?? fc.data.accountById[g.accountId]?.name ?? '—',
