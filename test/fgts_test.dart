@@ -305,6 +305,45 @@ void main() {
       expect(find.textContaining('estimado'), findsWidgets);
     });
 
+    testWidgets('registrar FGTS sem depósito mensal (campos opcionais)', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1200, 2200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      late FinanceController fc;
+      await tester.runAsync(() async {
+        fc = FinanceController(MemoryRepo());
+        await fc.load();
+      });
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: fc,
+          child: MaterialApp(
+            theme: AppTheme.dark(),
+            home: const FgtsFormScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const ValueKey('fgts-form-balance')),
+          matching: find.byType(TextField),
+        ),
+        '25.000,00',
+      );
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const ValueKey('fgts-form-save')));
+        await tester.pump();
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Valor inválido'), findsNothing);
+      expect(fc.fgts?.value, const Money(2500000));
+      expect(fc.fgts?.fgts?.monthlyDeposit, Money.zero);
+    });
+
     testWidgets('patrimônio mostra o FGTS à parte', (tester) async {
       await pump(tester, const NetWorthScreen());
       expect(find.byKey(const ValueKey('networth-fgts')), findsOneWidget);

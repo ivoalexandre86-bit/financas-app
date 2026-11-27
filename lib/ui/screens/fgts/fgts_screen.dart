@@ -509,6 +509,7 @@ class _FgtsFormScreenState extends State<FgtsFormScreen> {
             MoneyField(
               controller: deposit,
               allowZero: true,
+              optional: true,
               label: 'Depósito mensal (opcional)',
             ),
             const SizedBox(height: 8),
@@ -518,6 +519,7 @@ class _FgtsFormScreenState extends State<FgtsFormScreen> {
                   child: MoneyField(
                     controller: salary,
                     allowZero: true,
+                    optional: true,
                     label: 'Ou informe o salário bruto',
                   ),
                 ),

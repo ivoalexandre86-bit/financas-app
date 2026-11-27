@@ -318,7 +318,7 @@ const menuGroups = <MenuGroup>[
         'Patrimônio',
         NetWorthScreen(),
       ),
-      MenuDest('fgts', Icons.savings_outlined, 'FGTS', FgtsScreen()),
+      MenuDest('fgts', Icons.work_history_outlined, 'FGTS', FgtsScreen()),
     ],
   ),
   MenuGroup('planning', Icons.insights_outlined, 'Planejamento', [
