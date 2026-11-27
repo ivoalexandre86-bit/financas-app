@@ -15,6 +15,7 @@ const { mountAi } = require('./ai');
 const { accessOf, mountBilling } = require('./billing');
 const { mountGrowth } = require('./growth');
 const { mountAccount, attachAccount, accountOf } = require('./account');
+const { mountEmail } = require('./email/routes');
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const TOKEN_DAYS = 30;
@@ -56,6 +57,7 @@ const toUser = (r) => ({
   // Conta de outra pessoa em que o usuário entrou (null = a própria).
   account: accountOf(r),
   pendingInvites: r.pending_invites ?? 0,
+  emailVerified: !!r.email_verified && r.email_verified === r.email,
 });
 
 /// Limita tentativas de login por IP + e-mail (proteção contra força bruta).
@@ -84,6 +86,7 @@ function loginLimiter({ max = 10, windowMs = 15 * 60 * 1000 } = {}) {
  *   publicUrl?: string, startOpenFinanceSync?: boolean}} opts
  *   `publicUrl`: endereço público da API (webhook da Pluggy).
  *   `startOpenFinanceSync`: liga a varredura periódica das conexões.
+ *   `email`: ver email/routes.js (transporte, link do app, tarefa diária).
  *   `prices`: preço mensal (centavos) de cada plano, para o MRR.  `whatsapp`: ver
  *   whatsapp/routes.js (opcional). `openSignup`: qualquer pessoa cria a
  *   própria conta; sem ele, só a 1ª conta (administradora).
@@ -101,6 +104,7 @@ function createApp({
   prices,
   publicUrl,
   startOpenFinanceSync = false,
+  email,
 }) {
   if (!jwtSecret || jwtSecret.length < 32) {
     throw new Error('JWT_SECRET ausente ou curto demais (mínimo 32 caracteres)');
@@ -461,6 +465,7 @@ function createApp({
   const shared = mountShared(app, { pool, authed, wrap, HttpError, accessOf });
   mountWhatsApp(app, { pool, authed, wrap, HttpError, whatsapp, shared, jwtSecret, pluggy });
   mountAi(app, { pool, authed, wrap, HttpError, ai });
+  mountEmail(app, { pool, authed, wrap, HttpError, jwtSecret, email });
 
   // Erros -------------------------------------------------------------------
 

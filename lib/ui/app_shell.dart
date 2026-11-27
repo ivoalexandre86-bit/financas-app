@@ -5,6 +5,7 @@ import '../app.dart';
 import '../core/legal_links.dart';
 import '../core/money.dart';
 import '../data/growth.dart';
+import '../data/invoice_link.dart';
 import '../state/auth_controller.dart';
 import '../state/finance_controller.dart';
 import '../state/shared_controller.dart';
@@ -23,6 +24,7 @@ import 'screens/export/export_screen.dart';
 import 'screens/goals/goals_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/import/expense_import_screen.dart';
+import 'screens/fgts/fgts_screen.dart';
 import 'screens/networth/networth_screen.dart';
 import 'screens/installments/installments_screen.dart';
 import 'screens/open_finance/open_finance_screen.dart';
@@ -37,6 +39,7 @@ import 'screens/subscriptions/subscriptions_screen.dart';
 import 'screens/transactions/entries_screen.dart';
 import 'screens/users/users_screen.dart';
 import 'screens/account/account_members_screen.dart';
+import 'screens/cards/invoice_details_screen.dart';
 import 'widgets/common.dart';
 
 /// Estrutura principal com o menu lateral recolhível, em seções.
@@ -129,6 +132,30 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     'shared': EntriesView.shared,
   };
 
+  /// Abre a fatura do link do lembrete por e-mail, se o cartão estiver
+  /// entre os que a pessoa enxerga.
+  void _openLinkedInvoice(FinanceController fc) {
+    if (InvoiceLink.pending == null) return;
+    final link = InvoiceLink.take()!;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!fc.data.cards.any((c) => c.id == link.cardId)) {
+        showMessage(
+          context,
+          'Esta fatura não está disponível nesta conta.',
+          error: true,
+        );
+        return;
+      }
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              InvoiceDetailsScreen(cardId: link.cardId, month: link.month),
+        ),
+      );
+    });
+  }
+
   void select(String id) => setState(() {
     final alias = _entriesAliases[id];
     if (alias != null) {
@@ -200,7 +227,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         ],
       ),
     );
-    if (_locked != true || !fc.hasPin) return shell;
+    if (_locked != true || !fc.hasPin) {
+      _openLinkedInvoice(fc);
+      return shell;
+    }
     // O conteúdo fica montado por baixo: desbloquear volta onde estava.
     return Stack(
       children: [
@@ -288,6 +318,7 @@ const menuGroups = <MenuGroup>[
         'Patrimônio',
         NetWorthScreen(),
       ),
+      MenuDest('fgts', Icons.savings_outlined, 'FGTS', FgtsScreen()),
     ],
   ),
   MenuGroup('planning', Icons.insights_outlined, 'Planejamento', [

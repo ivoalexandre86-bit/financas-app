@@ -224,6 +224,7 @@ void main() {
         'accounts',
         'cards',
         'networth',
+        'fgts',
       ]),
       const MenuSection('wallet', []),
     ]);
