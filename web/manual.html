@@ -47,7 +47,7 @@
       <li><a href="#cartoes">Cartões de crédito</a></li>
       <li><a href="#lancamentos">Lançar despesas, receitas e transferências</a></li>
       <li><a href="#movimentacoes">Movimentações: ver, filtrar e editar</a></li>
-      <li><a href="#faturas">Faturas do cartão</a></li>
+      <li><a href="#faturas">Faturas do cartão</a> (e <a href="#lembrete-email">lembretes por e-mail</a>)</li>
       <li><a href="#parcelamentos">Compras parceladas</a></li>
       <li><a href="#recorrencias">Recorrências (salário, aluguel, assinaturas)</a></li>
       <li><a href="#boletos">Boletos e contas a vencer</a></li>
@@ -289,6 +289,24 @@
     <li>Errou? <strong>Desfazer pagamento</strong> devolve o valor ao saldo da conta.</li>
   </ol>
   <p>Dentro da fatura você também pode <strong>Adicionar compra</strong> ou <strong>Adicionar recorrência</strong> (assinatura no cartão). As compras do cartão contam no mês em que a fatura é paga (ou no vencimento, enquanto não for paga).</p>
+
+  <h3 id="lembrete-email">Lembretes de fatura por e-mail</h3>
+  <p>O app pode mandar um e-mail quando uma fatura de cartão estiver para vencer e ainda tiver saldo em aberto.</p>
+  <ol>
+    <li>Abra <span class="path">Configurações › Preferências › Lembretes por e-mail</span>.</li>
+    <li>Toque em <strong>Enviar e-mail de confirmação</strong>, abra o e-mail que chegou e toque em <strong>Confirmar e-mail</strong>. Volte ao app e atualize: aparece <strong>E-mail confirmado</strong>.</li>
+    <li>Ligue <strong>Lembrete de fatura em aberto</strong> e escolha quantos dias antes do vencimento quer o aviso (no dia, 1, 2, 3, 5, 7, 10 ou 15 dias antes).</li>
+    <li>Se quiser, deixe ligado <strong>Avisar também se vencer sem pagar</strong>: vem um aviso depois do vencimento (até 5 dias), com o que falta.</li>
+    <li>Confira o <strong>horário do envio</strong> e o <strong>fuso horário</strong> (vem o do aparelho). O e-mail sai a partir desse horário, no seu fuso.</li>
+  </ol>
+  <p>O e-mail traz o apelido do cartão com os 4 últimos dígitos (ex.: Nubank •••• 1234), o vencimento, o valor em aberto e o botão <strong>Abrir a fatura no app</strong> (se não estiver logado, o app pede para entrar e depois abre a fatura).</p>
+  <ul>
+    <li>Pagou uma parte? O aviso mostra só o restante.</li>
+    <li>Pagou tudo antes do envio? O aviso não é enviado.</li>
+    <li>Cada aviso chega uma vez só (um antes do vencimento e, se ligado, um de atraso por fatura).</li>
+    <li>Quem entrou na sua conta liga os próprios lembretes, com o próprio e-mail. Quem tem acesso limitado só recebe aviso das faturas dos cartões liberados para ela.</li>
+    <li>Trocou o e-mail da conta? Confirme o novo endereço para voltar a receber.</li>
+  </ul>
 
   <!-- ================================================================ -->
   <h2 id="parcelamentos">12. Compras parceladas</h2>

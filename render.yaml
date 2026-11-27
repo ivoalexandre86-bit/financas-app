@@ -55,3 +55,11 @@ services:
         sync: false
       - key: REVENUECAT_WEBHOOK_AUTH
         generateValue: true
+      # Lembretes de fatura por e-mail: EMAIL_TRANSPORT=brevo (ou resend) com
+      # a chave e o remetente; "log" = sandbox (nada é entregue).
+      - key: EMAIL_TRANSPORT
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false

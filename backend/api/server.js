@@ -6,6 +6,7 @@ const { createExtractor } = require('./whatsapp/extract');
 const { createAi } = require('./ai');
 const { createTranscriber } = require('./whatsapp/transcribe');
 const { createRevenueCat } = require('./billing');
+const { transportFromEnv } = require('./email/transport');
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -125,6 +126,13 @@ migrate(pool)
             }),
           })
         : null,
+      // Lembretes de fatura por e-mail (EMAIL_TRANSPORT, ver email/transport.js).
+      email: {
+        transport: transportFromEnv(process.env),
+        appUrl: process.env.APP_URL || undefined,
+        publicUrl: process.env.PUBLIC_API_URL || process.env.RENDER_EXTERNAL_URL || undefined,
+        startJob: process.env.EMAIL_REMINDERS !== 'false',
+      },
     });
     app.set('trust proxy', 1);
     const port = Number(process.env.PORT ?? 3000);

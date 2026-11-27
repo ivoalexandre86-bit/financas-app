@@ -427,3 +427,36 @@ language sql stable as $$
     else doc_visible(u, c, i, d)
   end
 $$;
+
+-- Lembretes de fatura por e-mail ---------------------------------------------
+-- E-mail confirmado: guarda o endereço que foi confirmado (se o e-mail da
+-- conta mudar, precisa confirmar de novo).
+alter table users add column if not exists email_verified text;
+alter table users add column if not exists email_verified_at timestamptz;
+
+-- Preferências de cada pessoa (dono ou quem entrou na conta): quantos dias
+-- antes do vencimento avisar, aviso de atraso, fuso e hora local do envio.
+create table if not exists email_reminder_prefs (
+  user_id     uuid primary key references users (id) on delete cascade,
+  enabled     boolean not null default false,
+  days_before int not null default 3 check (days_before between 0 and 15),
+  overdue     boolean not null default true,
+  time_zone   text not null default 'America/Sao_Paulo',
+  send_hour   int not null default 8 check (send_hour between 0 and 23),
+  updated_at  timestamptz not null default now()
+);
+
+-- Avisos já enviados (ou em envio): uma linha por pessoa e chave, reservada
+-- antes do envio para não repetir entre rodadas e instâncias.
+create table if not exists email_reminders_sent (
+  user_id     uuid not null references users (id) on delete cascade,
+  key         text not null,
+  status      text not null default 'sending' check (status in ('sending', 'sent')),
+  attempts    int not null default 1,
+  claimed_at  timestamptz not null default now(),
+  sent_at     timestamptz,
+  email       text,
+  amount      bigint,
+  provider_id text,
+  primary key (user_id, key)
+);
