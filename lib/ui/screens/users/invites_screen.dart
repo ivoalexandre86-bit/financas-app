@@ -3,10 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../data/cloud/account_api.dart';
 import '../../../data/cloud/cloud_auth_service.dart';
 import '../../../data/cloud/invite_api.dart';
 import '../../../state/auth_controller.dart';
 import '../../theme.dart';
+import '../../widgets/access_scope_picker.dart';
 import '../../widgets/common.dart';
 
 /// API dos convites pelo WhatsApp (nula sem a nuvem ou na demonstração).
@@ -23,8 +25,18 @@ InviteApi? inviteApiOf(BuildContext context) {
 /// mensagem com o link de cadastro para o número informado.
 class InvitesScreen extends StatefulWidget {
   final InviteApi? api;
+  final AccountApi? accountApi;
   final Future<void> Function(Uri url)? openUrl;
-  const InvitesScreen({super.key, this.api, this.openUrl});
+
+  /// Cartões e contas para liberar (testes); sem isso, os do orçamento.
+  final ScopeOptions? scopeOptions;
+  const InvitesScreen({
+    super.key,
+    this.api,
+    this.accountApi,
+    this.openUrl,
+    this.scopeOptions,
+  });
   @override
   State<InvitesScreen> createState() => _InvitesScreenState();
 }
@@ -33,6 +45,14 @@ class _InvitesScreenState extends State<InvitesScreen> {
   late final InviteApi? _api = widget.api ?? inviteApiOf(context);
   Future<InvitesState>? _state;
   InviteTemplate? _template;
+  late final ScopeOptions _options =
+      widget.scopeOptions ?? ScopeOptions.of(context);
+
+  AccountApi? get _accountApi {
+    if (widget.accountApi != null) return widget.accountApi;
+    final s = context.read<AuthController>().service;
+    return s is CloudAuthService ? HttpAccountApi(s.api) : null;
+  }
 
   @override
   void initState() {
@@ -107,7 +127,7 @@ class _InvitesScreenState extends State<InvitesScreen> {
   Future<void> _new() async {
     final created = await showDialog<(WhatsAppInvite, InviteTemplate)>(
       context: context,
-      builder: (_) => _InviteDialog(api: _api!),
+      builder: (_) => _InviteDialog(api: _api!, options: _options),
     );
     if (created != null) await _after(created.$1, created.$2);
   }
@@ -116,6 +136,26 @@ class _InvitesScreenState extends State<InvitesScreen> {
     try {
       final r = await _api!.resend(i.id);
       await _after(r.$1, r.$2);
+    } catch (e) {
+      if (mounted) showMessage(context, '$e', error: true);
+    }
+  }
+
+  /// Muda o que a pessoa (já cadastrada) enxerga do meu orçamento.
+  Future<void> _editScope(WhatsAppInvite i) async {
+    final api = _accountApi;
+    if (api == null || i.memberId == null) return;
+    final r = await pickAccessScope(
+      context,
+      who: i.userName ?? i.name,
+      initial: i.scope,
+      options: _options,
+    );
+    if (r == null || !mounted) return;
+    try {
+      await api.setScope(i.memberId!, r.$1);
+      if (mounted) showMessage(context, 'Acesso de ${i.name} atualizado');
+      _reload();
     } catch (e) {
       if (mounted) showMessage(context, '$e', error: true);
     }
@@ -230,7 +270,7 @@ class _InvitesScreenState extends State<InvitesScreen> {
       subtitle: Text(
         [
           i.phoneLabel,
-          if (i.joinAccount) 'usa o seu orçamento',
+          if (i.joinAccount) 'acesso: ${_options.label(i.scope)}',
           if (i.isAccepted && i.userName != null) 'conta: ${i.userName}',
         ].join(' · '),
       ),
@@ -238,6 +278,13 @@ class _InvitesScreenState extends State<InvitesScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Pill(label, color: color),
+          if (i.isAccepted && i.memberId != null)
+            IconButton(
+              key: ValueKey('invite-scope-${i.phone}'),
+              tooltip: 'Editar acesso',
+              icon: const Icon(Icons.tune),
+              onPressed: () => _editScope(i),
+            ),
           if (!i.isAccepted)
             PopupMenuButton<String>(
               key: ValueKey('invite-menu-${i.phone}'),
@@ -324,7 +371,8 @@ class _TemplateBanner extends StatelessWidget {
 
 class _InviteDialog extends StatefulWidget {
   final InviteApi api;
-  const _InviteDialog({required this.api});
+  final ScopeOptions options;
+  const _InviteDialog({required this.api, required this.options});
   @override
   State<_InviteDialog> createState() => _InviteDialogState();
 }
@@ -334,6 +382,11 @@ class _InviteDialogState extends State<_InviteDialog> {
   final name = TextEditingController();
   final phone = TextEditingController();
   bool joinAccount = false;
+  // Ao usar o meu orçamento, o padrão é liberar só o que eu marcar.
+  bool limited = true;
+  final cards = <String>{};
+  final accounts = <String>{};
+  String? scopeError;
   bool busy = false;
   String? error;
 
@@ -346,6 +399,10 @@ class _InviteDialogState extends State<_InviteDialog> {
 
   Future<void> _submit() async {
     if (!_form.currentState!.validate()) return;
+    if (joinAccount && limited && cards.isEmpty && accounts.isEmpty) {
+      setState(() => scopeError = 'Marque ao menos um cartão ou conta.');
+      return;
+    }
     setState(() {
       busy = true;
       error = null;
@@ -355,6 +412,9 @@ class _InviteDialogState extends State<_InviteDialog> {
         name: name.text.trim(),
         phone: phone.text.trim(),
         joinAccount: joinAccount,
+        scope: joinAccount && limited
+            ? AccessScope(cards: cards.toList(), accounts: accounts.toList())
+            : null,
       );
       if (mounted) Navigator.pop(context, r);
     } catch (e) {
@@ -407,10 +467,23 @@ class _InviteDialogState extends State<_InviteDialog> {
               title: const Text('Usar o meu orçamento'),
               subtitle: Text(
                 joinAccount
-                    ? 'A pessoa entra na sua conta e vê e lança no mesmo orçamento.'
+                    ? 'A pessoa entra na sua conta. Escolha o que ela pode ver e usar.'
                     : 'A pessoa cria um orçamento próprio, separado do seu.',
               ),
             ),
+            if (joinAccount)
+              AccessScopeFields(
+                options: widget.options,
+                limited: limited,
+                cards: cards,
+                accounts: accounts,
+                error: scopeError,
+                onLimited: (v) => setState(() {
+                  limited = v;
+                  scopeError = null;
+                }),
+                onChanged: () => setState(() => scopeError = null),
+              ),
             if (error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),

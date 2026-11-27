@@ -50,7 +50,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        widget.invite!.joinAccount
+                        widget.invite!.joinAccount && widget.invite!.limited
+                            ? 'Ao criar a conta, você vê e lança nos cartões e '
+                                  'contas que ${widget.invite!.inviterName} '
+                                  'liberou para você, e o seu WhatsApp já fica '
+                                  'ligado ao bot.'
+                            : widget.invite!.joinAccount
                             ? 'Ao criar a conta, você passa a usar o orçamento '
                                   'de ${widget.invite!.inviterName}, e o seu '
                                   'WhatsApp já fica ligado ao bot.'

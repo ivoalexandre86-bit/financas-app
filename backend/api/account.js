@@ -17,12 +17,32 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const normEmail = (e) => String(e ?? '').trim().toLowerCase();
 
 /**
+ * Acesso de quem entra na conta: null = todo o orçamento; senão só os
+ * cartões e contas da lista (ver doc_visible em schema.sql).
+ * Lança erro (mensagem) se o formato for inválido.
+ */
+function normScope(raw) {
+  if (raw == null || raw === 'all') return null;
+  if (typeof raw !== 'object') throw new Error('Acesso inválido');
+  const ids = (v) => {
+    if (v == null) return [];
+    if (!Array.isArray(v) || v.length > 100) throw new Error('Acesso inválido');
+    return [...new Set(v.map((x) => String(x)).filter((x) => x && x.length <= 200))];
+  };
+  const scope = { cards: ids(raw.cards), accounts: ids(raw.accounts) };
+  if (!scope.cards.length && !scope.accounts.length) {
+    throw new Error('Escolha ao menos um cartão ou conta.');
+  }
+  return scope;
+}
+
+/**
  * Completa a linha do usuário com a conta de outra pessoa em que ele entrou
  * (`account_owner`: linha do dono) e a quantidade de convites pendentes.
  */
 async function attachAccount(db, user) {
   const { rows } = await db.query(
-    `select o.*
+    `select o.*, m.scope as member_scope
        from account_members m join users o on o.id = m.account_id
       where m.user_id = $1 and m.status = 'active'`,
     [user.id],
@@ -40,7 +60,13 @@ async function attachAccount(db, user) {
 /** Conta que o usuário enxerga, para o app (`null` = a própria). */
 const accountOf = (u) =>
   u.account_owner
-    ? { id: u.account_owner.id, ownerName: u.account_owner.name, ownerEmail: u.account_owner.email }
+    ? {
+        id: u.account_owner.id,
+        ownerName: u.account_owner.name,
+        ownerEmail: u.account_owner.email,
+        // Acesso limitado: só estes cartões e contas (null = tudo).
+        scope: u.account_owner.member_scope ?? null,
+      }
     : null;
 
 function mountAccount(app, { pool, authed, wrap, HttpError }) {
@@ -68,7 +94,7 @@ function mountAccount(app, { pool, authed, wrap, HttpError }) {
     const user = await attachAccount(pool, me[0]);
     const owner = user.account_owner ?? user;
     const { rows: members } = await pool.query(
-      `select m.id, m.email, m.status, m.user_id, m.created_at, m.accepted_at, u.name
+      `select m.id, m.email, m.status, m.user_id, m.created_at, m.accepted_at, m.scope, u.name
          from account_members m left join users u on u.id = m.user_id
         where m.account_id = $1
         order by m.status = 'active' desc, coalesce(u.name, m.email)`,
@@ -87,6 +113,7 @@ function mountAccount(app, { pool, authed, wrap, HttpError }) {
         ownerName: owner.name,
         ownerEmail: owner.email,
         isOwner: owner.id === user.id,
+        scope: user.account_owner?.member_scope ?? null,
       },
       members: [
         { id: null, userId: owner.id, name: owner.name, email: owner.email, status: 'owner' },
@@ -98,6 +125,7 @@ function mountAccount(app, { pool, authed, wrap, HttpError }) {
           status: m.status,
           invitedAt: m.created_at,
           acceptedAt: m.accepted_at,
+          scope: m.scope ?? null,
         })),
       ],
       invites: invites.map((i) => ({
@@ -119,6 +147,12 @@ function mountAccount(app, { pool, authed, wrap, HttpError }) {
   app.post('/account/members', authed, wrap(async (req, res) => {
     const email = normEmail(req.body?.email);
     if (!EMAIL_RE.test(email)) throw bad('E-mail inválido');
+    let scope;
+    try {
+      scope = normScope(req.body?.scope);
+    } catch (e) {
+      throw bad(e.message);
+    }
     if (email === req.user.email) throw bad('Este é o seu próprio e-mail.');
     await inTx(async (c) => {
       const mine = await c.query(
@@ -139,11 +173,29 @@ function mountAccount(app, { pool, authed, wrap, HttpError }) {
         throw conflict(`A conta aceita até ${MAX_MEMBERS} pessoas além de você.`);
       }
       await c.query(
-        `insert into account_members (account_id, email, invited_by) values ($1, $2, $1)`,
-        [req.user.id, email],
+        `insert into account_members (account_id, email, invited_by, scope) values ($1, $2, $1, $3)`,
+        [req.user.id, email, scope ? JSON.stringify(scope) : null],
       );
     });
     res.status(201).json(await state(req.user.id));
+  }));
+
+  /// Dono: muda o que a pessoa enxerga (todo o orçamento ou só alguns
+  /// cartões e contas).
+  app.patch('/account/members/:id', authed, wrap(async (req, res) => {
+    if (!UUID_RE.test(req.params.id)) throw new HttpError(404, 'Não encontrado');
+    let scope;
+    try {
+      scope = normScope(req.body?.scope);
+    } catch (e) {
+      throw bad(e.message);
+    }
+    const { rowCount } = await pool.query(
+      `update account_members set scope = $3 where id = $1 and account_id = $2`,
+      [req.params.id, req.user.id, scope ? JSON.stringify(scope) : null],
+    );
+    if (!rowCount) throw new HttpError(404, 'Não encontrado');
+    res.json(await state(req.user.id));
   }));
 
   /// Dono: remove uma pessoa ou cancela o convite. Quem entrou: sai da conta.
@@ -215,4 +267,4 @@ function mountAccount(app, { pool, authed, wrap, HttpError }) {
   }));
 }
 
-module.exports = { mountAccount, attachAccount, accountOf, MAX_MEMBERS };
+module.exports = { mountAccount, attachAccount, accountOf, normScope, MAX_MEMBERS };
