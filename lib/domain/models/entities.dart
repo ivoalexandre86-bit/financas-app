@@ -1236,6 +1236,10 @@ class AppSettings {
   /// lista com caixas de seleção, com "Limpar" em cada filtro.
   final FilterStyle filterStyle;
 
+  /// Reserva mínima: quanto o usuário quer manter em caixa (simulações de
+  /// dívidas e planejamento do fechamento do mês avisam abaixo dela).
+  final Money minimumReserve;
+
   const AppSettings({
     this.themeMode = 'system',
     this.cardExpenseBasis = CardExpenseBasis.invoiceDue,
@@ -1250,6 +1254,7 @@ class AppSettings {
     this.hideValues = false,
     this.pinLock,
     this.filterStyle = FilterStyle.classic,
+    this.minimumReserve = Money.zero,
   });
 
   /// [resetMenuLayout] volta o menu lateral ao padrão.
@@ -1269,6 +1274,7 @@ class AppSettings {
     String? pinLock,
     bool clearPin = false,
     FilterStyle? filterStyle,
+    Money? minimumReserve,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     cardExpenseBasis: cardExpenseBasis ?? this.cardExpenseBasis,
@@ -1283,6 +1289,7 @@ class AppSettings {
     hideValues: hideValues ?? this.hideValues,
     pinLock: clearPin ? null : pinLock ?? this.pinLock,
     filterStyle: filterStyle ?? this.filterStyle,
+    minimumReserve: minimumReserve ?? this.minimumReserve,
   );
 
   Map<String, Object?> toJson() => {
@@ -1299,6 +1306,7 @@ class AppSettings {
     'hideValues': hideValues,
     'pinLock': pinLock,
     'filterStyle': filterStyle.name,
+    'minimumReserve': minimumReserve.cents,
   };
 
   factory AppSettings.fromJson(Map<String, Object?> j) => AppSettings(
@@ -1327,6 +1335,7 @@ class AppSettings {
       j['filterStyle'] as String?,
       FilterStyle.classic,
     ),
+    minimumReserve: Money((j['minimumReserve'] as num?)?.toInt() ?? 0),
   );
 }
 

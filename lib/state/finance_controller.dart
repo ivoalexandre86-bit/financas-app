@@ -27,6 +27,7 @@ import '../domain/engine/simulation_engine.dart';
 import '../domain/import/expense_import.dart';
 import '../domain/models/asset.dart';
 import '../domain/models/dashboard.dart';
+import '../domain/models/debt.dart';
 import '../domain/models/entities.dart';
 import '../domain/models/fgts.dart';
 import '../domain/models/month_closing.dart';
@@ -106,6 +107,11 @@ class FinanceController extends ChangeNotifier {
   Asset? get fgts => assets.where((a) => a.isFgts).firstOrNull;
 
   ScenarioEngine get scenarioEngine => ScenarioEngine(engine);
+  /// Empréstimos e financiamentos (Dívidas e contratos).
+  List<DebtContract> debts = [];
+
+  /// Simulações de dívidas salvas, mais recentes primeiro.
+  List<DebtScenario> debtScenarios = [];
 
   /// Patrimônio líquido, sempre sobre o [engine] atual.
   NetWorthEngine get netWorthEngine => NetWorthEngine(engine);
@@ -244,7 +250,17 @@ class FinanceController extends ChangeNotifier {
         PlanScenario.fromJson(j),
     ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     if (selectedScenario == null) selectedScenarioId = null;
+    debts = [
+      for (final j in await repo.loadRaw(Coll.debts)) DebtContract.fromJson(j),
+    ]..sort(_byDebtName);
+    debtScenarios = [
+      for (final j in await repo.loadRaw(Coll.debtScenarios))
+        DebtScenario.fromJson(j),
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
+
+  static int _byDebtName(DebtContract a, DebtContract b) =>
+      a.name.toLowerCase().compareTo(b.name.toLowerCase());
 
   static int _byAssetName(Asset a, Asset b) =>
       a.name.toLowerCase().compareTo(b.name.toLowerCase());
@@ -1257,6 +1273,51 @@ class FinanceController extends ChangeNotifier {
       WriteOp.put(Coll.assets, nextAsset.id, nextAsset.toJson()),
       WriteOp.put(Coll.scenarios, nextScenario.id, nextScenario.toJson()),
     ]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dívidas e contratos
+
+  /// Reserva mínima em caixa (Preferências).
+  Money get minimumReserve => data.settings.minimumReserve;
+
+  Future<void> setMinimumReserve(Money v) =>
+      saveSettings(data.settings.copyWith(minimumReserve: v));
+
+  List<DebtContract> get activeDebts =>
+      debts.where((d) => !d.archived).toList();
+
+  DebtContract? debtById(String id) =>
+      debts.where((d) => d.id == id).firstOrNull;
+
+  Future<void> saveDebt(DebtContract d) async {
+    if (d.name.trim().isEmpty) throw ArgumentError('Informe um nome');
+    if (d.outstanding?.isNegative ?? false) {
+      throw ArgumentError('Saldo devedor negativo');
+    }
+    if ((d.monthlyRate ?? 0) < 0) throw ArgumentError('Taxa negativa');
+    debts = [...debts.where((x) => x.id != d.id), d]..sort(_byDebtName);
+    notifyListeners();
+    await repo.write([WriteOp.put(Coll.debts, d.id, d.toJson())]);
+  }
+
+  Future<void> deleteDebt(DebtContract d) async {
+    debts = debts.where((x) => x.id != d.id).toList();
+    notifyListeners();
+    await repo.write([WriteOp.delete(Coll.debts, d.id)]);
+  }
+
+  Future<void> saveDebtScenario(DebtScenario s) async {
+    debtScenarios = [s, ...debtScenarios.where((x) => x.id != s.id)]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    notifyListeners();
+    await repo.write([WriteOp.put(Coll.debtScenarios, s.id, s.toJson())]);
+  }
+
+  Future<void> deleteDebtScenario(DebtScenario s) async {
+    debtScenarios = debtScenarios.where((x) => x.id != s.id).toList();
+    notifyListeners();
+    await repo.write([WriteOp.delete(Coll.debtScenarios, s.id)]);
   }
 
   // ---------------------------------------------------------------------------

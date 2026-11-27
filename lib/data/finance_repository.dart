@@ -31,6 +31,8 @@ enum Coll {
   assets,
   monthClosings,
   scenarios,
+  debts,
+  debtScenarios,
 }
 
 /// Nome da "coleção" das configurações do app na nuvem (registro `app`).
